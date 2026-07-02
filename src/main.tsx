@@ -29,6 +29,15 @@ import {
   Wand2,
   Zap,
 } from "lucide-react";
+import {
+  encodeAbiParameters,
+  encodeFunctionData,
+  formatEther,
+  isAddress,
+  parseAbiParameters,
+  stringToHex,
+  zeroAddress,
+} from "viem";
 import "./styles.css";
 
 declare global {
@@ -56,6 +65,9 @@ type WalletState = {
   address?: string;
   chainId?: number;
   balance?: string;
+  ritualWalletBalance?: string;
+  ritualLockUntil?: number;
+  ritualWalletError?: string;
   error?: string;
 };
 
@@ -87,17 +99,57 @@ const RITUAL = {
   docs: "https://docs.ritualfoundation.org",
 };
 
+const SYSTEM_CONTRACTS = {
+  RitualWallet: "0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948",
+  AsyncJobTracker: "0xC069FFCa0389f44eCA2C626e55491b0ab045AEF5",
+  TEEServiceRegistry: "0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F",
+  AsyncDelivery: "0x5A16214fF555848411544b005f7Ac063742f39F6",
+} as const;
+
+const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
+const HTTP_ABI_SIGNATURE =
+  "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
+
+const HTTP_METHOD_IDS: Record<string, number> = {
+  GET: 1,
+  POST: 2,
+  PUT: 3,
+  DELETE: 4,
+  PATCH: 5,
+  HEAD: 6,
+  OPTIONS: 7,
+};
+
+const ritualWalletAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "lockUntil",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
 const recipes: Recipe[] = [
   {
     id: "http",
     name: "HTTP",
     label: "First live recipe",
     icon: Globe2,
-    description: "Compose a deterministic external request and prepare the async call path.",
+    description: "Compose the 13-field HTTP precompile input for address 0x0801.",
     fields: [
-      { key: "method", label: "Method", value: "GET", type: "select", options: ["GET", "POST", "PUT"] },
+      { key: "executor", label: "Executor", value: zeroAddress },
+      { key: "method", label: "Method", value: "GET", type: "select", options: Object.keys(HTTP_METHOD_IDS) },
+      { key: "ttl", label: "TTL blocks", value: "30" },
       { key: "url", label: "URL", value: "https://api.github.com/repos/ritual-net/infernet-ml" },
-      { key: "ttl", label: "TTL blocks", value: "160" },
+      { key: "headers", label: "Headers", value: "accept: application/json", type: "textarea" },
       { key: "body", label: "Body", value: "", type: "textarea" },
     ],
   },
@@ -141,7 +193,7 @@ const recipes: Recipe[] = [
 
 const timeline = [
   { title: "Readiness", body: "Chain, balance, and sender-lock checks happen before any call leaves the app." },
-  { title: "Encode", body: "Inputs become a reviewable request object first, then ABI calldata in the next build." },
+  { title: "Encode", body: "Inputs become Ritual's 13-field HTTP ABI payload for the 0x0801 precompile." },
   { title: "Submit", body: "The connected wallet signs. Users pay their own Ritual testnet gas and precompile fees." },
   { title: "Trace", body: "Receipt, spcCalls, callback, and explorer evidence stay attached to the run." },
 ];
@@ -157,6 +209,91 @@ function formatBalance(hex?: string) {
   const whole = value / 10n ** 18n;
   const fractional = (value % 10n ** 18n).toString().padStart(18, "0").slice(0, 4);
   return `${whole}.${fractional}`;
+}
+
+function decodeUintHex(hex?: string) {
+  if (!hex || hex === "0x") return 0n;
+  return BigInt(hex);
+}
+
+function parseHeaders(input: string) {
+  return input
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reduce(
+      (acc, line) => {
+        const separator = line.indexOf(":");
+        if (separator < 1) {
+          acc.errors.push(`Header "${line}" needs "name: value" format.`);
+          return acc;
+        }
+        acc.keys.push(line.slice(0, separator).trim());
+        acc.values.push(line.slice(separator + 1).trim());
+        return acc;
+      },
+      { keys: [] as string[], values: [] as string[], errors: [] as string[] },
+    );
+}
+
+function fieldValue(fields: ComposerField[], key: string) {
+  return fields.find((field) => field.key === key)?.value ?? "";
+}
+
+function buildHttpDraft(fields: ComposerField[]) {
+  const executor = fieldValue(fields, "executor").trim();
+  const method = fieldValue(fields, "method").trim();
+  const ttlRaw = fieldValue(fields, "ttl").trim();
+  const url = fieldValue(fields, "url").trim();
+  const body = fieldValue(fields, "body");
+  const headers = parseHeaders(fieldValue(fields, "headers"));
+  const errors = [...headers.errors];
+  const methodId = HTTP_METHOD_IDS[method] ?? 1;
+  const ttl = Number.parseInt(ttlRaw, 10);
+
+  if (!isAddress(executor)) errors.push("Executor must be a valid address from TEEServiceRegistry.");
+  if (executor.toLowerCase() === zeroAddress) errors.push("Select a non-zero TEE executor before sending.");
+  if (!Number.isFinite(ttl) || ttl <= 0) errors.push("TTL must be a positive block count.");
+  if (!url.startsWith("https://")) errors.push("HTTP precompile requests should use an https:// URL.");
+
+  const bodyHex = body.trim() ? stringToHex(body) : "0x";
+  const canEncode =
+    isAddress(executor) &&
+    executor.toLowerCase() !== zeroAddress &&
+    Number.isFinite(ttl) &&
+    ttl > 0 &&
+    url.length > 0 &&
+    errors.length === 0;
+  const encodedInput = canEncode
+    ? encodeAbiParameters(parseAbiParameters(HTTP_ABI_SIGNATURE), [
+        executor,
+        [],
+        BigInt(ttl),
+        [],
+        "0x",
+        url,
+        methodId,
+        headers.keys,
+        headers.values,
+        bodyHex,
+        0n,
+        0,
+        false,
+      ])
+    : undefined;
+
+  return {
+    precompile: "0x0801",
+    callTarget: HTTP_CALL_PRECOMPILE,
+    abi: HTTP_ABI_SIGNATURE,
+    methodId,
+    ttl,
+    headerKeys: headers.keys,
+    headerValues: headers.values,
+    bodyHex,
+    encodedInput,
+    errors,
+  };
 }
 
 async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
@@ -184,8 +321,10 @@ function App() {
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
   const selectedFields = fieldState[selectedRecipe.id];
+  const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
+  const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
 
   const refreshRpc = React.useCallback(async () => {
     const startedAt = performance.now();
@@ -217,11 +356,49 @@ function App() {
       provider.request<string>({ method: "eth_chainId" }),
       provider.request<string>({ method: "eth_getBalance", params: [account, "latest"] }),
     ]);
+
+    let ritualWalletBalance: string | undefined;
+    let ritualLockUntil: number | undefined;
+    let ritualWalletError: string | undefined;
+    try {
+      const [escrowHex, lockHex] = await Promise.all([
+        rpc<string>("eth_call", [
+          {
+            to: SYSTEM_CONTRACTS.RitualWallet,
+            data: encodeFunctionData({
+              abi: ritualWalletAbi,
+              functionName: "balanceOf",
+              args: [account as `0x${string}`],
+            }),
+          },
+          "latest",
+        ]),
+        rpc<string>("eth_call", [
+          {
+            to: SYSTEM_CONTRACTS.RitualWallet,
+            data: encodeFunctionData({
+              abi: ritualWalletAbi,
+              functionName: "lockUntil",
+              args: [account as `0x${string}`],
+            }),
+          },
+          "latest",
+        ]),
+      ]);
+      ritualWalletBalance = formatEther(decodeUintHex(escrowHex));
+      ritualLockUntil = Number(decodeUintHex(lockHex));
+    } catch (error) {
+      ritualWalletError = error instanceof Error ? error.message : "Unable to read RitualWallet.";
+    }
+
     setWallet({
       status: "connected",
       address: account,
       chainId: Number.parseInt(chainHex, 16),
       balance: formatBalance(balanceHex),
+      ritualWalletBalance,
+      ritualLockUntil,
+      ritualWalletError,
     });
   }, []);
 
@@ -304,16 +481,30 @@ function App() {
     return {
       studio: "Precompile Studio",
       chainId: RITUAL.chainId,
+      systemContracts: SYSTEM_CONTRACTS,
       recipe: selectedRecipe.id,
       readiness: {
         rpc: rpcState.status,
         wallet: wallet.status,
         rightChain: isRightChain,
+        ritualWalletBalance: wallet.ritualWalletBalance ?? "unknown",
+        ritualLockUntil: wallet.ritualLockUntil ?? "unknown",
       },
       request: values,
-      nextStep: isReady ? "Ready to encode calldata in the contract runner." : "Resolve readiness checks before sending.",
+      httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
+      nextStep: isReady ? "Ready for a contract runner call." : "Resolve readiness checks before sending.",
     };
-  }, [isReady, isRightChain, rpcState.status, selectedFields, selectedRecipe.id, wallet.status]);
+  }, [
+    httpDraft,
+    isReady,
+    isRightChain,
+    rpcState.status,
+    selectedFields,
+    selectedRecipe.id,
+    wallet.ritualLockUntil,
+    wallet.ritualWalletBalance,
+    wallet.status,
+  ]);
 
   const copyPreview = React.useCallback(async () => {
     await navigator.clipboard.writeText(JSON.stringify(requestPreview, null, 2));
@@ -409,6 +600,18 @@ function App() {
             value={wallet.status === "connected" ? `${wallet.balance ?? "0"} RITUAL` : "connect wallet"}
             tone={wallet.status === "connected" ? "ok" : "wait"}
           />
+          <StatusItem
+            icon={LockKeyhole}
+            label="Escrow"
+            value={
+              wallet.status === "connected"
+                ? wallet.ritualWalletError
+                  ? "read failed"
+                  : `${wallet.ritualWalletBalance ?? "0"} RITUAL`
+                : "connect wallet"
+            }
+            tone={wallet.status === "connected" && isRitualWalletFunded ? "ok" : "wait"}
+          />
         </section>
 
         <section className="studio-grid">
@@ -472,12 +675,35 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy request"}
                 </button>
-                <button className="primary-action large" disabled={!isReady}>
+                <button className="primary-action large" disabled={!isReady || !httpDraft.encodedInput}>
                   <Send size={16} />
                   Encode call
                 </button>
               </div>
             </div>
+
+            {selectedRecipe.id === "http" ? (
+              <div className="abi-panel">
+                <div>
+                  <span>HTTP ABI</span>
+                  <strong>{httpDraft.encodedInput ? "Encoded input ready" : "Input needs attention"}</strong>
+                </div>
+                <code>{httpDraft.abi}</code>
+                <div className="abi-facts">
+                  <span>target {httpDraft.callTarget}</span>
+                  <span>method {httpDraft.methodId}</span>
+                  <span>ttl {Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}</span>
+                  <span>{httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded"}</span>
+                </div>
+                {httpDraft.errors.length ? (
+                  <div className="abi-errors">
+                    {httpDraft.errors.map((error) => (
+                      <p key={error}>{error}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="preview-shell">
               <div className="preview-header">
@@ -518,18 +744,35 @@ function App() {
                 <Guard ok={rpcState.status === "online"} label="Ritual RPC responds" />
                 <Guard ok={wallet.status === "connected"} label="Wallet connected" />
                 <Guard ok={wallet.status === "connected" && isRightChain} label="Wallet on chain 1979" />
+                <Guard ok={wallet.status === "connected" && isRitualWalletFunded} label="RitualWallet funded" />
                 <Guard ok={selectedRecipe.id === "http"} label="HTTP recipe has live fields" />
+                <Guard ok={selectedRecipe.id !== "http" || httpDraft.errors.length === 0} label="HTTP ABI input encodes" />
+              </div>
+            </section>
+
+            <section className="inspector-section">
+              <div className="inspector-title">
+                <KeyRound size={17} />
+                <span>System contracts</span>
+              </div>
+              <div className="contract-list">
+                {Object.entries(SYSTEM_CONTRACTS).map(([name, address]) => (
+                  <div key={name}>
+                    <span>{name}</span>
+                    <code>{formatAddress(address)}</code>
+                  </div>
+                ))}
               </div>
             </section>
 
             <section className="inspector-section terminal-panel">
               <div className="inspector-title">
                 <FlaskConical size={17} />
-                <span>Next runner</span>
+                <span>Runner status</span>
               </div>
               <p>
-                The next build adds a tiny callback contract and ABI encoding so this button can move from preview to
-                signed transaction.
+                The composer now produces the HTTP precompile input. The next build adds a tiny contract runner so the
+                encoded input can be sent as a signed transaction.
               </p>
               <button className="ghost-link full">
                 Open runner spec <ChevronRight size={15} />
