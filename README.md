@@ -51,6 +51,18 @@ Recommended settings:
 
 After importing the GitHub repo into Vercel, add the custom domain in Vercel and copy the requested DNS records to the domain registrar.
 
+### GitHub Actions Deployment
+
+This repo deploys through GitHub Actions instead of Vercel's native GitHub integration.
+
+Required repository secrets:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+The workflow runs on pushes to `main` and can also be triggered manually from the GitHub Actions tab.
+
 ## Next Milestones
 
 1. Add a minimal Solidity callback runner for HTTP precompile calls.
