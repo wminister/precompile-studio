@@ -62,6 +62,13 @@ Runner contract addresses can be saved locally and reused from the runner panel.
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON.
 
+See [`contracts/README.md`](./contracts/README.md) for runner build and deployment steps.
+
+```bash
+npm run runner:build
+RITUAL_PRIVATE_KEY=0x... npm run runner:deploy
+```
+
 ## Vercel
 
 Recommended settings:
@@ -89,5 +96,5 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 1. Add explorer-linked transaction history once the explorer transaction route is verified.
 2. Track async job lifecycle and callback completion.
-3. Add safer runner deployment instructions or a Foundry/Hardhat package.
+3. Add a runner deployment status checklist inside the app.
 4. Add preset schema docs and examples.
