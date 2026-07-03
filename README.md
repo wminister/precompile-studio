@@ -60,7 +60,7 @@ Submitted runner transactions are kept in the current browser session and polled
 
 Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
-Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON.
+Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md) and [`examples/http-preset.json`](./examples/http-preset.json) for the preset format.
 
 See [`contracts/README.md`](./contracts/README.md) for runner build and deployment steps.
 
@@ -97,4 +97,4 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 1. Add explorer-linked transaction history once the explorer transaction route is verified.
 2. Track async job lifecycle and callback completion.
 3. Add a runner deployment status checklist inside the app.
-4. Add preset schema docs and examples.
+4. Add more live recipe templates.

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "preset": {
+    "id": "http-github-repo-metadata",
+    "recipeId": "http",
+    "label": "GitHub repo metadata",
+    "updatedAt": 1783110000000,
+    "fields": [
+      {
+        "key": "executor",
+        "value": "0x0000000000000000000000000000000000000000"
+      },
+      {
+        "key": "method",
+        "value": "GET"
+      },
+      {
+        "key": "ttl",
+        "value": "30"
+      },
+      {
+        "key": "url",
+        "value": "https://api.github.com/repos/ritual-net/infernet-ml"
+      },
+      {
+        "key": "headers",
+        "value": "accept: application/json"
+      },
+      {
+        "key": "body",
+        "value": ""
+      }
+    ]
+  }
+}
