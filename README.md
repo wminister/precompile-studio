@@ -14,6 +14,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - RitualWallet deposit flow for funding precompile escrow
 - Minimal HTTP runner contract source
 - Runner transaction calldata generation and wallet submit flow
+- Session runner transaction history with receipt polling
 - HTTP, LLM, Agent, and Scheduler recipe shells
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
@@ -53,6 +54,8 @@ The minimal Solidity runner lives at [`contracts/HttpPrecompileRunner.sol`](./co
 
 Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, then use the HTTP composer to generate and submit `fetchHttp(bytes)` calldata. Users still pay their own gas and confirm the transaction in their wallet.
 
+Submitted runner transactions are kept in the current browser session and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash.
+
 ## Vercel
 
 Recommended settings:
@@ -78,7 +81,7 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 ## Next Milestones
 
-1. Parse submitted transaction receipts and surface `spcCalls`.
-2. Add explorer-linked transaction history for the current session.
-3. Track async job lifecycle and callback completion.
-4. Add safer runner deployment instructions or a Foundry/Hardhat package.
+1. Add explorer-linked transaction history once the explorer transaction route is verified.
+2. Track async job lifecycle and callback completion.
+3. Add safer runner deployment instructions or a Foundry/Hardhat package.
+4. Persist named runner contracts per wallet.

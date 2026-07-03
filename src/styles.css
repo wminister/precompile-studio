@@ -315,6 +315,8 @@ h2 {
 .status-action button:focus-visible,
 .header-nav a:focus-visible,
 .brand-lockup:focus-visible,
+.runner-run-main button:focus-visible,
+.runner-refresh:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
@@ -805,6 +807,145 @@ select:focus {
 .runner-panel p {
   margin: 0;
   line-height: 1.35;
+}
+
+.runner-history {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+  padding-top: 10px;
+}
+
+.runner-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.runner-history-head strong {
+  min-width: 20px;
+  border: 1px solid rgba(143, 240, 196, 0.2);
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.08);
+  padding: 2px 7px;
+  color: var(--accent-ink);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.runner-run-list {
+  display: grid;
+  gap: 6px;
+}
+
+.runner-run {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.028);
+  padding: 8px;
+}
+
+.runner-run.confirmed {
+  border-color: rgba(52, 211, 153, 0.15);
+  background: rgba(52, 211, 153, 0.045);
+}
+
+.runner-run.failed {
+  border-color: rgba(255, 122, 102, 0.18);
+  background: rgba(255, 122, 102, 0.055);
+}
+
+.runner-run-main,
+.runner-run-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.runner-run-main {
+  justify-content: space-between;
+}
+
+.runner-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--amber);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.runner-run-status::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.runner-run.confirmed .runner-run-status {
+  color: var(--accent-ink);
+}
+
+.runner-run.failed .runner-run-status {
+  color: var(--danger);
+}
+
+.runner-run-main button,
+.runner-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(248, 247, 242, 0.84);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 5px 7px;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.runner-run-main button:hover,
+.runner-refresh:hover {
+  border-color: rgba(143, 240, 196, 0.2);
+  background: rgba(52, 211, 153, 0.06);
+  color: var(--ink);
+}
+
+.runner-run-meta {
+  flex-wrap: wrap;
+}
+
+.runner-run-meta span {
+  overflow: hidden;
+  max-width: 100%;
+  border-right: 1px solid rgba(255, 255, 255, 0.095);
+  padding-right: 7px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runner-run-meta span:last-child {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.runner-refresh {
+  justify-self: start;
+  font-family: inherit;
 }
 
 .preview-shell {

@@ -77,6 +77,28 @@ type TransactionState = {
   error?: string;
 };
 
+type ReceiptStatus = "pending" | "confirmed" | "failed";
+
+type RpcReceipt = {
+  transactionHash: string;
+  blockNumber?: string;
+  status?: string;
+  gasUsed?: string;
+  logs?: unknown[];
+  spcCalls?: unknown;
+};
+
+type RunnerRun = {
+  hash: string;
+  runnerAddress: string;
+  submittedAt: number;
+  method: string;
+  url: string;
+  status: ReceiptStatus;
+  receipt?: RpcReceipt;
+  error?: string;
+};
+
 type RecipeId = "http" | "llm" | "agent" | "scheduler";
 
 type Recipe = {
@@ -262,6 +284,24 @@ function decodeUintHex(hex?: string) {
   return BigInt(hex);
 }
 
+function decodeHexNumber(hex?: string) {
+  if (!hex || hex === "0x") return undefined;
+  return Number.parseInt(hex, 16);
+}
+
+function receiptStatus(receipt?: RpcReceipt): ReceiptStatus {
+  if (!receipt) return "pending";
+  return receipt.status === "0x0" ? "failed" : "confirmed";
+}
+
+function describeSpcCalls(receipt?: RpcReceipt) {
+  if (!receipt || receipt.spcCalls == null) return "No spcCalls yet";
+  if (Array.isArray(receipt.spcCalls)) {
+    return `${receipt.spcCalls.length} ${receipt.spcCalls.length === 1 ? "spcCall" : "spcCalls"}`;
+  }
+  return "spcCalls present";
+}
+
 function parseHeaders(input: string) {
   return input
     .split("\n")
@@ -367,6 +407,7 @@ function App() {
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
   const [runnerAddress, setRunnerAddress] = React.useState("");
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>([]);
   const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
@@ -417,6 +458,14 @@ function App() {
     isRightChain &&
     isRitualWalletFunded &&
     runnerTxState.status !== "submitting";
+  const pendingRunnerKey = React.useMemo(
+    () =>
+      runnerRuns
+        .filter((run) => run.status === "pending")
+        .map((run) => run.hash)
+        .join(","),
+    [runnerRuns],
+  );
   const blockingChecks = React.useMemo(() => {
     const checks = [
       {
@@ -682,15 +731,26 @@ function App() {
       },
       request: values,
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
+      runner: {
+        address: cleanRunnerAddress || "unset",
+        recentTransactions: runnerRuns.map((run) => ({
+          hash: run.hash,
+          status: run.status,
+          blockNumber: decodeHexNumber(run.receipt?.blockNumber) ?? "pending",
+          spcCalls: describeSpcCalls(run.receipt),
+        })),
+      },
       nextStep: isReady ? "Ready for a contract runner call." : "Resolve readiness checks before sending.",
     };
   }, [
+    cleanRunnerAddress,
     httpDraft,
     isReady,
     isRightChain,
     rpcState.status,
     selectedFields,
     selectedRecipe.id,
+    runnerRuns,
     wallet.ritualLockUntil,
     wallet.ritualWalletBalance,
     wallet.status,
@@ -715,6 +775,35 @@ function App() {
     setCopiedRunnerCalldata(true);
     window.setTimeout(() => setCopiedRunnerCalldata(false), 1400);
   }, [runnerCalldata]);
+
+  const refreshRunnerReceipt = React.useCallback(async (hash: string) => {
+    try {
+      const receipt = await rpc<RpcReceipt | null>("eth_getTransactionReceipt", [hash]);
+      setRunnerRuns((current) =>
+        current.map((run) =>
+          run.hash === hash
+            ? {
+                ...run,
+                status: receiptStatus(receipt ?? undefined),
+                receipt: receipt ?? undefined,
+                error: undefined,
+              }
+            : run,
+        ),
+      );
+    } catch (error) {
+      setRunnerRuns((current) =>
+        current.map((run) =>
+          run.hash === hash
+            ? {
+                ...run,
+                error: error instanceof Error ? error.message : "Receipt lookup failed.",
+              }
+            : run,
+        ),
+      );
+    }
+  }, []);
 
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
@@ -791,13 +880,70 @@ function App() {
         ],
       });
       setRunnerTxState({ status: "submitted", hash });
+      const nextRun: RunnerRun = {
+        hash,
+        runnerAddress: cleanRunnerAddress,
+        submittedAt: Date.now(),
+        method: fieldValue(fieldState.http, "method"),
+        url: fieldValue(fieldState.http, "url"),
+        status: "pending",
+      };
+      setRunnerRuns((current) => [nextRun, ...current.filter((run) => run.hash !== hash)].slice(0, 5));
+      window.setTimeout(() => {
+        refreshRunnerReceipt(hash).catch(() => undefined);
+      }, 2500);
     } catch (error) {
       setRunnerTxState({
         status: "error",
         error: error instanceof Error ? error.message : "Runner transaction was rejected.",
       });
     }
-  }, [cleanRunnerAddress, runnerAddressOk, runnerCalldata, wallet.address]);
+  }, [cleanRunnerAddress, fieldState.http, refreshRunnerReceipt, runnerAddressOk, runnerCalldata, wallet.address]);
+
+  React.useEffect(() => {
+    const pendingHashes = pendingRunnerKey ? pendingRunnerKey.split(",") : [];
+    if (!pendingHashes.length) return undefined;
+
+    let cancelled = false;
+    const poll = async () => {
+      const receipts = await Promise.all(
+        pendingHashes.map(async (hash) => {
+          try {
+            return { hash, receipt: await rpc<RpcReceipt | null>("eth_getTransactionReceipt", [hash]) };
+          } catch (error) {
+            return { hash, error: error instanceof Error ? error.message : "Receipt lookup failed." };
+          }
+        }),
+      );
+
+      if (cancelled) return;
+      if (!receipts.some((result) => "error" in result || result.receipt)) return;
+      setRunnerRuns((current) =>
+        current.map((run) => {
+          const result = receipts.find((item) => item.hash === run.hash);
+          if (!result) return run;
+          if ("error" in result) return { ...run, error: result.error };
+          if (!result.receipt) return run;
+          return {
+            ...run,
+            status: receiptStatus(result.receipt),
+            receipt: result.receipt,
+            error: undefined,
+          };
+        }),
+      );
+    };
+
+    const timer = window.setInterval(() => {
+      poll().catch(() => undefined);
+    }, 6000);
+    poll().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [pendingRunnerKey]);
 
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
@@ -1112,6 +1258,50 @@ function App() {
                 {!runnerAddressOk && cleanRunnerAddress ? <p>Runner address must be a valid contract address.</p> : null}
                 {runnerTxState.status === "submitted" ? <p>Submitted {formatHash(runnerTxState.hash)}</p> : null}
                 {runnerTxState.status === "error" ? <p>{runnerTxState.error}</p> : null}
+                <div className="runner-history" aria-live="polite">
+                  <div className="runner-history-head">
+                    <span>Recent runner txs</span>
+                    {runnerRuns.length ? <strong>{runnerRuns.length}</strong> : null}
+                  </div>
+                  {runnerRuns.length ? (
+                    <div className="runner-run-list">
+                      {runnerRuns.map((run) => {
+                        const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
+                        const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
+                        return (
+                          <article className={`runner-run ${run.status}`} key={run.hash}>
+                            <div className="runner-run-main">
+                              <span className="runner-run-status">{run.status}</span>
+                              <button type="button" onClick={() => copyValue(run.hash)} title={`Copy ${run.hash}`}>
+                                {formatHash(run.hash)}
+                              </button>
+                            </div>
+                            <div className="runner-run-meta">
+                              <span>{run.method}</span>
+                              <span title={run.url}>{run.url}</span>
+                              <span>{describeSpcCalls(run.receipt)}</span>
+                              {blockNumber ? <span>block {blockNumber.toLocaleString()}</span> : null}
+                              {gasUsed ? <span>gas {gasUsed.toLocaleString()}</span> : null}
+                            </div>
+                            {run.error ? <p>{run.error}</p> : null}
+                            {run.status === "pending" ? (
+                              <button
+                                className="runner-refresh"
+                                type="button"
+                                onClick={() => refreshRunnerReceipt(run.hash)}
+                              >
+                                <RefreshCw size={13} />
+                                Check receipt
+                              </button>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p>Submitted runner transactions will appear here.</p>
+                  )}
+                </div>
               </div>
             ) : null}
 
