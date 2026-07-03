@@ -137,7 +137,7 @@ const recipes: Recipe[] = [
     label: "First live recipe",
     icon: Globe2,
     status: "live",
-    description: "Compose the 13-field HTTP precompile input for address 0x0801.",
+    description: "13-field HTTP input for precompile 0x0801.",
     fields: [
       { key: "executor", label: "Executor", value: zeroAddress },
       { key: "method", label: "Method", value: "GET", type: "select", options: Object.keys(HTTP_METHOD_IDS) },
@@ -153,7 +153,7 @@ const recipes: Recipe[] = [
     label: "Coming next",
     icon: Wand2,
     status: "preview",
-    description: "Draft prompts, model options, and callback expectations for LLM precompile work.",
+    description: "Prompt and callback shell for future LLM precompile work.",
     fields: [
       { key: "model", label: "Model", value: "ritual/default" },
       { key: "prompt", label: "Prompt", value: "Explain the last async job failure in one sentence.", type: "textarea" },
@@ -166,7 +166,7 @@ const recipes: Recipe[] = [
     label: "Recipe shell",
     icon: Route,
     status: "preview",
-    description: "Plan a multi-step agent action while making sender-lock risk visible.",
+    description: "Multi-step action shell with sender-lock checks visible.",
     fields: [
       { key: "objective", label: "Objective", value: "Fetch, summarize, and commit the result.", type: "textarea" },
       { key: "tools", label: "Allowed tools", value: "http,llm" },
@@ -179,7 +179,7 @@ const recipes: Recipe[] = [
     label: "Guardrail pass",
     icon: Activity,
     status: "preview",
-    description: "Prepare scheduled calls with explicit timing, expiry, and retry windows.",
+    description: "Timing, expiry, and retry shell for scheduled calls.",
     fields: [
       { key: "target", label: "Target contract", value: "0x0000000000000000000000000000000000000000" },
       { key: "start", label: "Start block", value: "latest + 30" },
@@ -328,8 +328,18 @@ function App() {
     const checks = [
       {
         ok: rpcState.status === "online",
-        label: rpcState.status === "offline" ? "Ritual RPC is offline" : "Ritual RPC responds",
-        help: rpcState.status === "offline" ? (rpcState.error ?? "Refresh the RPC check.") : "Latest block is available.",
+        label:
+          rpcState.status === "online"
+            ? "Ritual RPC responds"
+            : rpcState.status === "checking"
+              ? "Checking Ritual RPC"
+              : "Ritual RPC is offline",
+        help:
+          rpcState.status === "online"
+            ? "Latest block is available."
+            : rpcState.status === "checking"
+              ? "Waiting for latest block."
+              : rpcState.error ?? "Refresh the RPC check.",
       },
       {
         ok: wallet.status === "connected",
@@ -691,7 +701,7 @@ function App() {
             <div className="stage-head">
               <div>
                 <p className="section-label">Composer</p>
-                <h2>Build one async call</h2>
+                <h2>HTTP precompile</h2>
               </div>
               <span className={openBlockers.length ? "ready-pill" : "ready-pill ok"} aria-live="polite">
                 {openBlockers.length ? <AlertCircle size={15} /> : <Check size={15} />}
@@ -740,7 +750,6 @@ function App() {
                     >
                       <Icon size={17} />
                       <span>{recipe.name}</span>
-                      {recipe.status === "preview" ? <em>Preview</em> : null}
                     </button>
                   );
                 })}
@@ -752,7 +761,9 @@ function App() {
                 role="tabpanel"
                 aria-labelledby={`recipe-tab-${selectedRecipe.id}`}
               >
-                <span>{selectedRecipe.label}</span>
+                <span className={selectedRecipe.status}>
+                  {selectedRecipe.status === "live" ? "Live recipe" : "Preview recipe"}
+                </span>
                 <p>{selectedRecipe.description}</p>
               </div>
 
@@ -778,11 +789,11 @@ function App() {
               <div className="composer-actions">
                 <button className="secondary-action" onClick={copyPreview}>
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
-                  {copied ? "Copied" : "Copy request"}
+                  {copied ? "Copied" : "Copy draft"}
                 </button>
                 <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
                   {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}
-                  {copiedEncoded ? "Copied input" : "Copy encoded input"}
+                  {copiedEncoded ? "Copied input" : "Copy ABI input"}
                 </button>
               </div>
               <div className={openBlockers.length ? "blocker-panel" : "blocker-panel ok"} aria-live="polite">
@@ -832,10 +843,22 @@ function App() {
             <div className="inspector-head">
               <div>
                 <CircleDot size={17} />
-                <span>Run path</span>
+                <span>Inspector</span>
               </div>
               <strong>{blockerSummary}</strong>
             </div>
+
+            <section className="inspector-section">
+              <div className="inspector-title compact-title">
+                <LockKeyhole size={17} />
+                <span>Blocking checks</span>
+              </div>
+              <div className="guard-list" aria-live="polite">
+                {blockingChecks.map((check) => (
+                  <Guard key={check.label} ok={check.ok} label={check.label} help={check.help} />
+                ))}
+              </div>
+            </section>
 
             <section className="inspector-section run-path">
               <ol className="timeline">
@@ -849,18 +872,6 @@ function App() {
                   </li>
                 ))}
               </ol>
-            </section>
-
-            <section className="inspector-section">
-              <div className="inspector-title compact-title">
-                <LockKeyhole size={17} />
-                <span>Blocking checks</span>
-              </div>
-              <div className="guard-list" aria-live="polite">
-                {blockingChecks.map((check) => (
-                  <Guard key={check.label} ok={check.ok} label={check.label} help={check.help} />
-                ))}
-              </div>
             </section>
 
             <section className="inspector-section">

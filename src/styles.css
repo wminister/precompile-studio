@@ -499,16 +499,6 @@ select:focus-visible {
   color: rgba(248, 247, 242, 0.48);
 }
 
-.recipe-tab em {
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 999px;
-  padding: 2px 6px;
-  color: var(--quiet);
-  font-size: 0.62rem;
-  font-style: normal;
-  font-weight: 500;
-}
-
 .recipe-tab.active::after {
   position: absolute;
   right: 10px;
@@ -521,18 +511,38 @@ select:focus-visible {
 
 .composer-intro {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   padding-top: 0;
+}
+
+.composer-intro span {
+  display: inline-flex;
+  min-height: 22px;
+  align-self: flex-start;
+  align-items: center;
+  border: 1px solid rgba(52, 211, 153, 0.16);
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.06);
+  padding: 0 8px;
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+
+.composer-intro span.preview {
+  border-color: rgba(255, 255, 255, 0.095);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--quiet);
 }
 
 .composer-intro p {
   max-width: 560px;
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  text-align: right;
 }
 
 .field-grid {
@@ -754,7 +764,7 @@ pre {
 
 .inspector-section {
   border-bottom: 1px solid var(--line);
-  padding: 14px 16px;
+  padding: 13px 14px;
 }
 
 .inspector-section:last-child {
@@ -867,22 +877,28 @@ pre {
 .guard-list {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 5px;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
 }
 
 .guard {
   display: grid;
-  min-height: 28px;
+  min-height: 38px;
   grid-template-columns: 13px minmax(0, 1fr);
-  gap: 2px 8px;
+  gap: 1px 8px;
   align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 8px;
-  color: rgba(255, 122, 102, 0.82);
-  background: rgba(255, 122, 102, 0.045);
-  padding: 5px 8px;
-  font-size: 0.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 132, 112, 0.9);
+  background: rgba(255, 255, 255, 0.018);
+  padding: 6px 8px;
+  font-size: 0.78rem;
   font-weight: 500;
+}
+
+.guard:last-child {
+  border-bottom: 0;
 }
 
 .guard svg {
@@ -897,9 +913,8 @@ pre {
 }
 
 .guard.ok {
-  border-color: rgba(52, 211, 153, 0.13);
   color: rgba(143, 240, 196, 0.82);
-  background: rgba(52, 211, 153, 0.05);
+  background: rgba(52, 211, 153, 0.026);
 }
 
 .contract-list {
@@ -1065,6 +1080,11 @@ pre {
   .composer-intro {
     align-items: stretch;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  .composer-intro p {
+    text-align: left;
   }
 
   .stage-head {
@@ -1137,7 +1157,7 @@ pre {
   }
 
   .recipe-tab {
-    min-width: 132px;
+    min-width: 112px;
     justify-content: center;
   }
 
@@ -1177,6 +1197,7 @@ pre {
   .status-item strong {
     font-size: 0.78rem;
   }
+
 }
 
 @media (max-width: 340px) {
