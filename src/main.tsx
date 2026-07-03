@@ -626,7 +626,6 @@ function App() {
         <section className="workbench-head">
           <div>
             <h1>Precompile Studio</h1>
-            <p className="hero-copy">Compose and inspect Ritual precompile payloads before a signed run.</p>
           </div>
           <div className="context-strip" aria-label="Current workbench context">
             <Code2 size={17} />
