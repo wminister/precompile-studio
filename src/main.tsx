@@ -541,10 +541,6 @@ function App() {
             </a>
           </nav>
           <div className="topbar-actions">
-            <button className="block-pill" onClick={refreshRpc} aria-label="Refresh RPC">
-              <span />
-              {rpcState.block ? rpcState.block.toLocaleString() : "syncing"}
-            </button>
             <button className="primary-action" onClick={connectWallet} disabled={wallet.status === "connecting"}>
               {wallet.status === "connecting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
               {wallet.status === "connected" ? formatAddress(wallet.address) : "Connect"}
@@ -555,7 +551,6 @@ function App() {
 
       <section className="workspace">
         <section className="hero-panel">
-          <p className="eyebrow">Ritual Testnet · Chain 1979</p>
           <h1>Precompile Studio</h1>
           <p className="hero-copy">
             Compose, inspect, and prepare Ritual precompile calls with wallet and chain checks visible before submit.
@@ -720,11 +715,15 @@ function App() {
           </section>
 
           <aside className="inspector" aria-label="Inspector">
-            <section className="inspector-section">
-              <div className="inspector-title">
+            <div className="inspector-head">
+              <div>
                 <CircleDot size={17} />
                 <span>Run path</span>
               </div>
+              <strong>{isReady ? "Ready" : "Checks pending"}</strong>
+            </div>
+
+            <section className="inspector-section run-path">
               <ol className="timeline">
                 {timeline.map((item, index) => (
                   <li key={item.title}>
@@ -739,7 +738,7 @@ function App() {
             </section>
 
             <section className="inspector-section">
-              <div className="inspector-title">
+              <div className="inspector-title compact-title">
                 <LockKeyhole size={17} />
                 <span>Current guardrails</span>
               </div>
@@ -754,7 +753,7 @@ function App() {
             </section>
 
             <section className="inspector-section">
-              <div className="inspector-title">
+              <div className="inspector-title compact-title">
                 <KeyRound size={17} />
                 <span>System contracts</span>
               </div>
@@ -769,7 +768,7 @@ function App() {
             </section>
 
             <section className="inspector-section terminal-panel">
-              <div className="inspector-title">
+              <div className="inspector-title compact-title">
                 <FlaskConical size={17} />
                 <span>Runner status</span>
               </div>
