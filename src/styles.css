@@ -270,6 +270,7 @@ h2 {
 .primary-action:focus-visible,
 .secondary-action:focus-visible,
 .ghost-link:focus-visible,
+.section-toggle:focus-visible,
 .recipe-tab:focus-visible,
 .status-action button:focus-visible,
 .header-nav a:focus-visible,
@@ -587,9 +588,46 @@ select:focus {
   gap: 16px;
 }
 
+.section-head > div {
+  display: grid;
+  gap: 3px;
+}
+
 .abi-panel strong {
   color: var(--accent-ink);
   font-size: 0.9rem;
+}
+
+.section-toggle {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  padding: 0 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.section-toggle:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ink);
+}
+
+.section-toggle svg {
+  transition: transform 160ms ease;
+}
+
+.section-toggle.open svg {
+  transform: rotate(180deg);
 }
 
 .abi-panel code,
@@ -652,6 +690,12 @@ select:focus {
   border-bottom: 1px solid var(--line);
   padding: 11px 14px;
   background: rgba(255, 255, 255, 0.025);
+}
+
+.preview-header > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .preview-header a {

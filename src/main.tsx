@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Blocks,
   Check,
+  ChevronDown,
   CircleDot,
   Clipboard,
   Code2,
@@ -308,6 +309,8 @@ function App() {
   const [rpcState, setRpcState] = React.useState<RpcState>({ status: "checking" });
   const [wallet, setWallet] = React.useState<WalletState>({ status: "idle" });
   const [activeRecipe, setActiveRecipe] = React.useState<RecipeId>("http");
+  const [showAbiDetails, setShowAbiDetails] = React.useState(false);
+  const [showRequestPreview, setShowRequestPreview] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
       (acc, recipe) => ({ ...acc, [recipe.id]: recipe.fields }),
@@ -796,11 +799,22 @@ function App() {
 
             {selectedRecipe.id === "http" ? (
               <div className="abi-panel explorer-panel">
-                <div>
-                  <span>HTTP ABI</span>
-                  <strong>{httpDraft.encodedInput ? "Encoded input ready" : "Input needs attention"}</strong>
+                <div className="section-head">
+                  <div>
+                    <span>HTTP ABI</span>
+                    <strong>{httpDraft.encodedInput ? "Encoded input ready" : "Input needs attention"}</strong>
+                  </div>
+                  <button
+                    className={showAbiDetails ? "section-toggle open" : "section-toggle"}
+                    type="button"
+                    onClick={() => setShowAbiDetails((current) => !current)}
+                    aria-expanded={showAbiDetails}
+                  >
+                    <ChevronDown size={15} />
+                    {showAbiDetails ? "Hide" : "Show"}
+                  </button>
                 </div>
-                <code>{httpDraft.abi}</code>
+                {showAbiDetails ? <code>{httpDraft.abi}</code> : null}
                 <div className="abi-facts">
                   <span>target {httpDraft.callTarget}</span>
                   <span>method {httpDraft.methodId}</span>
@@ -820,11 +834,22 @@ function App() {
             <div className="preview-shell explorer-panel">
               <div className="preview-header">
                 <span>Request preview</span>
-                <a href={RITUAL.explorer} target="_blank" rel="noreferrer">
-                  Explorer <ArrowUpRight size={14} />
-                </a>
+                <div>
+                  <button
+                    className={showRequestPreview ? "section-toggle open" : "section-toggle"}
+                    type="button"
+                    onClick={() => setShowRequestPreview((current) => !current)}
+                    aria-expanded={showRequestPreview}
+                  >
+                    <ChevronDown size={15} />
+                    {showRequestPreview ? "Hide JSON" : "Show JSON"}
+                  </button>
+                  <a href={RITUAL.explorer} target="_blank" rel="noreferrer">
+                    Explorer <ArrowUpRight size={14} />
+                  </a>
+                </div>
               </div>
-              <pre>{JSON.stringify(requestPreview, null, 2)}</pre>
+              {showRequestPreview ? <pre>{JSON.stringify(requestPreview, null, 2)}</pre> : null}
             </div>
           </section>
 
