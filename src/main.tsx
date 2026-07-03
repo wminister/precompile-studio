@@ -700,7 +700,6 @@ function App() {
           <section className="main-stage" aria-label="Composer">
             <div className="stage-head">
               <div>
-                <p className="section-label">Composer</p>
                 <h2>HTTP precompile</h2>
               </div>
               <span className={openBlockers.length ? "ready-pill" : "ready-pill ok"} aria-live="polite">
@@ -745,7 +744,7 @@ function App() {
                       role="tab"
                       aria-selected={recipe.id === activeRecipe}
                       aria-controls={`recipe-panel-${recipe.id}`}
-                      aria-disabled={recipe.status === "preview" ? "true" : undefined}
+                      aria-label={`${recipe.name} ${recipe.status === "preview" ? "preview" : "live"} recipe`}
                       tabIndex={recipe.id === activeRecipe ? 0 : -1}
                     >
                       <Icon size={17} />
@@ -761,9 +760,6 @@ function App() {
                 role="tabpanel"
                 aria-labelledby={`recipe-tab-${selectedRecipe.id}`}
               >
-                <span className={selectedRecipe.status}>
-                  {selectedRecipe.status === "live" ? "Live recipe" : "Preview recipe"}
-                </span>
                 <p>{selectedRecipe.description}</p>
               </div>
 
