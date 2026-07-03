@@ -168,7 +168,6 @@ a {
   justify-content: space-between;
   gap: 18px;
   padding: 4px 2px 8px;
-  animation: enter-down 520ms ease both;
 }
 
 .workbench-head > div:first-child {
@@ -241,6 +240,38 @@ h2 {
   flex-wrap: wrap;
 }
 
+.network-pill {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 0 12px;
+  color: var(--muted);
+}
+
+.network-pill span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(247, 198, 111, 0.1);
+}
+
+.network-pill.ok span {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.11);
+}
+
+.network-pill code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 .ghost-link,
 .primary-action,
 .secondary-action {
@@ -298,7 +329,7 @@ select:focus-visible {
 .primary-action:disabled {
   border-color: rgba(255, 255, 255, 0.09);
   background: rgba(255, 255, 255, 0.045);
-  color: rgba(248, 247, 242, 0.44);
+  color: rgba(248, 247, 242, 0.58);
   opacity: 1;
 }
 
@@ -323,7 +354,6 @@ select:focus-visible {
   border-radius: 9px;
   background: rgba(20, 20, 28, 0.58);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  animation: enter-down 520ms 80ms ease both;
 }
 
 .explorer-panel {
@@ -369,6 +399,7 @@ select:focus-visible {
 }
 
 .status-item strong {
+  font-family: var(--mono);
   font-size: 0.84rem;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
@@ -376,11 +407,6 @@ select:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.status-item:nth-child(1) strong,
-.status-item:nth-child(2) strong {
-  font-family: var(--mono);
 }
 
 .status-item.ok > svg {
@@ -422,7 +448,6 @@ select:focus-visible {
 .main-stage,
 .inspector {
   min-width: 0;
-  animation: enter-up 560ms 130ms ease both;
 }
 
 .main-stage {
@@ -467,9 +492,9 @@ select:focus-visible {
 
 .ready-pill.preview {
   min-width: 116px;
-  border-color: rgba(125, 211, 252, 0.18);
-  color: rgba(125, 211, 252, 0.86);
-  background: rgba(125, 211, 252, 0.06);
+  border-color: rgba(248, 247, 242, 0.13);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .composer-surface {
@@ -698,6 +723,8 @@ select:focus {
   background: rgba(255, 255, 255, 0.055);
   padding: 9px 10px;
   color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -800,7 +827,7 @@ pre {
 .inspector-head svg,
 .inspector-title svg {
   flex: 0 0 auto;
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .inspector-head strong {
@@ -883,8 +910,8 @@ pre {
   grid-template-columns: 1fr;
   gap: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
 }
 
 .guard {
@@ -894,8 +921,8 @@ pre {
   gap: 1px 8px;
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(255, 132, 112, 0.9);
-  background: rgba(255, 255, 255, 0.018);
+  color: var(--amber);
+  background: transparent;
   padding: 6px 8px;
   font-size: 0.78rem;
   font-weight: 500;
@@ -918,15 +945,15 @@ pre {
 
 .guard.ok {
   color: rgba(143, 240, 196, 0.82);
-  background: rgba(52, 211, 153, 0.026);
+  background: transparent;
 }
 
 .contract-list {
   display: grid;
   gap: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
 }
 
 .contract-list div {
@@ -936,7 +963,7 @@ pre {
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.065);
-  background: rgba(255, 255, 255, 0.026);
+  background: transparent;
   padding: 6px 9px;
 }
 
@@ -1063,6 +1090,11 @@ pre {
     display: flex;
   }
 
+  .network-pill {
+    min-height: 40px;
+    padding-inline: 10px;
+  }
+
   .workspace {
     padding: 16px 14px 34px;
   }
@@ -1096,34 +1128,27 @@ pre {
   }
 
   .status-strip {
-    display: flex;
-    overflow-x: auto;
-    overflow-y: hidden;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
     align-self: stretch;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
-  }
-
-  .status-strip::-webkit-scrollbar {
-    display: none;
   }
 
   .status-item {
     min-height: 50px;
-    min-width: 136px;
-    flex: 0 0 136px;
+    min-width: 0;
     border-right: 1px solid var(--line);
-    border-bottom: 0;
-    scroll-snap-align: start;
+    border-bottom: 1px solid var(--line);
   }
 
   .status-item:nth-child(2n) {
-    border-right: 1px solid var(--line);
+    border-right: 0;
   }
 
   .status-item:last-child {
-    flex-basis: 136px;
+    grid-column: 1 / -1;
     border-right: 0;
+    border-bottom: 0;
   }
 
   .field-grid,
@@ -1142,18 +1167,13 @@ pre {
   }
 
   .recipe-tabs {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 4px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-  }
-
-  .recipe-tabs::-webkit-scrollbar {
-    display: none;
+    overflow: visible;
   }
 
   .recipe-tab {
+    min-height: 44px;
     min-width: 82px;
     gap: 6px;
     justify-content: center;
@@ -1162,6 +1182,21 @@ pre {
   .composer-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .primary-action,
+  .secondary-action,
+  .ghost-link,
+  input,
+  textarea,
+  select {
+    min-height: 44px;
+  }
+
+  .status-action button,
+  .section-toggle {
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .composer-actions:has(> :only-child) {
@@ -1200,6 +1235,11 @@ pre {
     font-size: 0.78rem;
   }
 
+  .abi-facts span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   textarea {
     min-height: 76px;
   }
@@ -1207,8 +1247,12 @@ pre {
 }
 
 @media (max-width: 340px) {
-  .recipe-tabs {
+  .status-strip {
     grid-template-columns: 1fr;
+  }
+
+  .status-item {
+    border-right: 0;
   }
 }
 

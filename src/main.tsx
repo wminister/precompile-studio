@@ -404,6 +404,12 @@ function App() {
   const blockerSummary = openBlockers.length
     ? `${openBlockers.length} ${openBlockers.length === 1 ? "blocker" : "blockers"}`
     : "Ready to copy";
+  const blockLabel =
+    rpcState.status === "online" && rpcState.block
+      ? rpcState.block.toLocaleString()
+      : rpcState.status === "offline"
+        ? "offline"
+        : "pending";
   const stageTitle = selectedRecipe.id === "http" ? "HTTP precompile" : `${selectedRecipe.name} preview`;
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
@@ -621,6 +627,13 @@ function App() {
     }));
   };
 
+  const selectRecipe = React.useCallback((recipeId: RecipeId, shouldFocus = false) => {
+    setActiveRecipe(recipeId);
+    if (shouldFocus) {
+      window.requestAnimationFrame(() => document.getElementById(`recipe-tab-${recipeId}`)?.focus());
+    }
+  }, []);
+
   return (
     <main className="studio-shell">
       <header className="explorer-header">
@@ -642,6 +655,13 @@ function App() {
             </a>
           </nav>
           <div className="topbar-actions">
+            <div
+              className={rpcState.status === "online" ? "network-pill ok" : "network-pill"}
+              aria-label={`Ritual block ${blockLabel}`}
+            >
+              <span aria-hidden="true" />
+              <code>{blockLabel}</code>
+            </div>
             <button className="primary-action" onClick={connectWallet} disabled={wallet.status === "connecting"}>
               {wallet.status === "connecting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
               {wallet.status === "connected" ? formatAddress(wallet.address) : "Connect"}
@@ -738,10 +758,14 @@ function App() {
                       ? (currentIndex + 1) % recipes.length
                       : event.key === "ArrowLeft"
                         ? (currentIndex - 1 + recipes.length) % recipes.length
-                        : -1;
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? recipes.length - 1
+                            : -1;
                   if (nextIndex >= 0) {
                     event.preventDefault();
-                    setActiveRecipe(recipes[nextIndex].id);
+                    selectRecipe(recipes[nextIndex].id, true);
                   }
                 }}
               >
@@ -758,7 +782,7 @@ function App() {
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                      onClick={() => setActiveRecipe(recipe.id)}
+                      onClick={() => selectRecipe(recipe.id)}
                       role="tab"
                       aria-selected={recipe.id === activeRecipe}
                       aria-controls={`recipe-panel-${recipe.id}`}
@@ -836,10 +860,20 @@ function App() {
                 </div>
                 {showAbiDetails ? <code>{httpDraft.abi}</code> : null}
                 <div className="abi-facts">
-                  <span>target {httpDraft.callTarget}</span>
-                  <span>method {httpDraft.methodId}</span>
-                  <span>ttl {Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}</span>
-                  <span>{httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded"}</span>
+                  <span title={`target ${httpDraft.callTarget}`}>target {httpDraft.callTarget}</span>
+                  <span title={`method ${httpDraft.methodId}`}>method {httpDraft.methodId}</span>
+                  <span title={`ttl ${Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}`}>
+                    ttl {Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}
+                  </span>
+                  <span
+                    title={
+                      httpDraft.encodedInput
+                        ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
+                        : "not encoded"
+                    }
+                  >
+                    {httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded"}
+                  </span>
                 </div>
                 {httpDraft.errors.length ? (
                   <div className="abi-errors" role="alert" aria-live="polite">
@@ -948,7 +982,7 @@ function StatusItem({
       <Icon size={18} />
       <div>
         <span>{label}</span>
-        <strong>{value}</strong>
+        <strong title={value}>{value}</strong>
       </div>
       {action ? <div className="status-action">{action}</div> : null}
     </div>
@@ -957,7 +991,7 @@ function StatusItem({
 
 function Guard({ ok, label, help }: { ok: boolean; label: string; help?: string }) {
   return (
-    <div className={ok ? "guard ok" : "guard"}>
+    <div className={ok ? "guard ok" : "guard pending"}>
       {ok ? <Check size={13} /> : <AlertCircle size={13} />}
       <span>{label}</span>
       {!ok && help ? <small>{help}</small> : null}
