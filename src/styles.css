@@ -317,6 +317,7 @@ h2 {
 .brand-lockup:focus-visible,
 .runner-run-main button:focus-visible,
 .runner-refresh:focus-visible,
+.saved-runner button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
@@ -788,13 +789,100 @@ select:focus {
 }
 
 .runner-address span,
+.runner-save-row span,
 .runner-panel p {
   color: var(--quiet);
   font-size: 0.72rem;
 }
 
-.runner-address input {
+.runner-address input,
+.runner-save-row input {
   font-family: var(--mono);
+}
+
+.runner-save-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.runner-save-row label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.runner-saved {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 8px;
+}
+
+.saved-runner-list {
+  display: grid;
+  gap: 5px;
+}
+
+.saved-runner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.saved-runner button {
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--ink);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.saved-runner button:hover {
+  border-color: rgba(143, 240, 196, 0.2);
+  background: rgba(52, 211, 153, 0.055);
+}
+
+.saved-runner > button:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  justify-items: start;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.saved-runner span,
+.saved-runner code {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-runner span {
+  color: rgba(248, 247, 242, 0.86);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.saved-runner code {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+.saved-runner-forget {
+  padding: 0 9px;
+  color: var(--quiet);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .runner-actions {
@@ -1437,6 +1525,11 @@ pre {
 
   .runner-actions {
     display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .runner-save-row,
+  .saved-runner {
     grid-template-columns: 1fr;
   }
 

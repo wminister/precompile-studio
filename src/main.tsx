@@ -99,6 +99,12 @@ type RunnerRun = {
   error?: string;
 };
 
+type SavedRunner = {
+  address: string;
+  label: string;
+  updatedAt: number;
+};
+
 type RecipeId = "http" | "llm" | "agent" | "scheduler";
 
 type Recipe = {
@@ -138,6 +144,7 @@ const SYSTEM_CONTRACTS = {
 const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
+const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 
 const HTTP_METHOD_IDS: Record<string, number> = {
   GET: 1,
@@ -271,6 +278,14 @@ function formatHash(hash?: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
 
+function runnerStorageKey(walletAddress?: string) {
+  return `${RUNNER_STORAGE_PREFIX}:${walletAddress?.toLowerCase() ?? "local"}`;
+}
+
+function defaultRunnerLabel(address: string) {
+  return `HTTP runner ${formatAddress(address)}`;
+}
+
 function formatBalance(hex?: string) {
   if (!hex) return "0";
   const value = BigInt(hex);
@@ -300,6 +315,28 @@ function describeSpcCalls(receipt?: RpcReceipt) {
     return `${receipt.spcCalls.length} ${receipt.spcCalls.length === 1 ? "spcCall" : "spcCalls"}`;
   }
   return "spcCalls present";
+}
+
+function parseSavedRunners(value: string | null): SavedRunner[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is SavedRunner =>
+          item &&
+          typeof item === "object" &&
+          "address" in item &&
+          "label" in item &&
+          typeof item.address === "string" &&
+          typeof item.label === "string" &&
+          isAddress(item.address),
+      )
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
 }
 
 function parseHeaders(input: string) {
@@ -406,6 +443,8 @@ function App() {
   const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
   const [runnerAddress, setRunnerAddress] = React.useState("");
+  const [runnerLabel, setRunnerLabel] = React.useState("");
+  const [savedRunners, setSavedRunners] = React.useState<SavedRunner[]>([]);
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
   const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>([]);
   const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
@@ -443,6 +482,10 @@ function App() {
   const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
   const cleanRunnerAddress = runnerAddress.trim();
   const runnerAddressOk = isAddress(cleanRunnerAddress);
+  const runnerStorageScope = wallet.address?.toLowerCase() ?? "local";
+  const activeSavedRunner = savedRunners.find(
+    (runner) => runner.address.toLowerCase() === cleanRunnerAddress.toLowerCase(),
+  );
   const runnerCalldata =
     selectedRecipe.id === "http" && httpDraft.encodedInput
       ? encodeFunctionData({
@@ -696,6 +739,10 @@ function App() {
   }, [refreshRpc]);
 
   React.useEffect(() => {
+    setSavedRunners(parseSavedRunners(window.localStorage.getItem(runnerStorageKey(wallet.address))));
+  }, [wallet.address]);
+
+  React.useEffect(() => {
     const provider = window.ethereum;
     if (!provider) return;
     refreshWallet(provider).catch(() => undefined);
@@ -808,6 +855,41 @@ function App() {
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
   }, []);
+
+  const saveRunnerContract = React.useCallback(() => {
+    if (!runnerAddressOk) return;
+    const normalizedAddress = cleanRunnerAddress;
+    const nextRunner: SavedRunner = {
+      address: normalizedAddress,
+      label: runnerLabel.trim() || activeSavedRunner?.label || defaultRunnerLabel(normalizedAddress),
+      updatedAt: Date.now(),
+    };
+    setSavedRunners((current) => {
+      const next = [nextRunner, ...current.filter((runner) => runner.address.toLowerCase() !== normalizedAddress.toLowerCase())].slice(
+        0,
+        8,
+      );
+      window.localStorage.setItem(runnerStorageKey(wallet.address), JSON.stringify(next));
+      return next;
+    });
+    setRunnerLabel("");
+  }, [activeSavedRunner?.label, cleanRunnerAddress, runnerAddressOk, runnerLabel, wallet.address]);
+
+  const useSavedRunner = React.useCallback((address: string) => {
+    setRunnerAddress(address);
+    setRunnerLabel("");
+  }, []);
+
+  const forgetSavedRunner = React.useCallback(
+    (address: string) => {
+      setSavedRunners((current) => {
+        const next = current.filter((runner) => runner.address.toLowerCase() !== address.toLowerCase());
+        window.localStorage.setItem(runnerStorageKey(wallet.address), JSON.stringify(next));
+        return next;
+      });
+    },
+    [wallet.address],
+  );
 
   const depositToRitualWallet = React.useCallback(async () => {
     const provider = window.ethereum;
@@ -1245,6 +1327,48 @@ function App() {
                     spellCheck={false}
                   />
                 </label>
+                <div className="runner-save-row">
+                  <label>
+                    <span>Runner label</span>
+                    <input
+                      value={runnerLabel}
+                      onChange={(event) => setRunnerLabel(event.target.value)}
+                      placeholder={runnerAddressOk ? activeSavedRunner?.label ?? defaultRunnerLabel(cleanRunnerAddress) : "HTTP runner"}
+                    />
+                  </label>
+                  <button className="secondary-action" type="button" onClick={saveRunnerContract} disabled={!runnerAddressOk}>
+                    <KeyRound size={15} />
+                    {activeSavedRunner ? "Update" : "Save"}
+                  </button>
+                </div>
+                <div className="runner-saved">
+                  <div className="runner-history-head">
+                    <span>Saved runners</span>
+                    <strong>{runnerStorageScope === "local" ? "local" : formatAddress(wallet.address)}</strong>
+                  </div>
+                  {savedRunners.length ? (
+                    <div className="saved-runner-list">
+                      {savedRunners.map((runner) => (
+                        <div className="saved-runner" key={runner.address}>
+                          <button type="button" onClick={() => useSavedRunner(runner.address)}>
+                            <span>{runner.label}</span>
+                            <code>{formatAddress(runner.address)}</code>
+                          </button>
+                          <button
+                            className="saved-runner-forget"
+                            type="button"
+                            onClick={() => forgetSavedRunner(runner.address)}
+                            aria-label={`Forget ${runner.label}`}
+                          >
+                            Forget
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No saved runner contracts yet.</p>
+                  )}
+                </div>
                 <div className="runner-actions">
                   <button className="secondary-action" type="button" onClick={copyRunnerCalldata} disabled={!runnerCalldata}>
                     {copiedRunnerCalldata ? <Check size={16} /> : <Clipboard size={16} />}
