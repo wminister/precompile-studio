@@ -189,10 +189,10 @@ const recipes: Recipe[] = [
 ];
 
 const timeline = [
-  { title: "Readiness", body: "Chain, balance, and sender-lock checks happen before any call leaves the app." },
-  { title: "Encode", body: "Inputs become Ritual's 13-field HTTP ABI payload for the 0x0801 precompile." },
-  { title: "Submit", body: "The connected wallet signs. Users pay their own Ritual testnet gas and precompile fees." },
-  { title: "Trace", body: "Receipt, spcCalls, callback, and explorer evidence stay attached to the run." },
+  { title: "Readiness", body: "RPC, wallet, chain, and escrow checks." },
+  { title: "Encode", body: "13-field ABI payload for 0x0801." },
+  { title: "Submit", body: "Connected wallet signs the call." },
+  { title: "Trace", body: "Receipt and callbacks stay attached." },
 ];
 
 function formatAddress(address?: string) {
@@ -347,7 +347,7 @@ function App() {
         help:
           wallet.status === "connected"
             ? formatAddress(wallet.address)
-            : wallet.error ?? "Needed only when you want to fund or send from this browser.",
+            : wallet.error ?? "Required before funding or sending.",
       },
       {
         ok: wallet.status === "connected" && isRightChain,
@@ -355,7 +355,7 @@ function App() {
         help:
           wallet.status === "connected"
             ? `Current chain ${wallet.chainId ?? "unknown"}`
-            : "Connect first to verify the wallet chain.",
+            : "Connect first to verify chain.",
       },
       {
         ok: wallet.status === "connected" && isRitualWalletFunded,
@@ -363,7 +363,7 @@ function App() {
         help:
           wallet.status === "connected"
             ? wallet.ritualWalletError ?? `${wallet.ritualWalletBalance ?? "0"} RITUAL available`
-            : "Escrow balance appears after wallet connection.",
+            : "Escrow balance appears after connect.",
       },
       {
         ok: selectedRecipe.id === "http" && httpDraft.errors.length === 0 && Boolean(httpDraft.encodedInput),
@@ -375,7 +375,7 @@ function App() {
           selectedRecipe.id === "http"
             ? httpDraft.encodedInput
               ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} encoded bytes`
-              : "Fix the HTTP fields before copying encoded input."
+              : "Fix fields before copying ABI input."
             : "Preview recipes are planning shells for now.",
       },
     ];
@@ -792,13 +792,6 @@ function App() {
                   {copiedEncoded ? "Copied input" : "Copy ABI input"}
                 </button>
               </div>
-              <div className={openBlockers.length ? "blocker-panel" : "blocker-panel ok"} aria-live="polite">
-                <div>
-                  <span>{openBlockers.length ? "Blocking checks" : "Payload checks"}</span>
-                  <strong>{openBlockers[0]?.label ?? "HTTP payload is ready to copy"}</strong>
-                </div>
-                <p>{openBlockers[0]?.help ?? "Wallet checks are still shown before any signed run."}</p>
-              </div>
             </div>
 
             {selectedRecipe.id === "http" ? (
@@ -922,7 +915,7 @@ function Guard({ ok, label, help }: { ok: boolean; label: string; help?: string 
     <div className={ok ? "guard ok" : "guard"}>
       {ok ? <Check size={13} /> : <AlertCircle size={13} />}
       <span>{label}</span>
-      {help ? <small>{help}</small> : null}
+      {!ok && help ? <small>{help}</small> : null}
     </div>
   );
 }

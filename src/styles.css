@@ -243,8 +243,7 @@ h2 {
 
 .ghost-link,
 .primary-action,
-.secondary-action,
-.block-pill {
+.secondary-action {
   display: inline-flex;
   min-height: 36px;
   align-items: center;
@@ -264,8 +263,7 @@ h2 {
 
 .primary-action:hover:not(:disabled),
 .secondary-action:hover,
-.ghost-link:hover,
-.block-pill:hover {
+.ghost-link:hover {
   transform: translateY(-1px);
 }
 
@@ -360,7 +358,9 @@ select:focus-visible {
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   line-height: 1.16;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-item:nth-child(1) strong,
@@ -574,52 +574,6 @@ select:focus {
   justify-content: flex-end;
 }
 
-.blocker-panel {
-  display: grid;
-  gap: 5px;
-  border: 1px solid rgba(247, 198, 111, 0.16);
-  border-radius: 8px;
-  background: rgba(247, 198, 111, 0.055);
-  padding: 10px 12px;
-}
-
-.blocker-panel > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.blocker-panel span {
-  color: var(--quiet);
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.blocker-panel strong {
-  color: var(--amber);
-  font-size: 0.86rem;
-  font-weight: 500;
-  text-align: right;
-}
-
-.blocker-panel.ok {
-  border-color: rgba(52, 211, 153, 0.16);
-  background: rgba(52, 211, 153, 0.055);
-}
-
-.blocker-panel.ok strong {
-  color: var(--accent-ink);
-}
-
-.blocker-panel p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-
 .abi-panel {
   display: grid;
   gap: 10px;
@@ -731,7 +685,7 @@ pre {
 
 .inspector-section {
   border-bottom: 1px solid var(--line);
-  padding: 13px 14px;
+  padding: 12px 14px;
 }
 
 .inspector-section:last-child {
@@ -778,7 +732,7 @@ pre {
 }
 
 .inspector-title {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .compact-title {
@@ -799,7 +753,7 @@ pre {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
   gap: 9px;
-  padding: 8px 0;
+  padding: 6px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.055);
 }
 
@@ -837,8 +791,8 @@ pre {
 .timeline p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .guard-list {
@@ -852,7 +806,7 @@ pre {
 
 .guard {
   display: grid;
-  min-height: 38px;
+  min-height: 32px;
   grid-template-columns: 13px minmax(0, 1fr);
   gap: 1px 8px;
   align-items: center;
@@ -894,7 +848,7 @@ pre {
 
 .contract-list div {
   display: flex;
-  min-height: 32px;
+  min-height: 30px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1001,7 +955,7 @@ pre {
   .header-inner {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 7px;
     justify-content: space-between;
     padding: 10px 14px;
   }
@@ -1013,7 +967,8 @@ pre {
 
   .header-nav a {
     height: 30px;
-    padding: 0 8px;
+    padding: 0 7px;
+    font-size: 0.8rem;
   }
 
   .brand-lockup {
@@ -1062,6 +1017,7 @@ pre {
     overflow-x: auto;
     overflow-y: hidden;
     align-self: stretch;
+    scroll-snap-type: x proximity;
     scrollbar-width: none;
   }
 
@@ -1071,10 +1027,11 @@ pre {
 
   .status-item {
     min-height: 50px;
-    min-width: 148px;
-    flex: 0 0 148px;
+    min-width: 136px;
+    flex: 0 0 136px;
     border-right: 1px solid var(--line);
     border-bottom: 0;
+    scroll-snap-align: start;
   }
 
   .status-item:nth-child(2n) {
@@ -1082,7 +1039,7 @@ pre {
   }
 
   .status-item:last-child {
-    flex-basis: 148px;
+    flex-basis: 136px;
     border-right: 0;
   }
 
