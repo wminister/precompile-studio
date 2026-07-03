@@ -309,6 +309,8 @@ h2 {
 .secondary-action:focus-visible,
 .ghost-link:focus-visible,
 .section-toggle:focus-visible,
+.inspector-disclosure:focus-visible,
+.abi-facts button:focus-visible,
 .recipe-tab:focus-visible,
 .status-action button:focus-visible,
 .header-nav a:focus-visible,
@@ -351,8 +353,8 @@ select:focus-visible {
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: rgba(20, 20, 28, 0.58);
+  border-radius: 8px;
+  background: rgba(17, 17, 23, 0.48);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
 
@@ -365,12 +367,12 @@ select:focus-visible {
 
 .status-item {
   display: grid;
-  min-height: 54px;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 9px;
+  min-height: 44px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
   border-right: 1px solid var(--line);
-  padding: 8px 12px;
+  padding: 6px 10px;
 }
 
 .status-item:last-child {
@@ -392,7 +394,7 @@ select:focus-visible {
 .preview-header,
 .abi-panel span {
   color: var(--quiet);
-  font-size: 0.64rem;
+  font-size: 0.6rem;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -400,7 +402,7 @@ select:focus-visible {
 
 .status-item strong {
   font-family: var(--mono);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   line-height: 1.16;
@@ -427,8 +429,8 @@ select:focus-visible {
 
 .status-action button {
   display: grid;
-  min-width: 26px;
-  min-height: 26px;
+  min-width: 24px;
+  min-height: 24px;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -453,7 +455,7 @@ select:focus-visible {
 .main-stage {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .stage-head {
@@ -461,7 +463,7 @@ select:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 6px 2px 2px;
+  padding: 4px 2px 0;
 }
 
 .stage-head > div {
@@ -503,6 +505,13 @@ select:focus-visible {
   gap: 10px;
   overflow: hidden;
   padding: 0 16px 16px;
+}
+
+.utility-panel {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.024);
 }
 
 .recipe-tabs {
@@ -641,8 +650,8 @@ select:focus {
 
 .abi-panel {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 9px;
+  padding: 12px 14px;
 }
 
 .abi-panel > div:first-child {
@@ -659,7 +668,8 @@ select:focus {
 
 .abi-panel strong {
   color: var(--accent-ink);
-  font-size: 0.9rem;
+  font-size: 0.84rem;
+  font-weight: 500;
 }
 
 .section-toggle {
@@ -717,16 +727,29 @@ select:focus {
   gap: 8px;
 }
 
-.abi-facts span {
+.abi-facts button {
   overflow: hidden;
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(255, 255, 255, 0.042);
   padding: 9px 10px;
   color: var(--muted);
   font-family: var(--mono);
   font-size: 0.75rem;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.abi-facts button:hover {
+  border-color: rgba(143, 240, 196, 0.18);
+  background: rgba(52, 211, 153, 0.055);
+  color: rgba(248, 247, 242, 0.82);
 }
 
 .abi-errors {
@@ -753,9 +776,10 @@ select:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--line);
-  padding: 11px 14px;
-  background: rgba(255, 255, 255, 0.025);
+  min-height: 42px;
+  border-bottom: 1px solid transparent;
+  padding: 6px 12px;
+  background: transparent;
 }
 
 .preview-header > div {
@@ -804,17 +828,18 @@ pre {
 
 .inspector-head {
   display: flex;
-  min-height: 48px;
+  min-height: 42px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--line);
-  padding: 0 16px;
-  background: rgba(255, 255, 255, 0.024);
+  padding: 0 14px;
+  background: transparent;
 }
 
 .inspector-head > div,
-.inspector-title {
+.inspector-title,
+.inspector-disclosure {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -830,19 +855,52 @@ pre {
   color: var(--accent-ink);
 }
 
-.inspector-head strong {
-  flex: 0 0 auto;
-  border: 1px solid rgba(247, 198, 111, 0.18);
-  border-radius: 999px;
-  background: rgba(247, 198, 111, 0.08);
-  color: var(--amber);
-  padding: 4px 8px;
-  font-size: 0.7rem;
-  font-weight: 500;
-}
-
 .inspector-title {
   margin-bottom: 8px;
+}
+
+.disclosure-section {
+  padding: 0;
+}
+
+.inspector-disclosure {
+  width: 100%;
+  min-height: 42px;
+  justify-content: space-between;
+  border: 0;
+  background: transparent;
+  padding: 0 14px;
+  color: rgba(248, 247, 242, 0.84);
+  text-align: left;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.inspector-disclosure span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector-disclosure svg {
+  flex: 0 0 auto;
+  color: var(--accent-ink);
+}
+
+.inspector-disclosure > svg {
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.inspector-disclosure.open > svg {
+  transform: rotate(180deg);
+}
+
+.inspector-disclosure:hover {
+  background: rgba(255, 255, 255, 0.028);
+  color: var(--ink);
 }
 
 .compact-title {
@@ -855,7 +913,7 @@ pre {
   flex-direction: column;
   gap: 0;
   margin: 0;
-  padding: 0;
+  padding: 0 14px 12px;
   list-style: none;
 }
 
@@ -954,6 +1012,7 @@ pre {
   overflow: hidden;
   border-top: 1px solid rgba(255, 255, 255, 0.075);
   border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  margin: 0 14px 12px;
 }
 
 .contract-list div {
@@ -989,28 +1048,6 @@ pre {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes enter-down {
-  from {
-    opacity: 0;
-    transform: translateY(-12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes enter-up {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -1056,9 +1093,6 @@ pre {
     grid-column: 1 / -1;
   }
 
-  .run-path {
-    grid-row: span 2;
-  }
 }
 
 @media (max-width: 760px) {
@@ -1156,8 +1190,7 @@ pre {
     grid-template-columns: 1fr;
   }
 
-  .inspector-head,
-  .run-path {
+  .inspector-head {
     grid-column: auto;
     grid-row: auto;
   }
@@ -1235,7 +1268,7 @@ pre {
     font-size: 0.78rem;
   }
 
-  .abi-facts span {
+  .abi-facts button {
     white-space: normal;
     overflow-wrap: anywhere;
   }

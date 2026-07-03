@@ -311,6 +311,8 @@ function App() {
   const [activeRecipe, setActiveRecipe] = React.useState<RecipeId>("http");
   const [showAbiDetails, setShowAbiDetails] = React.useState(false);
   const [showRequestPreview, setShowRequestPreview] = React.useState(false);
+  const [showRunPath, setShowRunPath] = React.useState(false);
+  const [showContracts, setShowContracts] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
       (acc, recipe) => ({ ...acc, [recipe.id]: recipe.fields }),
@@ -410,7 +412,9 @@ function App() {
       : rpcState.status === "offline"
         ? "offline"
         : "pending";
-  const stageTitle = selectedRecipe.id === "http" ? "HTTP precompile" : `${selectedRecipe.name} preview`;
+  const contextLabel = selectedRecipe.id === "http" ? "HTTP precompile" : `${selectedRecipe.name} recipe`;
+  const contextDetail = selectedRecipe.id === "http" ? "13-field ABI" : "planning shell";
+  const stageTitle = selectedRecipe.id === "http" ? "Composer" : `${selectedRecipe.name} preview`;
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
     "ready-pill",
@@ -618,6 +622,10 @@ function App() {
     window.setTimeout(() => setCopiedEncoded(false), 1400);
   }, [httpDraft.encodedInput]);
 
+  const copyValue = React.useCallback(async (value: string) => {
+    await navigator.clipboard.writeText(value);
+  }, []);
+
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
       ...current,
@@ -677,9 +685,9 @@ function App() {
           </div>
           <div className="context-strip" aria-label="Current workbench context">
             <Code2 size={17} />
-            <span>HTTP precompile</span>
+            <span>{contextLabel}</span>
             <code>0x0801</code>
-            <span>13-field ABI</span>
+            <span>{contextDetail}</span>
           </div>
         </section>
 
@@ -842,7 +850,7 @@ function App() {
             </div>
 
             {selectedRecipe.id === "http" ? (
-              <div className="abi-panel explorer-panel">
+              <div className="abi-panel utility-panel">
                 <div className="section-head">
                   <div>
                     <span>HTTP ABI</span>
@@ -860,20 +868,36 @@ function App() {
                 </div>
                 {showAbiDetails ? <code>{httpDraft.abi}</code> : null}
                 <div className="abi-facts">
-                  <span title={`target ${httpDraft.callTarget}`}>target {httpDraft.callTarget}</span>
-                  <span title={`method ${httpDraft.methodId}`}>method {httpDraft.methodId}</span>
-                  <span title={`ttl ${Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}`}>
+                  <button type="button" onClick={() => copyValue(httpDraft.callTarget)} title={`Copy target ${httpDraft.callTarget}`}>
+                    target {httpDraft.callTarget}
+                  </button>
+                  <button type="button" onClick={() => copyValue(String(httpDraft.methodId))} title={`Copy method ${httpDraft.methodId}`}>
+                    method {httpDraft.methodId}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyValue(Number.isFinite(httpDraft.ttl) ? String(httpDraft.ttl) : "invalid")}
+                    title={`Copy ttl ${Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}`}
+                  >
                     ttl {Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}
-                  </span>
-                  <span
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyValue(
+                        httpDraft.encodedInput
+                          ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
+                          : "not encoded",
+                      )
+                    }
                     title={
                       httpDraft.encodedInput
-                        ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
-                        : "not encoded"
+                        ? `Copy ${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
+                        : "Copy not encoded"
                     }
                   >
                     {httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded"}
-                  </span>
+                  </button>
                 </div>
                 {httpDraft.errors.length ? (
                   <div className="abi-errors" role="alert" aria-live="polite">
@@ -885,7 +909,7 @@ function App() {
               </div>
             ) : null}
 
-            <div className="preview-shell explorer-panel">
+            <div className="preview-shell utility-panel">
               <div className="preview-header">
                 <span>Request preview</span>
                 <div>
@@ -913,7 +937,6 @@ function App() {
                 <CircleDot size={17} />
                 <span>Inspector</span>
               </div>
-              <strong>{blockerSummary}</strong>
             </div>
 
             <section className="inspector-section">
@@ -928,33 +951,57 @@ function App() {
               </div>
             </section>
 
-            <section className="inspector-section run-path">
-              <ol className="timeline">
-                {timeline.map((item, index) => (
-                  <li key={item.title}>
-                    <span>{index + 1}</span>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+            <section className="inspector-section disclosure-section">
+              <button
+                className={showRunPath ? "inspector-disclosure open" : "inspector-disclosure"}
+                type="button"
+                onClick={() => setShowRunPath((current) => !current)}
+                aria-expanded={showRunPath}
+              >
+                <span>
+                  <Route size={17} />
+                  Run path
+                </span>
+                <ChevronDown size={15} />
+              </button>
+              {showRunPath ? (
+                <ol className="timeline">
+                  {timeline.map((item, index) => (
+                    <li key={item.title}>
+                      <span>{index + 1}</span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <p>{item.body}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
             </section>
 
-            <section className="inspector-section">
-              <div className="inspector-title compact-title">
-                <KeyRound size={17} />
-                <span>System contracts</span>
-              </div>
-              <div className="contract-list">
-                {Object.entries(SYSTEM_CONTRACTS).map(([name, address]) => (
-                  <div key={name}>
-                    <span>{name}</span>
-                    <code>{formatAddress(address)}</code>
-                  </div>
-                ))}
-              </div>
+            <section className="inspector-section disclosure-section">
+              <button
+                className={showContracts ? "inspector-disclosure open" : "inspector-disclosure"}
+                type="button"
+                onClick={() => setShowContracts((current) => !current)}
+                aria-expanded={showContracts}
+              >
+                <span>
+                  <KeyRound size={17} />
+                  System contracts
+                </span>
+                <ChevronDown size={15} />
+              </button>
+              {showContracts ? (
+                <div className="contract-list">
+                  {Object.entries(SYSTEM_CONTRACTS).map(([name, address]) => (
+                    <div key={name}>
+                      <span>{name}</span>
+                      <code title={address}>{formatAddress(address)}</code>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </section>
 
           </aside>
