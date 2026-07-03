@@ -528,7 +528,6 @@ function App() {
             <span className="brand-mark">
               <Blocks size={22} />
             </span>
-            <span>Precompile Studio</span>
           </a>
           <nav className="header-nav" aria-label="Ritual links">
             <a href={RITUAL.docs} target="_blank" rel="noreferrer">
@@ -556,9 +555,6 @@ function App() {
 
       <section className="workspace">
         <section className="hero-panel">
-          <div className="hero-mark">
-            <Blocks size={74} />
-          </div>
           <p className="eyebrow">Ritual Testnet · Chain 1979</p>
           <h1>Precompile Studio</h1>
           <p className="hero-copy">
@@ -623,7 +619,7 @@ function App() {
 
         <section className="studio-grid">
           <section className="main-stage" aria-label="Composer">
-            <div className="stage-head explorer-panel">
+            <div className="stage-head">
               <div>
                 <p className="section-label">Composer</p>
                 <h2>Build one async call</h2>
@@ -820,7 +816,7 @@ function StatusItem({
 function Guard({ ok, label }: { ok: boolean; label: string }) {
   return (
     <div className={ok ? "guard ok" : "guard"}>
-      {ok ? <Check size={15} /> : <AlertCircle size={15} />}
+      {ok ? <Check size={13} /> : <AlertCircle size={13} />}
       <span>{label}</span>
     </div>
   );
