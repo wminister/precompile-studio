@@ -1041,6 +1041,44 @@ pre {
   font-size: 0.72rem;
 }
 
+.funding-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+
+.funding-panel label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.funding-panel span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.funding-panel input {
+  min-height: 34px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.funding-panel .primary-action {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.funding-panel p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .spin {
   animation: spin 840ms linear infinite;
 }
@@ -1232,6 +1270,10 @@ pre {
     min-height: 40px;
   }
 
+  .funding-panel input {
+    min-height: 44px;
+  }
+
   .composer-actions:has(> :only-child) {
     justify-content: stretch;
   }
@@ -1275,6 +1317,10 @@ pre {
 
   textarea {
     min-height: 76px;
+  }
+
+  .funding-panel {
+    grid-template-columns: 1fr;
   }
 
 }

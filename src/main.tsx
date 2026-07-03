@@ -27,6 +27,7 @@ import {
   encodeFunctionData,
   formatEther,
   isAddress,
+  parseEther,
   parseAbiParameters,
   stringToHex,
   zeroAddress,
@@ -61,6 +62,12 @@ type WalletState = {
   ritualWalletBalance?: string;
   ritualLockUntil?: number;
   ritualWalletError?: string;
+  error?: string;
+};
+
+type DepositState = {
+  status: "idle" | "submitting" | "submitted" | "error";
+  hash?: string;
   error?: string;
 };
 
@@ -115,6 +122,13 @@ const HTTP_METHOD_IDS: Record<string, number> = {
 };
 
 const ritualWalletAbi = [
+  {
+    type: "function",
+    name: "deposit",
+    stateMutability: "payable",
+    inputs: [{ name: "lockDuration", type: "uint256" }],
+    outputs: [],
+  },
   {
     type: "function",
     name: "balanceOf",
@@ -199,6 +213,11 @@ const timeline = [
 function formatAddress(address?: string) {
   if (!address) return "Not connected";
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function formatHash(hash?: string) {
+  if (!hash) return "";
+  return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
 
 function formatBalance(hex?: string) {
@@ -313,6 +332,10 @@ function App() {
   const [showRequestPreview, setShowRequestPreview] = React.useState(false);
   const [showRunPath, setShowRunPath] = React.useState(false);
   const [showContracts, setShowContracts] = React.useState(false);
+  const [showFunding, setShowFunding] = React.useState(true);
+  const [depositAmount, setDepositAmount] = React.useState("0.01");
+  const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
+  const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
       (acc, recipe) => ({ ...acc, [recipe.id]: recipe.fields }),
@@ -329,6 +352,21 @@ function App() {
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
   const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
+  const depositLock = Number.parseInt(depositLockBlocks, 10);
+  const depositAmountValid = (() => {
+    try {
+      return parseEther(depositAmount || "0") > 0n;
+    } catch {
+      return false;
+    }
+  })();
+  const canDeposit =
+    wallet.status === "connected" &&
+    isRightChain &&
+    depositAmountValid &&
+    Number.isFinite(depositLock) &&
+    depositLock > 0 &&
+    depositState.status !== "submitting";
   const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
   const blockingChecks = React.useMemo(() => {
     const checks = [
@@ -625,6 +663,57 @@ function App() {
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
   }, []);
+
+  const depositToRitualWallet = React.useCallback(async () => {
+    const provider = window.ethereum;
+    if (!provider || !wallet.address) {
+      setDepositState({ status: "error", error: "Connect a wallet before funding RitualWallet." });
+      return;
+    }
+
+    let value: bigint;
+    try {
+      value = parseEther(depositAmount);
+    } catch {
+      setDepositState({ status: "error", error: "Enter a valid RITUAL amount." });
+      return;
+    }
+
+    if (value <= 0n || !Number.isFinite(depositLock) || depositLock <= 0) {
+      setDepositState({ status: "error", error: "Amount and lock duration must be positive." });
+      return;
+    }
+
+    const lockDuration = BigInt(depositLock);
+
+    setDepositState({ status: "submitting" });
+    try {
+      const hash = await provider.request<string>({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet.address,
+            to: SYSTEM_CONTRACTS.RitualWallet,
+            value: `0x${value.toString(16)}`,
+            data: encodeFunctionData({
+              abi: ritualWalletAbi,
+              functionName: "deposit",
+              args: [lockDuration],
+            }),
+          },
+        ],
+      });
+      setDepositState({ status: "submitted", hash });
+      window.setTimeout(() => {
+        refreshWallet(provider, wallet.address).catch(() => undefined);
+      }, 2500);
+    } catch (error) {
+      setDepositState({
+        status: "error",
+        error: error instanceof Error ? error.message : "RitualWallet deposit was rejected.",
+      });
+    }
+  }, [depositAmount, depositLock, refreshWallet, wallet.address]);
 
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
@@ -950,6 +1039,54 @@ function App() {
                 ))}
               </div>
             </section>
+
+            {wallet.status === "connected" ? (
+              <section className="inspector-section disclosure-section">
+                <button
+                  className={showFunding ? "inspector-disclosure open" : "inspector-disclosure"}
+                  type="button"
+                  onClick={() => setShowFunding((current) => !current)}
+                  aria-expanded={showFunding}
+                >
+                  <span>
+                    <Wallet size={17} />
+                    RitualWallet funding
+                  </span>
+                  <ChevronDown size={15} />
+                </button>
+                {showFunding ? (
+                  <div className="funding-panel">
+                    <label>
+                      <span>Deposit amount</span>
+                      <input
+                        inputMode="decimal"
+                        value={depositAmount}
+                        onChange={(event) => setDepositAmount(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Lock blocks</span>
+                      <input
+                        inputMode="numeric"
+                        value={depositLockBlocks}
+                        onChange={(event) => setDepositLockBlocks(event.target.value)}
+                      />
+                    </label>
+                    <button className="primary-action" type="button" onClick={depositToRitualWallet} disabled={!canDeposit}>
+                      {depositState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
+                      {depositState.status === "submitting" ? "Confirming" : "Deposit"}
+                    </button>
+                    {wallet.status === "connected" && !isRightChain ? (
+                      <p>Switch to chain 1979 before depositing.</p>
+                    ) : null}
+                    {depositState.status === "submitted" ? (
+                      <p>Submitted {formatHash(depositState.hash)}</p>
+                    ) : null}
+                    {depositState.status === "error" ? <p>{depositState.error}</p> : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <section className="inspector-section disclosure-section">
               <button
