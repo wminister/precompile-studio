@@ -6,24 +6,17 @@ import {
   ArrowUpRight,
   Blocks,
   Check,
-  ChevronRight,
   CircleDot,
   Clipboard,
   Code2,
-  ExternalLink,
-  FlaskConical,
   Globe2,
   KeyRound,
   Link2,
   Loader2,
   LockKeyhole,
-  Play,
   RadioTower,
   RefreshCw,
   Route,
-  Send,
-  ShieldCheck,
-  TerminalSquare,
   Wallet,
   Wand2,
   Zap,
@@ -77,6 +70,7 @@ type Recipe = {
   name: string;
   label: string;
   icon: React.ElementType;
+  status: "live" | "preview";
   description: string;
   fields: ComposerField[];
 };
@@ -142,6 +136,7 @@ const recipes: Recipe[] = [
     name: "HTTP",
     label: "First live recipe",
     icon: Globe2,
+    status: "live",
     description: "Compose the 13-field HTTP precompile input for address 0x0801.",
     fields: [
       { key: "executor", label: "Executor", value: zeroAddress },
@@ -157,6 +152,7 @@ const recipes: Recipe[] = [
     name: "LLM",
     label: "Coming next",
     icon: Wand2,
+    status: "preview",
     description: "Draft prompts, model options, and callback expectations for LLM precompile work.",
     fields: [
       { key: "model", label: "Model", value: "ritual/default" },
@@ -169,6 +165,7 @@ const recipes: Recipe[] = [
     name: "Agent",
     label: "Recipe shell",
     icon: Route,
+    status: "preview",
     description: "Plan a multi-step agent action while making sender-lock risk visible.",
     fields: [
       { key: "objective", label: "Objective", value: "Fetch, summarize, and commit the result.", type: "textarea" },
@@ -181,6 +178,7 @@ const recipes: Recipe[] = [
     name: "Scheduler",
     label: "Guardrail pass",
     icon: Activity,
+    status: "preview",
     description: "Prepare scheduled calls with explicit timing, expiry, and retry windows.",
     fields: [
       { key: "target", label: "Target contract", value: "0x0000000000000000000000000000000000000000" },
@@ -317,6 +315,7 @@ function App() {
     ),
   );
   const [copied, setCopied] = React.useState(false);
+  const [copiedEncoded, setCopiedEncoded] = React.useState(false);
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
   const selectedFields = fieldState[selectedRecipe.id];
@@ -324,6 +323,73 @@ function App() {
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
+  const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
+  const blockingChecks = React.useMemo(() => {
+    const checks = [
+      {
+        ok: rpcState.status === "online",
+        label: rpcState.status === "offline" ? "Ritual RPC is offline" : "Ritual RPC responds",
+        help: rpcState.status === "offline" ? (rpcState.error ?? "Refresh the RPC check.") : "Latest block is available.",
+      },
+      {
+        ok: wallet.status === "connected",
+        label: wallet.status === "connected" ? "Wallet connected" : "Connect wallet",
+        help:
+          wallet.status === "connected"
+            ? formatAddress(wallet.address)
+            : wallet.error ?? "Needed only when you want to fund or send from this browser.",
+      },
+      {
+        ok: wallet.status === "connected" && isRightChain,
+        label: isRightChain ? "Wallet on Ritual chain" : "Switch to chain 1979",
+        help:
+          wallet.status === "connected"
+            ? `Current chain ${wallet.chainId ?? "unknown"}`
+            : "Connect first to verify the wallet chain.",
+      },
+      {
+        ok: wallet.status === "connected" && isRitualWalletFunded,
+        label: isRitualWalletFunded ? "RitualWallet funded" : "Fund RitualWallet",
+        help:
+          wallet.status === "connected"
+            ? wallet.ritualWalletError ?? `${wallet.ritualWalletBalance ?? "0"} RITUAL available`
+            : "Escrow balance appears after wallet connection.",
+      },
+      {
+        ok: selectedRecipe.id === "http" && httpDraft.errors.length === 0 && Boolean(httpDraft.encodedInput),
+        label:
+          selectedRecipe.id === "http"
+            ? httpDraft.errors[0] ?? "HTTP ABI input encodes"
+            : "HTTP is the only live recipe",
+        help:
+          selectedRecipe.id === "http"
+            ? httpDraft.encodedInput
+              ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} encoded bytes`
+              : "Fix the HTTP fields before copying encoded input."
+            : "Preview recipes are planning shells for now.",
+      },
+    ];
+
+    return checks;
+  }, [
+    httpDraft.encodedInput,
+    httpDraft.errors,
+    isRightChain,
+    isRitualWalletFunded,
+    rpcState.error,
+    rpcState.status,
+    selectedRecipe.id,
+    wallet.address,
+    wallet.chainId,
+    wallet.error,
+    wallet.ritualWalletBalance,
+    wallet.ritualWalletError,
+    wallet.status,
+  ]);
+  const openBlockers = blockingChecks.filter((check) => !check.ok);
+  const blockerSummary = openBlockers.length
+    ? `${openBlockers.length} ${openBlockers.length === 1 ? "blocker" : "blockers"}`
+    : "Ready to copy";
 
   const refreshRpc = React.useCallback(async () => {
     const startedAt = performance.now();
@@ -511,6 +577,13 @@ function App() {
     window.setTimeout(() => setCopied(false), 1400);
   }, [requestPreview]);
 
+  const copyEncodedInput = React.useCallback(async () => {
+    if (!httpDraft.encodedInput) return;
+    await navigator.clipboard.writeText(httpDraft.encodedInput);
+    setCopiedEncoded(true);
+    window.setTimeout(() => setCopiedEncoded(false), 1400);
+  }, [httpDraft.encodedInput]);
+
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
       ...current,
@@ -550,14 +623,16 @@ function App() {
       </header>
 
       <section className="workspace">
-        <section className="hero-panel">
-          <h1>Precompile Studio</h1>
-          <p className="hero-copy">
-            Compose, inspect, and prepare Ritual precompile calls with wallet and chain checks visible before submit.
-          </p>
-          <div className="search-shell">
-            <Code2 size={18} />
-            <span>HTTP precompile · 0x0801 · ABI payload preview</span>
+        <section className="workbench-head">
+          <div>
+            <h1>Precompile Studio</h1>
+            <p className="hero-copy">Compose and inspect Ritual precompile payloads before a signed run.</p>
+          </div>
+          <div className="context-strip" aria-label="Current workbench context">
+            <Code2 size={17} />
+            <span>HTTP precompile</span>
+            <code>0x0801</code>
+            <span>13-field ABI</span>
           </div>
         </section>
 
@@ -619,32 +694,65 @@ function App() {
                 <p className="section-label">Composer</p>
                 <h2>Build one async call</h2>
               </div>
-              <span className={isReady ? "ready-pill ok" : "ready-pill"}>
-                {isReady ? <Check size={15} /> : <AlertCircle size={15} />}
-                {isReady ? "Ready" : "Resolve checks"}
+              <span className={openBlockers.length ? "ready-pill" : "ready-pill ok"} aria-live="polite">
+                {openBlockers.length ? <AlertCircle size={15} /> : <Check size={15} />}
+                {blockerSummary}
               </span>
             </div>
 
             <div className="composer-surface explorer-panel">
-              <div className="recipe-tabs" role="tablist" aria-label="Precompile recipes">
+              <div
+                className="recipe-tabs"
+                role="tablist"
+                aria-label="Precompile recipes"
+                onKeyDown={(event) => {
+                  const currentIndex = recipes.findIndex((recipe) => recipe.id === activeRecipe);
+                  const nextIndex =
+                    event.key === "ArrowRight"
+                      ? (currentIndex + 1) % recipes.length
+                      : event.key === "ArrowLeft"
+                        ? (currentIndex - 1 + recipes.length) % recipes.length
+                        : -1;
+                  if (nextIndex >= 0) {
+                    event.preventDefault();
+                    setActiveRecipe(recipes[nextIndex].id);
+                  }
+                }}
+              >
                 {recipes.map((recipe) => {
                   const Icon = recipe.icon;
                   return (
                     <button
                       key={recipe.id}
-                      className={recipe.id === activeRecipe ? "recipe-tab active" : "recipe-tab"}
+                      id={`recipe-tab-${recipe.id}`}
+                      className={[
+                        "recipe-tab",
+                        recipe.id === activeRecipe ? "active" : "",
+                        recipe.status === "preview" ? "preview" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                       onClick={() => setActiveRecipe(recipe.id)}
                       role="tab"
                       aria-selected={recipe.id === activeRecipe}
+                      aria-controls={`recipe-panel-${recipe.id}`}
+                      aria-disabled={recipe.status === "preview" ? "true" : undefined}
+                      tabIndex={recipe.id === activeRecipe ? 0 : -1}
                     >
                       <Icon size={17} />
                       <span>{recipe.name}</span>
+                      {recipe.status === "preview" ? <em>Preview</em> : null}
                     </button>
                   );
                 })}
               </div>
 
-              <div className="composer-intro">
+              <div
+                id={`recipe-panel-${selectedRecipe.id}`}
+                className="composer-intro"
+                role="tabpanel"
+                aria-labelledby={`recipe-tab-${selectedRecipe.id}`}
+              >
                 <span>{selectedRecipe.label}</span>
                 <p>{selectedRecipe.description}</p>
               </div>
@@ -673,10 +781,17 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy request"}
                 </button>
-                <button className="primary-action large" disabled={!isReady || !httpDraft.encodedInput}>
-                  <Send size={16} />
-                  Encode call
+                <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
+                  {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}
+                  {copiedEncoded ? "Copied input" : "Copy encoded input"}
                 </button>
+              </div>
+              <div className={openBlockers.length ? "blocker-panel" : "blocker-panel ok"} aria-live="polite">
+                <div>
+                  <span>{openBlockers.length ? "Blocking checks" : "Payload checks"}</span>
+                  <strong>{openBlockers[0]?.label ?? "HTTP payload is ready to copy"}</strong>
+                </div>
+                <p>{openBlockers[0]?.help ?? "Wallet checks are still shown before any signed run."}</p>
               </div>
             </div>
 
@@ -694,7 +809,7 @@ function App() {
                   <span>{httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded"}</span>
                 </div>
                 {httpDraft.errors.length ? (
-                  <div className="abi-errors">
+                  <div className="abi-errors" role="alert" aria-live="polite">
                     {httpDraft.errors.map((error) => (
                       <p key={error}>{error}</p>
                     ))}
@@ -720,7 +835,7 @@ function App() {
                 <CircleDot size={17} />
                 <span>Run path</span>
               </div>
-              <strong>{isReady ? "Ready" : "Checks pending"}</strong>
+              <strong>{blockerSummary}</strong>
             </div>
 
             <section className="inspector-section run-path">
@@ -740,15 +855,12 @@ function App() {
             <section className="inspector-section">
               <div className="inspector-title compact-title">
                 <LockKeyhole size={17} />
-                <span>Current guardrails</span>
+                <span>Blocking checks</span>
               </div>
-              <div className="guard-list">
-                <Guard ok={rpcState.status === "online"} label="Ritual RPC responds" />
-                <Guard ok={wallet.status === "connected"} label="Wallet connected" />
-                <Guard ok={wallet.status === "connected" && isRightChain} label="Wallet on chain 1979" />
-                <Guard ok={wallet.status === "connected" && isRitualWalletFunded} label="RitualWallet funded" />
-                <Guard ok={selectedRecipe.id === "http"} label="HTTP recipe has live fields" />
-                <Guard ok={selectedRecipe.id !== "http" || httpDraft.errors.length === 0} label="HTTP ABI input encodes" />
+              <div className="guard-list" aria-live="polite">
+                {blockingChecks.map((check) => (
+                  <Guard key={check.label} ok={check.ok} label={check.label} help={check.help} />
+                ))}
               </div>
             </section>
 
@@ -767,19 +879,6 @@ function App() {
               </div>
             </section>
 
-            <section className="inspector-section terminal-panel">
-              <div className="inspector-title compact-title">
-                <FlaskConical size={17} />
-                <span>Runner status</span>
-              </div>
-              <p>
-                The composer now produces the HTTP precompile input. The next build adds a tiny contract runner so the
-                encoded input can be sent as a signed transaction.
-              </p>
-              <button className="ghost-link full">
-                Open runner spec <ChevronRight size={15} />
-              </button>
-            </section>
           </aside>
         </section>
       </section>
@@ -812,11 +911,12 @@ function StatusItem({
   );
 }
 
-function Guard({ ok, label }: { ok: boolean; label: string }) {
+function Guard({ ok, label, help }: { ok: boolean; label: string; help?: string }) {
   return (
     <div className={ok ? "guard ok" : "guard"}>
       {ok ? <Check size={13} /> : <AlertCircle size={13} />}
       <span>{label}</span>
+      {help ? <small>{help}</small> : null}
     </div>
   );
 }
