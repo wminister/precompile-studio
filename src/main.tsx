@@ -14,7 +14,6 @@ import {
   FlaskConical,
   Globe2,
   KeyRound,
-  Layers3,
   Link2,
   Loader2,
   LockKeyhole,
@@ -523,45 +522,53 @@ function App() {
 
   return (
     <main className="studio-shell">
-      <aside className="rail" aria-label="Primary">
-        <a className="brand-mark" href="/" aria-label="Precompile Studio home">
-          <Blocks size={28} />
-        </a>
-        <nav className="rail-nav">
-          <button className="rail-button active" aria-label="Composer">
-            <Code2 size={19} />
-          </button>
-          <button className="rail-button" aria-label="Trace">
-            <TerminalSquare size={19} />
-          </button>
-          <button className="rail-button" aria-label="Wallet">
-            <Wallet size={19} />
-          </button>
-          <button className="rail-button" aria-label="Guards">
-            <ShieldCheck size={19} />
-          </button>
-        </nav>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Ritual Testnet</p>
-            <h1>Precompile Studio</h1>
-          </div>
+      <header className="explorer-header">
+        <div className="header-inner">
+          <a className="brand-lockup" href="/" aria-label="Precompile Studio home">
+            <span className="brand-mark">
+              <Blocks size={22} />
+            </span>
+            <span>Precompile Studio</span>
+          </a>
+          <nav className="header-nav" aria-label="Ritual links">
+            <a href={RITUAL.docs} target="_blank" rel="noreferrer">
+              Docs
+            </a>
+            <a href={RITUAL.faucet} target="_blank" rel="noreferrer">
+              Faucet
+            </a>
+            <a href={RITUAL.explorer} target="_blank" rel="noreferrer">
+              Explorer
+            </a>
+          </nav>
           <div className="topbar-actions">
-            <a className="ghost-link" href={RITUAL.docs} target="_blank" rel="noreferrer">
-              Docs <ExternalLink size={15} />
-            </a>
-            <a className="ghost-link" href={RITUAL.faucet} target="_blank" rel="noreferrer">
-              Faucet <ExternalLink size={15} />
-            </a>
+            <button className="block-pill" onClick={refreshRpc} aria-label="Refresh RPC">
+              <span />
+              {rpcState.block ? rpcState.block.toLocaleString() : "syncing"}
+            </button>
             <button className="primary-action" onClick={connectWallet} disabled={wallet.status === "connecting"}>
               {wallet.status === "connecting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
               {wallet.status === "connected" ? formatAddress(wallet.address) : "Connect"}
             </button>
           </div>
-        </header>
+        </div>
+      </header>
+
+      <section className="workspace">
+        <section className="hero-panel">
+          <div className="hero-mark">
+            <Blocks size={74} />
+          </div>
+          <p className="eyebrow">Ritual Testnet · Chain 1979</p>
+          <h1>Precompile Studio</h1>
+          <p className="hero-copy">
+            Compose, inspect, and prepare Ritual precompile calls with wallet and chain checks visible before submit.
+          </p>
+          <div className="search-shell">
+            <Code2 size={18} />
+            <span>HTTP precompile · 0x0801 · ABI payload preview</span>
+          </div>
+        </section>
 
         <section className="status-strip" aria-label="Readiness checks">
           <StatusItem
@@ -616,10 +623,10 @@ function App() {
 
         <section className="studio-grid">
           <section className="main-stage" aria-label="Composer">
-            <div className="stage-head">
+            <div className="stage-head explorer-panel">
               <div>
                 <p className="section-label">Composer</p>
-                <h2>Build one async call with guardrails visible.</h2>
+                <h2>Build one async call</h2>
               </div>
               <span className={isReady ? "ready-pill ok" : "ready-pill"}>
                 {isReady ? <Check size={15} /> : <AlertCircle size={15} />}
@@ -627,25 +634,25 @@ function App() {
               </span>
             </div>
 
-            <div className="recipe-tabs" role="tablist" aria-label="Precompile recipes">
-              {recipes.map((recipe) => {
-                const Icon = recipe.icon;
-                return (
-                  <button
-                    key={recipe.id}
-                    className={recipe.id === activeRecipe ? "recipe-tab active" : "recipe-tab"}
-                    onClick={() => setActiveRecipe(recipe.id)}
-                    role="tab"
-                    aria-selected={recipe.id === activeRecipe}
-                  >
-                    <Icon size={17} />
-                    <span>{recipe.name}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <div className="composer-surface explorer-panel">
+              <div className="recipe-tabs" role="tablist" aria-label="Precompile recipes">
+                {recipes.map((recipe) => {
+                  const Icon = recipe.icon;
+                  return (
+                    <button
+                      key={recipe.id}
+                      className={recipe.id === activeRecipe ? "recipe-tab active" : "recipe-tab"}
+                      onClick={() => setActiveRecipe(recipe.id)}
+                      role="tab"
+                      aria-selected={recipe.id === activeRecipe}
+                    >
+                      <Icon size={17} />
+                      <span>{recipe.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-            <div className="composer-surface">
               <div className="composer-intro">
                 <span>{selectedRecipe.label}</span>
                 <p>{selectedRecipe.description}</p>
@@ -683,7 +690,7 @@ function App() {
             </div>
 
             {selectedRecipe.id === "http" ? (
-              <div className="abi-panel">
+              <div className="abi-panel explorer-panel">
                 <div>
                   <span>HTTP ABI</span>
                   <strong>{httpDraft.encodedInput ? "Encoded input ready" : "Input needs attention"}</strong>
@@ -705,7 +712,7 @@ function App() {
               </div>
             ) : null}
 
-            <div className="preview-shell">
+            <div className="preview-shell explorer-panel">
               <div className="preview-header">
                 <span>Request preview</span>
                 <a href={RITUAL.explorer} target="_blank" rel="noreferrer">
