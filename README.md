@@ -60,7 +60,7 @@ Submitted runner transactions are kept in the current browser session and polled
 
 Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
-Composer fields can also be saved as local recipe presets. Presets are stored in the browser and can be loaded back into the matching recipe tab.
+Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON.
 
 ## Vercel
 
@@ -90,4 +90,4 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 1. Add explorer-linked transaction history once the explorer transaction route is verified.
 2. Track async job lifecycle and callback completion.
 3. Add safer runner deployment instructions or a Foundry/Hardhat package.
-4. Add import/export for reusable recipe presets.
+4. Add preset schema docs and examples.

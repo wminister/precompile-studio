@@ -10,6 +10,7 @@ import {
   CircleDot,
   Clipboard,
   Code2,
+  Download,
   Globe2,
   KeyRound,
   Link2,
@@ -18,6 +19,7 @@ import {
   RadioTower,
   RefreshCw,
   Route,
+  Upload,
   Wallet,
   Wand2,
   Zap,
@@ -389,6 +391,22 @@ function parseRecipePresets(value: string | null): RecipePreset[] {
   }
 }
 
+function parseRecipePresetImport(value: string): RecipePreset[] {
+  try {
+    const parsed = JSON.parse(value);
+    const candidates = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.presets)
+        ? parsed.presets
+        : parsed?.preset
+          ? [parsed.preset]
+          : [parsed];
+    return parseRecipePresets(JSON.stringify(candidates));
+  } catch {
+    return [];
+  }
+}
+
 function parseHeaders(input: string) {
   return input
     .split("\n")
@@ -489,7 +507,11 @@ function App() {
   const [showRunPath, setShowRunPath] = React.useState(false);
   const [showContracts, setShowContracts] = React.useState(false);
   const [showFunding, setShowFunding] = React.useState(true);
+  const [showPresetTransfer, setShowPresetTransfer] = React.useState(false);
   const [presetLabel, setPresetLabel] = React.useState("");
+  const [presetImportValue, setPresetImportValue] = React.useState("");
+  const [presetTransferMessage, setPresetTransferMessage] = React.useState("");
+  const [copiedPresetJson, setCopiedPresetJson] = React.useState(false);
   const [selectedPresetId, setSelectedPresetId] = React.useState("");
   const [recipePresets, setRecipePresets] = React.useState<RecipePreset[]>([]);
   const [depositAmount, setDepositAmount] = React.useState("0.01");
@@ -962,6 +984,46 @@ function App() {
     setSelectedPresetId("");
   }, [selectedPreset]);
 
+  const copySelectedPresetJson = React.useCallback(async () => {
+    if (!selectedPreset) return;
+    await navigator.clipboard.writeText(
+      JSON.stringify(
+        {
+          version: 1,
+          preset: selectedPreset,
+        },
+        null,
+        2,
+      ),
+    );
+    setCopiedPresetJson(true);
+    setPresetTransferMessage("Preset JSON copied.");
+    window.setTimeout(() => setCopiedPresetJson(false), 1400);
+  }, [selectedPreset]);
+
+  const importRecipePresetJson = React.useCallback(() => {
+    const imported = parseRecipePresetImport(presetImportValue);
+    if (!imported.length) {
+      setPresetTransferMessage("Paste a valid Precompile Studio preset JSON.");
+      return;
+    }
+
+    const now = Date.now();
+    const normalized = imported.map((preset, index) => ({
+      ...preset,
+      id: `${preset.recipeId}-${now}-${index}`,
+      updatedAt: now,
+    }));
+    setRecipePresets((current) => {
+      const next = [...normalized, ...current].slice(0, 24);
+      window.localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setSelectedPresetId(normalized[0]?.recipeId === selectedRecipe.id ? normalized[0].id : "");
+    setPresetImportValue("");
+    setPresetTransferMessage(`${normalized.length} ${normalized.length === 1 ? "preset" : "presets"} imported.`);
+  }, [presetImportValue, selectedRecipe.id]);
+
   const saveRunnerContract = React.useCallback(() => {
     if (!runnerAddressOk) return;
     const normalizedAddress = cleanRunnerAddress;
@@ -1351,7 +1413,43 @@ function App() {
                 <button className="secondary-action preset-forget" type="button" onClick={forgetRecipePreset} disabled={!selectedPreset}>
                   Forget
                 </button>
+                <button
+                  className={showPresetTransfer ? "section-toggle open preset-transfer-toggle" : "section-toggle preset-transfer-toggle"}
+                  type="button"
+                  onClick={() => setShowPresetTransfer((current) => !current)}
+                  aria-expanded={showPresetTransfer}
+                >
+                  <ChevronDown size={15} />
+                  JSON
+                </button>
               </div>
+
+              {showPresetTransfer ? (
+                <div className="preset-transfer">
+                  <div className="preset-transfer-actions">
+                    <button className="secondary-action" type="button" onClick={copySelectedPresetJson} disabled={!selectedPreset}>
+                      {copiedPresetJson ? <Check size={15} /> : <Download size={15} />}
+                      {copiedPresetJson ? "Copied" : "Copy selected"}
+                    </button>
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={importRecipePresetJson}
+                      disabled={!presetImportValue.trim()}
+                    >
+                      <Upload size={15} />
+                      Import JSON
+                    </button>
+                  </div>
+                  <textarea
+                    value={presetImportValue}
+                    onChange={(event) => setPresetImportValue(event.target.value)}
+                    placeholder="Paste a Precompile Studio preset JSON"
+                    spellCheck={false}
+                  />
+                  {presetTransferMessage ? <p>{presetTransferMessage}</p> : null}
+                </div>
+              ) : null}
 
               <div className="field-grid">
                 {selectedFields.map((field) => {
