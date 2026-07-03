@@ -32,6 +32,10 @@ npm run dev
 
 Open the local URL printed by Vite.
 
+## Design Direction
+
+See [`DESIGN.md`](./DESIGN.md) before making UI changes. The app should stay close to Ritual Explorer's calm, dense, dark builder-tool aesthetic and avoid generic dashboard sprawl.
+
 ## Build
 
 ```bash
