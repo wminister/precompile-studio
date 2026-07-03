@@ -12,6 +12,8 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Ritual chain switch/add flow for chain ID `1979`
 - Wallet balance readout
 - RitualWallet deposit flow for funding precompile escrow
+- Minimal HTTP runner contract source
+- Runner transaction calldata generation and wallet submit flow
 - HTTP, LLM, Agent, and Scheduler recipe shells
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
@@ -45,6 +47,12 @@ npm run build
 
 The production output is written to `dist/`.
 
+## HTTP Runner
+
+The minimal Solidity runner lives at [`contracts/HttpPrecompileRunner.sol`](./contracts/HttpPrecompileRunner.sol).
+
+Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, then use the HTTP composer to generate and submit `fetchHttp(bytes)` calldata. Users still pay their own gas and confirm the transaction in their wallet.
+
 ## Vercel
 
 Recommended settings:
@@ -70,8 +78,7 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 ## Next Milestones
 
-1. Add a minimal Solidity callback runner for HTTP precompile calls.
-2. Generate runner transaction calldata from the encoded HTTP input.
-3. Submit runner transactions from the connected wallet.
-4. Parse receipts and surface `spcCalls`.
-5. Track async job lifecycle and callback completion.
+1. Parse submitted transaction receipts and surface `spcCalls`.
+2. Add explorer-linked transaction history for the current session.
+3. Track async job lifecycle and callback completion.
+4. Add safer runner deployment instructions or a Foundry/Hardhat package.

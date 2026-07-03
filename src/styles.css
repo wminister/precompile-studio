@@ -654,6 +654,12 @@ select:focus {
   padding: 12px 14px;
 }
 
+.runner-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
 .abi-panel > div:first-child {
   display: flex;
   align-items: center;
@@ -667,6 +673,12 @@ select:focus {
 }
 
 .abi-panel strong {
+  color: var(--accent-ink);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.runner-panel strong {
   color: var(--accent-ink);
   font-size: 0.84rem;
   font-weight: 500;
@@ -766,6 +778,33 @@ select:focus {
   padding: 9px 10px;
   font-size: 0.84rem;
   font-weight: 700;
+}
+
+.runner-address {
+  display: grid;
+  gap: 6px;
+}
+
+.runner-address span,
+.runner-panel p {
+  color: var(--quiet);
+  font-size: 0.72rem;
+}
+
+.runner-address input {
+  font-family: var(--mono);
+}
+
+.runner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.runner-panel p {
+  margin: 0;
+  line-height: 1.35;
 }
 
 .preview-shell {
@@ -1251,6 +1290,11 @@ pre {
   }
 
   .composer-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .runner-actions {
     display: grid;
     grid-template-columns: 1fr;
   }

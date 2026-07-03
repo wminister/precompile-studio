@@ -71,6 +71,12 @@ type DepositState = {
   error?: string;
 };
 
+type TransactionState = {
+  status: "idle" | "submitting" | "submitted" | "error";
+  hash?: string;
+  error?: string;
+};
+
 type RecipeId = "http" | "llm" | "agent" | "scheduler";
 
 type Recipe = {
@@ -144,6 +150,29 @@ const ritualWalletAbi = [
     outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
+
+const httpRunnerAbi = [
+  {
+    type: "function",
+    name: "fetchHttp",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "httpInput", type: "bytes" }],
+    outputs: [
+      {
+        name: "response",
+        type: "tuple",
+        components: [
+          { name: "statusCode", type: "uint16" },
+          { name: "headerKeys", type: "string[]" },
+          { name: "headerValues", type: "string[]" },
+          { name: "body", type: "bytes" },
+          { name: "errorMessage", type: "string" },
+        ],
+      },
+    ],
+  },
+] as const;
+
 
 const recipes: Recipe[] = [
   {
@@ -336,6 +365,9 @@ function App() {
   const [depositAmount, setDepositAmount] = React.useState("0.01");
   const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
+  const [runnerAddress, setRunnerAddress] = React.useState("");
+  const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
       (acc, recipe) => ({ ...acc, [recipe.id]: recipe.fields }),
@@ -368,6 +400,23 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
+  const cleanRunnerAddress = runnerAddress.trim();
+  const runnerAddressOk = isAddress(cleanRunnerAddress);
+  const runnerCalldata =
+    selectedRecipe.id === "http" && httpDraft.encodedInput
+      ? encodeFunctionData({
+          abi: httpRunnerAbi,
+          functionName: "fetchHttp",
+          args: [httpDraft.encodedInput as `0x${string}`],
+        })
+      : undefined;
+  const canSendRunner =
+    Boolean(runnerCalldata) &&
+    runnerAddressOk &&
+    wallet.status === "connected" &&
+    isRightChain &&
+    isRitualWalletFunded &&
+    runnerTxState.status !== "submitting";
   const blockingChecks = React.useMemo(() => {
     const checks = [
       {
@@ -660,6 +709,13 @@ function App() {
     window.setTimeout(() => setCopiedEncoded(false), 1400);
   }, [httpDraft.encodedInput]);
 
+  const copyRunnerCalldata = React.useCallback(async () => {
+    if (!runnerCalldata) return;
+    await navigator.clipboard.writeText(runnerCalldata);
+    setCopiedRunnerCalldata(true);
+    window.setTimeout(() => setCopiedRunnerCalldata(false), 1400);
+  }, [runnerCalldata]);
+
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
   }, []);
@@ -714,6 +770,34 @@ function App() {
       });
     }
   }, [depositAmount, depositLock, refreshWallet, wallet.address]);
+
+  const sendRunnerTransaction = React.useCallback(async () => {
+    const provider = window.ethereum;
+    if (!provider || !wallet.address || !runnerCalldata || !runnerAddressOk) {
+      setRunnerTxState({ status: "error", error: "Connect wallet, encode HTTP input, and set a runner address." });
+      return;
+    }
+
+    setRunnerTxState({ status: "submitting" });
+    try {
+      const hash = await provider.request<string>({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet.address,
+            to: cleanRunnerAddress,
+            data: runnerCalldata,
+          },
+        ],
+      });
+      setRunnerTxState({ status: "submitted", hash });
+    } catch (error) {
+      setRunnerTxState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Runner transaction was rejected.",
+      });
+    }
+  }, [cleanRunnerAddress, runnerAddressOk, runnerCalldata, wallet.address]);
 
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
@@ -995,6 +1079,39 @@ function App() {
                     ))}
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {selectedRecipe.id === "http" ? (
+              <div className="runner-panel utility-panel">
+                <div className="section-head">
+                  <div>
+                    <span>Runner transaction</span>
+                    <strong>{runnerCalldata ? "Calldata prepared" : "Resolve ABI input first"}</strong>
+                  </div>
+                </div>
+                <label className="runner-address">
+                  <span>Runner contract</span>
+                  <input
+                    value={runnerAddress}
+                    onChange={(event) => setRunnerAddress(event.target.value)}
+                    placeholder="0x..."
+                    spellCheck={false}
+                  />
+                </label>
+                <div className="runner-actions">
+                  <button className="secondary-action" type="button" onClick={copyRunnerCalldata} disabled={!runnerCalldata}>
+                    {copiedRunnerCalldata ? <Check size={16} /> : <Clipboard size={16} />}
+                    {copiedRunnerCalldata ? "Copied calldata" : "Copy calldata"}
+                  </button>
+                  <button className="primary-action" type="button" onClick={sendRunnerTransaction} disabled={!canSendRunner}>
+                    {runnerTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
+                    {runnerTxState.status === "submitting" ? "Confirming" : "Send runner tx"}
+                  </button>
+                </div>
+                {!runnerAddressOk && cleanRunnerAddress ? <p>Runner address must be a valid contract address.</p> : null}
+                {runnerTxState.status === "submitted" ? <p>Submitted {formatHash(runnerTxState.hash)}</p> : null}
+                {runnerTxState.status === "error" ? <p>{runnerTxState.error}</p> : null}
               </div>
             ) : null}
 
