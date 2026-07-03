@@ -328,6 +328,22 @@ function describeSpcCalls(receipt?: RpcReceipt) {
   return "spcCalls present";
 }
 
+function isRecipeId(value: string): value is RecipeId {
+  return recipes.some((recipe) => recipe.id === value);
+}
+
+function normalizePresetFields(recipeId: RecipeId, fields: Array<Pick<ComposerField, "key" | "value">>) {
+  const recipe = recipes.find((item) => item.id === recipeId);
+  if (!recipe) return [];
+  return recipe.fields.map((baseField) => {
+    const savedField = fields.find((field) => field.key === baseField.key);
+    return {
+      ...baseField,
+      value: savedField?.value ?? baseField.value,
+    };
+  });
+}
+
 function parseSavedRunners(value: string | null): SavedRunner[] {
   if (!value) return [];
   try {
@@ -366,22 +382,23 @@ function parseRecipePresets(value: string | null): RecipePreset[] {
           "fields" in item &&
           typeof item.id === "string" &&
           typeof item.recipeId === "string" &&
-          recipes.some((recipe) => recipe.id === item.recipeId) &&
+          isRecipeId(item.recipeId) &&
           typeof item.label === "string" &&
           Array.isArray(item.fields),
       )
       .map((preset) => ({
         ...preset,
-        fields: preset.fields.filter(
-          (field): field is ComposerField =>
-            field &&
-            typeof field === "object" &&
-            "key" in field &&
-            "label" in field &&
-            "value" in field &&
-            typeof field.key === "string" &&
-            typeof field.label === "string" &&
-            typeof field.value === "string",
+        fields: normalizePresetFields(
+          preset.recipeId,
+          (preset.fields as unknown[]).filter(
+            (field): field is Pick<ComposerField, "key" | "value"> =>
+              field !== null &&
+              typeof field === "object" &&
+              "key" in field &&
+              "value" in field &&
+              typeof field.key === "string" &&
+              typeof field.value === "string",
+          ),
         ),
       }))
       .filter((preset) => preset.fields.length > 0)
@@ -970,7 +987,7 @@ function App() {
     if (!selectedPreset) return;
     setFieldState((current) => ({
       ...current,
-      [selectedPreset.recipeId]: selectedPreset.fields.map((field) => ({ ...field })),
+      [selectedPreset.recipeId]: normalizePresetFields(selectedPreset.recipeId, selectedPreset.fields),
     }));
   }, [selectedPreset]);
 
