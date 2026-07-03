@@ -113,6 +113,7 @@ type RecipePreset = {
   label: string;
   fields: ComposerField[];
   updatedAt: number;
+  source?: "local" | "example";
 };
 
 type RecipeId = "http" | "llm" | "agent" | "scheduler";
@@ -272,6 +273,39 @@ const recipes: Recipe[] = [
   },
 ];
 
+const builtInRecipePresets: RecipePreset[] = [
+  {
+    id: "example-http-github-repo",
+    recipeId: "http",
+    label: "Example: GitHub repo metadata",
+    updatedAt: 0,
+    source: "example",
+    fields: normalizePresetFields("http", [
+      { key: "executor", value: zeroAddress },
+      { key: "method", value: "GET" },
+      { key: "ttl", value: "30" },
+      { key: "url", value: "https://api.github.com/repos/ritual-net/infernet-ml" },
+      { key: "headers", value: "accept: application/json" },
+      { key: "body", value: "" },
+    ]),
+  },
+  {
+    id: "example-http-json-post",
+    recipeId: "http",
+    label: "Example: JSON POST body",
+    updatedAt: 0,
+    source: "example",
+    fields: normalizePresetFields("http", [
+      { key: "executor", value: zeroAddress },
+      { key: "method", value: "POST" },
+      { key: "ttl", value: "45" },
+      { key: "url", value: "https://httpbin.org/post" },
+      { key: "headers", value: "content-type: application/json" },
+      { key: "body", value: "{\"hello\":\"ritual\"}" },
+    ]),
+  },
+];
+
 const timeline = [
   { title: "Readiness", body: "RPC, wallet, chain, and escrow checks." },
   { title: "Encode", body: "13-field ABI payload for 0x0801." },
@@ -388,6 +422,7 @@ function parseRecipePresets(value: string | null): RecipePreset[] {
       )
       .map((preset) => ({
         ...preset,
+        source: "local" as const,
         fields: normalizePresetFields(
           preset.recipeId,
           (preset.fields as unknown[]).filter(
@@ -555,7 +590,15 @@ function App() {
     () => recipePresets.filter((preset) => preset.recipeId === selectedRecipe.id),
     [recipePresets, selectedRecipe.id],
   );
-  const selectedPreset = activeRecipePresets.find((preset) => preset.id === selectedPresetId);
+  const activeBuiltInPresets = React.useMemo(
+    () => builtInRecipePresets.filter((preset) => preset.recipeId === selectedRecipe.id),
+    [selectedRecipe.id],
+  );
+  const visibleRecipePresets = React.useMemo(
+    () => [...activeBuiltInPresets, ...activeRecipePresets],
+    [activeBuiltInPresets, activeRecipePresets],
+  );
+  const selectedPreset = visibleRecipePresets.find((preset) => preset.id === selectedPresetId);
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
@@ -844,10 +887,10 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (selectedPresetId && !activeRecipePresets.some((preset) => preset.id === selectedPresetId)) {
+    if (selectedPresetId && !visibleRecipePresets.some((preset) => preset.id === selectedPresetId)) {
       setSelectedPresetId("");
     }
-  }, [activeRecipePresets, selectedPresetId]);
+  }, [selectedPresetId, visibleRecipePresets]);
 
   React.useEffect(() => {
     const provider = window.ethereum;
@@ -973,6 +1016,7 @@ function App() {
       label,
       fields: selectedFields.map((field) => ({ ...field })),
       updatedAt: Date.now(),
+      source: "local",
     };
     setRecipePresets((current) => {
       const next = [nextPreset, ...current].slice(0, 24);
@@ -992,7 +1036,7 @@ function App() {
   }, [selectedPreset]);
 
   const forgetRecipePreset = React.useCallback(() => {
-    if (!selectedPreset) return;
+    if (!selectedPreset || selectedPreset.source === "example") return;
     setRecipePresets((current) => {
       const next = current.filter((preset) => preset.id !== selectedPreset.id);
       window.localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(next));
@@ -1416,9 +1460,9 @@ function App() {
                   <span>Saved preset</span>
                   <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
                     <option value="">Select preset</option>
-                    {activeRecipePresets.map((preset) => (
+                    {visibleRecipePresets.map((preset) => (
                       <option value={preset.id} key={preset.id}>
-                        {preset.label}
+                        {preset.source === "example" ? `${preset.label}` : preset.label}
                       </option>
                     ))}
                   </select>
@@ -1427,7 +1471,12 @@ function App() {
                   <RefreshCw size={15} />
                   Load
                 </button>
-                <button className="secondary-action preset-forget" type="button" onClick={forgetRecipePreset} disabled={!selectedPreset}>
+                <button
+                  className="secondary-action preset-forget"
+                  type="button"
+                  onClick={forgetRecipePreset}
+                  disabled={!selectedPreset || selectedPreset.source === "example"}
+                >
                   Forget
                 </button>
                 <button

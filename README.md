@@ -17,6 +17,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Session runner transaction history with receipt polling
 - Local saved runner contracts scoped by wallet
 - Local recipe presets for saving and reloading composer fields
+- Built-in HTTP recipe examples for GET and JSON POST requests
 - HTTP, LLM, Agent, and Scheduler recipe shells
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
