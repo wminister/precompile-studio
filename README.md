@@ -16,6 +16,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Runner transaction calldata generation and wallet submit flow
 - Session runner transaction history with receipt polling
 - Local saved runner contracts scoped by wallet
+- Local recipe presets for saving and reloading composer fields
 - HTTP, LLM, Agent, and Scheduler recipe shells
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
@@ -58,6 +59,8 @@ Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, 
 Submitted runner transactions are kept in the current browser session and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash.
 
 Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
+
+Composer fields can also be saved as local recipe presets. Presets are stored in the browser and can be loaded back into the matching recipe tab.
 
 ## Vercel
 

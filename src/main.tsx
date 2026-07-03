@@ -105,6 +105,14 @@ type SavedRunner = {
   updatedAt: number;
 };
 
+type RecipePreset = {
+  id: string;
+  recipeId: RecipeId;
+  label: string;
+  fields: ComposerField[];
+  updatedAt: number;
+};
+
 type RecipeId = "http" | "llm" | "agent" | "scheduler";
 
 type Recipe = {
@@ -145,6 +153,7 @@ const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
+const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 
 const HTTP_METHOD_IDS: Record<string, number> = {
   GET: 1,
@@ -339,6 +348,47 @@ function parseSavedRunners(value: string | null): SavedRunner[] {
   }
 }
 
+function parseRecipePresets(value: string | null): RecipePreset[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is RecipePreset =>
+          item &&
+          typeof item === "object" &&
+          "id" in item &&
+          "recipeId" in item &&
+          "label" in item &&
+          "fields" in item &&
+          typeof item.id === "string" &&
+          typeof item.recipeId === "string" &&
+          recipes.some((recipe) => recipe.id === item.recipeId) &&
+          typeof item.label === "string" &&
+          Array.isArray(item.fields),
+      )
+      .map((preset) => ({
+        ...preset,
+        fields: preset.fields.filter(
+          (field): field is ComposerField =>
+            field &&
+            typeof field === "object" &&
+            "key" in field &&
+            "label" in field &&
+            "value" in field &&
+            typeof field.key === "string" &&
+            typeof field.label === "string" &&
+            typeof field.value === "string",
+        ),
+      }))
+      .filter((preset) => preset.fields.length > 0)
+      .slice(0, 24);
+  } catch {
+    return [];
+  }
+}
+
 function parseHeaders(input: string) {
   return input
     .split("\n")
@@ -439,6 +489,9 @@ function App() {
   const [showRunPath, setShowRunPath] = React.useState(false);
   const [showContracts, setShowContracts] = React.useState(false);
   const [showFunding, setShowFunding] = React.useState(true);
+  const [presetLabel, setPresetLabel] = React.useState("");
+  const [selectedPresetId, setSelectedPresetId] = React.useState("");
+  const [recipePresets, setRecipePresets] = React.useState<RecipePreset[]>([]);
   const [depositAmount, setDepositAmount] = React.useState("0.01");
   const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
@@ -459,6 +512,11 @@ function App() {
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
   const selectedFields = fieldState[selectedRecipe.id];
+  const activeRecipePresets = React.useMemo(
+    () => recipePresets.filter((preset) => preset.recipeId === selectedRecipe.id),
+    [recipePresets, selectedRecipe.id],
+  );
+  const selectedPreset = activeRecipePresets.find((preset) => preset.id === selectedPresetId);
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
@@ -743,6 +801,16 @@ function App() {
   }, [wallet.address]);
 
   React.useEffect(() => {
+    setRecipePresets(parseRecipePresets(window.localStorage.getItem(PRESET_STORAGE_KEY)));
+  }, []);
+
+  React.useEffect(() => {
+    if (selectedPresetId && !activeRecipePresets.some((preset) => preset.id === selectedPresetId)) {
+      setSelectedPresetId("");
+    }
+  }, [activeRecipePresets, selectedPresetId]);
+
+  React.useEffect(() => {
     const provider = window.ethereum;
     if (!provider) return;
     refreshWallet(provider).catch(() => undefined);
@@ -855,6 +923,44 @@ function App() {
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
   }, []);
+
+  const saveRecipePreset = React.useCallback(() => {
+    const label = presetLabel.trim();
+    if (!label) return;
+
+    const nextPreset: RecipePreset = {
+      id: `${selectedRecipe.id}-${Date.now()}`,
+      recipeId: selectedRecipe.id,
+      label,
+      fields: selectedFields.map((field) => ({ ...field })),
+      updatedAt: Date.now(),
+    };
+    setRecipePresets((current) => {
+      const next = [nextPreset, ...current].slice(0, 24);
+      window.localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setPresetLabel("");
+    setSelectedPresetId(nextPreset.id);
+  }, [presetLabel, selectedFields, selectedRecipe.id]);
+
+  const applyRecipePreset = React.useCallback(() => {
+    if (!selectedPreset) return;
+    setFieldState((current) => ({
+      ...current,
+      [selectedPreset.recipeId]: selectedPreset.fields.map((field) => ({ ...field })),
+    }));
+  }, [selectedPreset]);
+
+  const forgetRecipePreset = React.useCallback(() => {
+    if (!selectedPreset) return;
+    setRecipePresets((current) => {
+      const next = current.filter((preset) => preset.id !== selectedPreset.id);
+      window.localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setSelectedPresetId("");
+  }, [selectedPreset]);
 
   const saveRunnerContract = React.useCallback(() => {
     if (!runnerAddressOk) return;
@@ -1212,6 +1318,39 @@ function App() {
                 aria-labelledby={`recipe-tab-${selectedRecipe.id}`}
               >
                 <p>{selectedRecipe.description}</p>
+              </div>
+
+              <div className="preset-controls" aria-label="Recipe presets">
+                <label className="preset-label">
+                  <span>Preset label</span>
+                  <input
+                    value={presetLabel}
+                    onChange={(event) => setPresetLabel(event.target.value)}
+                    placeholder={`Save current ${selectedRecipe.name} fields`}
+                  />
+                </label>
+                <button className="secondary-action" type="button" onClick={saveRecipePreset} disabled={!presetLabel.trim()}>
+                  <Clipboard size={15} />
+                  Save preset
+                </button>
+                <label className="preset-select">
+                  <span>Saved preset</span>
+                  <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
+                    <option value="">Select preset</option>
+                    {activeRecipePresets.map((preset) => (
+                      <option value={preset.id} key={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="secondary-action" type="button" onClick={applyRecipePreset} disabled={!selectedPreset}>
+                  <RefreshCw size={15} />
+                  Load
+                </button>
+                <button className="secondary-action preset-forget" type="button" onClick={forgetRecipePreset} disabled={!selectedPreset}>
+                  Forget
+                </button>
               </div>
 
               <div className="field-grid">

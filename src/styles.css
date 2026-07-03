@@ -585,6 +585,45 @@ select:focus-visible {
   text-align: left;
 }
 
+.preset-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) auto minmax(170px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 8px;
+}
+
+.preset-controls label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.preset-controls span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.preset-controls input,
+.preset-controls select {
+  min-height: 34px;
+  font-size: 0.78rem;
+}
+
+.preset-controls .secondary-action {
+  min-height: 34px;
+  padding-inline: 10px;
+  font-size: 0.78rem;
+}
+
+.preset-forget {
+  color: var(--quiet);
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1492,6 +1531,7 @@ pre {
   }
 
   .field-grid,
+  .preset-controls,
   .inspector {
     grid-template-columns: 1fr;
   }
