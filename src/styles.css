@@ -454,7 +454,7 @@ select:focus-visible {
 .composer-surface {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   overflow: hidden;
   padding: 0 16px 16px;
 }
@@ -468,12 +468,12 @@ select:focus-visible {
 .recipe-tab {
   position: relative;
   display: inline-flex;
-  min-height: 44px;
+  min-height: 42px;
   align-items: center;
   gap: 8px;
   color: var(--quiet);
   background: transparent;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   font-weight: 500;
   transition:
     color 160ms ease,
@@ -508,7 +508,7 @@ select:focus-visible {
   max-width: 72ch;
   margin: 0;
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   line-height: 1.35;
   text-align: left;
 }
@@ -516,14 +516,14 @@ select:focus-visible {
 .field-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .field {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .field.wide {
@@ -532,7 +532,7 @@ select:focus-visible {
 
 .field span {
   color: var(--quiet);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 500;
 }
 
@@ -540,14 +540,14 @@ input,
 textarea,
 select {
   width: 100%;
-  min-height: 40px;
+  min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
   outline: none;
   color: var(--ink);
   background: var(--field);
-  padding: 9px 11px;
-  font-size: 0.9rem;
+  padding: 8px 10px;
+  font-size: 0.86rem;
   transition:
     border-color 160ms ease,
     background 160ms ease,
@@ -555,7 +555,7 @@ select {
 }
 
 textarea {
-  min-height: 92px;
+  min-height: 82px;
   resize: vertical;
 }
 
@@ -1115,7 +1115,8 @@ pre {
   }
 
   .recipe-tab {
-    min-width: 112px;
+    min-width: 82px;
+    gap: 6px;
     justify-content: center;
   }
 
@@ -1154,6 +1155,10 @@ pre {
 
   .status-item strong {
     font-size: 0.78rem;
+  }
+
+  textarea {
+    min-height: 76px;
   }
 
 }

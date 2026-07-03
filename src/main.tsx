@@ -176,7 +176,7 @@ const recipes: Recipe[] = [
   },
   {
     id: "scheduler",
-    name: "Scheduler",
+    name: "Schedule",
     label: "Guardrail pass",
     icon: Activity,
     status: "preview",
@@ -767,22 +767,25 @@ function App() {
               </div>
 
               <div className="field-grid">
-                {selectedFields.map((field) => (
-                  <label className={field.type === "textarea" ? "field wide" : "field"} key={field.key}>
-                    <span>{field.label}</span>
-                    {field.type === "textarea" ? (
-                      <textarea value={field.value} onChange={(event) => updateField(field.key, event.target.value)} />
-                    ) : field.type === "select" ? (
-                      <select value={field.value} onChange={(event) => updateField(field.key, event.target.value)}>
-                        {field.options?.map((option) => (
-                          <option key={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input value={field.value} onChange={(event) => updateField(field.key, event.target.value)} />
-                    )}
-                  </label>
-                ))}
+                {selectedFields.map((field) => {
+                  const isWideField = field.type === "textarea" || field.key === "url";
+                  return (
+                    <label className={isWideField ? "field wide" : "field"} key={field.key}>
+                      <span>{field.label}</span>
+                      {field.type === "textarea" ? (
+                        <textarea value={field.value} onChange={(event) => updateField(field.key, event.target.value)} />
+                      ) : field.type === "select" ? (
+                        <select value={field.value} onChange={(event) => updateField(field.key, event.target.value)}>
+                          {field.options?.map((option) => (
+                            <option key={option}>{option}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input value={field.value} onChange={(event) => updateField(field.key, event.target.value)} />
+                      )}
+                    </label>
+                  );
+                })}
               </div>
 
               <div className="composer-actions">
