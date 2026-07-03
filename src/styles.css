@@ -465,6 +465,13 @@ select:focus-visible {
   background: var(--accent-soft);
 }
 
+.ready-pill.preview {
+  min-width: 116px;
+  border-color: rgba(125, 211, 252, 0.18);
+  color: rgba(125, 211, 252, 0.86);
+  background: rgba(125, 211, 252, 0.06);
+}
+
 .composer-surface {
   display: flex;
   flex-direction: column;
@@ -601,6 +608,10 @@ select:focus {
 
 .composer-actions {
   justify-content: flex-end;
+}
+
+.composer-actions:has(> :only-child) {
+  justify-content: flex-start;
 }
 
 .abi-panel {
@@ -1151,6 +1162,10 @@ pre {
   .composer-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .composer-actions:has(> :only-child) {
+    justify-content: stretch;
   }
 
   .ready-pill {

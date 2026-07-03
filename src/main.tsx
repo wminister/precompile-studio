@@ -325,6 +325,7 @@ function App() {
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
+  const isPreviewRecipe = selectedRecipe.status === "preview";
   const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
   const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
   const blockingChecks = React.useMemo(() => {
@@ -403,6 +404,20 @@ function App() {
   const blockerSummary = openBlockers.length
     ? `${openBlockers.length} ${openBlockers.length === 1 ? "blocker" : "blockers"}`
     : "Ready to copy";
+  const stageTitle = selectedRecipe.id === "http" ? "HTTP precompile" : `${selectedRecipe.name} preview`;
+  const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
+  const readyPillClass = [
+    "ready-pill",
+    !isPreviewRecipe && !openBlockers.length ? "ok" : "",
+    isPreviewRecipe ? "preview" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const encodedActionLabel = copiedEncoded
+    ? "Copied input"
+    : httpDraft.encodedInput
+      ? "Copy ABI input"
+      : "Resolve ABI input";
 
   const refreshRpc = React.useCallback(async () => {
     const startedAt = performance.now();
@@ -703,11 +718,11 @@ function App() {
           <section className="main-stage" aria-label="Composer">
             <div className="stage-head">
               <div>
-                <h2>HTTP precompile</h2>
+                <h2>{stageTitle}</h2>
               </div>
-              <span className={openBlockers.length ? "ready-pill" : "ready-pill ok"} aria-live="polite">
-                {openBlockers.length ? <AlertCircle size={15} /> : <Check size={15} />}
-                {blockerSummary}
+              <span className={readyPillClass} aria-live="polite">
+                {isPreviewRecipe ? <CircleDot size={15} /> : openBlockers.length ? <AlertCircle size={15} /> : <Check size={15} />}
+                {readinessSummary}
               </span>
             </div>
 
@@ -793,10 +808,12 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy draft"}
                 </button>
-                <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
-                  {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}
-                  {copiedEncoded ? "Copied input" : "Copy ABI input"}
-                </button>
+                {selectedRecipe.id === "http" ? (
+                  <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
+                    {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}
+                    {encodedActionLabel}
+                  </button>
+                ) : null}
               </div>
             </div>
 
