@@ -16,6 +16,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Runner transaction calldata generation and wallet submit flow
 - Runner deployment checklist with copyable build/deploy commands
 - Session runner transaction history with receipt polling
+- Compact transaction trace rows for receipt, `spcCalls`, and callback follow-up state
 - Local saved runner contracts scoped by wallet
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP recipe examples for GET and JSON POST requests
@@ -97,6 +98,6 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 ## Next Milestones
 
 1. Add explorer-linked transaction history once the explorer transaction route is verified.
-2. Track async job lifecycle and callback completion.
+2. Attach callback completion to submitted runner traces.
 3. Add more live recipe templates.
 4. Add runner deployment transaction tracking once deploy flow is automated.

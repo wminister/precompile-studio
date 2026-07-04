@@ -366,6 +366,75 @@ function describeSpcCalls(receipt?: RpcReceipt) {
   return "spcCalls present";
 }
 
+function hasSpcCalls(receipt?: RpcReceipt) {
+  if (!receipt || receipt.spcCalls == null) return false;
+  return !Array.isArray(receipt.spcCalls) || receipt.spcCalls.length > 0;
+}
+
+function formatSubmittedAt(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(timestamp);
+}
+
+function runnerTraceStages(run: RunnerRun) {
+  const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
+  const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
+  const receiptDetail =
+    run.status === "pending"
+      ? "Waiting for receipt"
+      : run.status === "failed"
+        ? blockNumber
+          ? `Failed in block ${blockNumber.toLocaleString()}`
+          : "Receipt reports failure"
+        : blockNumber
+          ? `Block ${blockNumber.toLocaleString()}${gasUsed ? ` · ${gasUsed.toLocaleString()} gas` : ""}`
+          : "Receipt confirmed";
+  const spcDetail = describeSpcCalls(run.receipt);
+
+  return [
+    { label: "Submitted", tone: "ok" as const, detail: formatSubmittedAt(run.submittedAt) },
+    {
+      label: "Receipt",
+      tone: run.status === "failed" ? ("bad" as const) : run.receipt ? ("ok" as const) : ("wait" as const),
+      detail: receiptDetail,
+    },
+    {
+      label: "spcCalls",
+      tone: hasSpcCalls(run.receipt) ? ("ok" as const) : ("wait" as const),
+      detail: spcDetail,
+    },
+    {
+      label: "Callback",
+      tone: "wait" as const,
+      detail: run.receipt ? "Callback tracking not attached yet" : "Available after receipt evidence",
+    },
+  ];
+}
+
+function runnerTraceJson(run: RunnerRun) {
+  return JSON.stringify(
+    {
+      hash: run.hash,
+      runnerAddress: run.runnerAddress,
+      submittedAt: new Date(run.submittedAt).toISOString(),
+      request: {
+        method: run.method,
+        url: run.url,
+      },
+      status: run.status,
+      receipt: run.receipt ?? null,
+      evidence: {
+        spcCalls: run.receipt?.spcCalls ?? null,
+      },
+    },
+    null,
+    2,
+  );
+}
+
 function isRecipeId(value: string): value is RecipeId {
   return recipes.some((recipe) => recipe.id === value);
 }
@@ -1790,6 +1859,7 @@ function App() {
                       {runnerRuns.map((run) => {
                         const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
                         const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
+                        const traceStages = runnerTraceStages(run);
                         return (
                           <article className={`runner-run ${run.status}`} key={run.hash}>
                             <div className="runner-run-main">
@@ -1805,17 +1875,32 @@ function App() {
                               {blockNumber ? <span>block {blockNumber.toLocaleString()}</span> : null}
                               {gasUsed ? <span>gas {gasUsed.toLocaleString()}</span> : null}
                             </div>
+                            <div className="runner-trace-grid" aria-label={`Trace for ${formatHash(run.hash)}`}>
+                              {traceStages.map((stage) => (
+                                <div className={`runner-trace-step ${stage.tone}`} key={stage.label}>
+                                  {stage.tone === "ok" ? <Check size={12} /> : <CircleDot size={12} />}
+                                  <span>{stage.label}</span>
+                                  <small>{stage.detail}</small>
+                                </div>
+                              ))}
+                            </div>
                             {run.error ? <p>{run.error}</p> : null}
-                            {run.status === "pending" ? (
-                              <button
-                                className="runner-refresh"
-                                type="button"
-                                onClick={() => refreshRunnerReceipt(run.hash)}
-                              >
-                                <RefreshCw size={13} />
-                                Check receipt
+                            <div className="runner-run-actions">
+                              <button type="button" onClick={() => copyValue(runnerTraceJson(run))}>
+                                <Clipboard size={13} />
+                                Copy trace
                               </button>
-                            ) : null}
+                              {run.status === "pending" ? (
+                                <button
+                                  className="runner-refresh"
+                                  type="button"
+                                  onClick={() => refreshRunnerReceipt(run.hash)}
+                                >
+                                  <RefreshCw size={13} />
+                                  Check receipt
+                                </button>
+                              ) : null}
+                            </div>
                           </article>
                         );
                       })}
