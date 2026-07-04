@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "runner:build": "forge build",
-    "runner:deploy": "forge create --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/HttpPrecompileRunner.sol:HttpPrecompileRunner"
+    "runner:deploy": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/HttpPrecompileRunner.sol:HttpPrecompileRunner"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",

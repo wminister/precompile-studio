@@ -2,6 +2,10 @@
 
 `HttpPrecompileRunner.sol` is a minimal helper contract for calling Ritual's HTTP precompile from a normal wallet transaction.
 
+## Current Ritual Testnet Deployment
+
+The latest public deployment is recorded in [`../deployments/ritual-testnet.json`](../deployments/ritual-testnet.json).
+
 ## Build
 
 ```bash
@@ -21,6 +25,7 @@ Use a testnet-only private key. Do not paste a funded main wallet key into a she
 ```bash
 export RITUAL_PRIVATE_KEY=0x...
 forge create \
+  --broadcast \
   --rpc-url https://rpc.ritualfoundation.org \
   --private-key "$RITUAL_PRIVATE_KEY" \
   contracts/HttpPrecompileRunner.sol:HttpPrecompileRunner

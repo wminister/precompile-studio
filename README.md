@@ -13,6 +13,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Wallet balance readout
 - RitualWallet deposit flow for funding precompile escrow
 - Minimal HTTP runner contract source
+- Verified Ritual testnet HTTP runner deployment metadata
 - Runner transaction calldata generation and wallet submit flow
 - Runner deployment checklist with copyable build/deploy commands
 - Persisted runner transaction history scoped by wallet or local browser, with receipt polling
@@ -59,6 +60,8 @@ The production output is written to `dist/`.
 ## HTTP Runner
 
 The minimal Solidity runner lives at [`contracts/HttpPrecompileRunner.sol`](./contracts/HttpPrecompileRunner.sol).
+
+The current Ritual testnet deployment is tracked in [`deployments/ritual-testnet.json`](./deployments/ritual-testnet.json) and prefilled in the runner panel.
 
 Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, then use the HTTP composer to generate and submit `fetchHttp(bytes)` calldata. Users still pay their own gas and confirm the transaction in their wallet.
 

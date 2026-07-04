@@ -36,6 +36,7 @@ import {
   stringToHex,
   zeroAddress,
 } from "viem";
+import ritualTestnetDeployment from "../deployments/ritual-testnet.json";
 import "./styles.css";
 
 declare global {
@@ -187,6 +188,7 @@ const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 const RUNNER_BUILD_COMMAND = "npm run runner:build";
 const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
 const RUNNER_GUIDE_URL = "https://github.com/wminister/precompile-studio/blob/main/contracts/README.md";
+const DEFAULT_HTTP_RUNNER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileRunner.address;
 
 const HTTP_METHOD_IDS: Record<string, number> = {
   GET: 1,
@@ -867,7 +869,7 @@ function App() {
   const [depositAmount, setDepositAmount] = React.useState("0.01");
   const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
-  const [runnerAddress, setRunnerAddress] = React.useState("");
+  const [runnerAddress, setRunnerAddress] = React.useState(DEFAULT_HTTP_RUNNER_ADDRESS);
   const [runnerLabel, setRunnerLabel] = React.useState("");
   const [savedRunners, setSavedRunners] = React.useState<SavedRunner[]>([]);
   const [importTxHash, setImportTxHash] = React.useState("");
