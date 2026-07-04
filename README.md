@@ -22,6 +22,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Runner history JSON copy/import for moving traces between browsers
 - Compact transaction trace rows for receipt, `spcCalls`, and decoded `HttpResult` callback completion
 - Local saved runner contracts scoped by wallet
+- Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP recipe examples for GET and JSON POST requests
 - HTTP, LLM, Agent, and Scheduler recipe shells
@@ -73,6 +74,8 @@ Runner history can be copied or imported as JSON from the runner panel, allowing
 
 Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
+TEE executor addresses can also be saved locally from the HTTP composer. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
+
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md) and [`examples/http-preset.json`](./examples/http-preset.json) for the preset format.
 
 See [`contracts/README.md`](./contracts/README.md) for runner build and deployment steps.
@@ -108,6 +111,6 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 ## Next Milestones
 
 1. Add more live recipe templates.
-2. Add runner deployment transaction tracking once deploy flow is automated.
+2. Add registry-backed executor discovery once Ritual exposes a stable executor lookup surface.
 3. Add runner history filtering once trace volume grows.
 4. Add richer callback body previews for small text responses.

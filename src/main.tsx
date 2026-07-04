@@ -133,6 +133,12 @@ type SavedRunner = {
   updatedAt: number;
 };
 
+type SavedExecutor = {
+  address: string;
+  label: string;
+  updatedAt: number;
+};
+
 type RecipePreset = {
   id: string;
   recipeId: RecipeId;
@@ -181,6 +187,7 @@ const SYSTEM_CONTRACTS = {
 const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
+const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
 const RUNNER_HISTORY_LIMIT = 5;
@@ -372,6 +379,10 @@ function explorerTransactionUrl(hash: string) {
   return `${RITUAL.explorer}/tx/${hash}`;
 }
 
+function executorStorageKey(walletAddress?: string) {
+  return `${EXECUTOR_STORAGE_PREFIX}:${walletAddress?.toLowerCase() ?? "local"}`;
+}
+
 function runnerStorageKey(walletAddress?: string) {
   return `${RUNNER_STORAGE_PREFIX}:${walletAddress?.toLowerCase() ?? "local"}`;
 }
@@ -382,6 +393,10 @@ function runnerHistoryStorageKey(walletAddress?: string) {
 
 function defaultRunnerLabel(address: string) {
   return `HTTP runner ${formatAddress(address)}`;
+}
+
+function defaultExecutorLabel(address: string) {
+  return `TEE executor ${formatAddress(address)}`;
 }
 
 function formatBalance(hex?: string) {
@@ -634,6 +649,28 @@ function parseSavedRunners(value: string | null): SavedRunner[] {
   }
 }
 
+function parseSavedExecutors(value: string | null): SavedExecutor[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is SavedExecutor =>
+          item &&
+          typeof item === "object" &&
+          "address" in item &&
+          "label" in item &&
+          typeof item.address === "string" &&
+          typeof item.label === "string" &&
+          isAddress(item.address),
+      )
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
 function parseRunnerRuns(value: string | null): RunnerRun[] {
   if (!value) return [];
   try {
@@ -869,6 +906,8 @@ function App() {
   const [depositAmount, setDepositAmount] = React.useState("0.01");
   const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
+  const [executorLabel, setExecutorLabel] = React.useState("");
+  const [savedExecutors, setSavedExecutors] = React.useState<SavedExecutor[]>([]);
   const [runnerAddress, setRunnerAddress] = React.useState(DEFAULT_HTTP_RUNNER_ADDRESS);
   const [runnerLabel, setRunnerLabel] = React.useState("");
   const [savedRunners, setSavedRunners] = React.useState<SavedRunner[]>([]);
@@ -931,6 +970,12 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
+  const cleanExecutorAddress = fieldValue(fieldState.http, "executor").trim();
+  const executorAddressOk = isAddress(cleanExecutorAddress) && cleanExecutorAddress.toLowerCase() !== zeroAddress;
+  const executorStorageScope = wallet.address?.toLowerCase() ?? "local";
+  const activeSavedExecutor = savedExecutors.find(
+    (executor) => executor.address.toLowerCase() === cleanExecutorAddress.toLowerCase(),
+  );
   const cleanRunnerAddress = runnerAddress.trim();
   const runnerAddressOk = isAddress(cleanRunnerAddress);
   const runnerStorageScope = wallet.address?.toLowerCase() ?? "local";
@@ -958,6 +1003,11 @@ function App() {
         ok: Boolean(runnerCalldata),
         label: "HTTP input encoded",
         detail: runnerCalldata ? `${Math.floor((runnerCalldata.length - 2) / 2)} calldata bytes` : "Resolve ABI input first.",
+      },
+      {
+        ok: executorAddressOk,
+        label: "TEE executor selected",
+        detail: executorAddressOk ? formatAddress(cleanExecutorAddress) : "Set a registered executor before sending.",
       },
       {
         ok: runnerAddressOk,
@@ -990,7 +1040,9 @@ function App() {
     ],
     [
       activeSavedRunner,
+      cleanExecutorAddress,
       cleanRunnerAddress,
+      executorAddressOk,
       isRightChain,
       isRitualWalletFunded,
       runnerAddressOk,
@@ -1245,6 +1297,7 @@ function App() {
   }, [refreshRpc]);
 
   React.useEffect(() => {
+    setSavedExecutors(parseSavedExecutors(window.localStorage.getItem(executorStorageKey(wallet.address))));
     setSavedRunners(parseSavedRunners(window.localStorage.getItem(runnerStorageKey(wallet.address))));
   }, [wallet.address]);
 
@@ -1312,6 +1365,7 @@ function App() {
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
       runner: {
         address: cleanRunnerAddress || "unset",
+        executor: cleanExecutorAddress || "unset",
         recentTransactions: runnerRuns.map((run) => ({
           hash: run.hash,
           status: run.status,
@@ -1322,6 +1376,7 @@ function App() {
       nextStep: isReady ? "Ready for a contract runner call." : "Resolve readiness checks before sending.",
     };
   }, [
+    cleanExecutorAddress,
     cleanRunnerAddress,
     httpDraft,
     isReady,
@@ -1548,6 +1603,44 @@ function App() {
     setPresetImportValue("");
     setPresetTransferMessage(`${normalized.length} ${normalized.length === 1 ? "preset" : "presets"} imported.`);
   }, [presetImportValue, selectedRecipe.id]);
+
+  const saveExecutor = React.useCallback(() => {
+    if (!executorAddressOk) return;
+    const normalizedAddress = cleanExecutorAddress;
+    const nextExecutor: SavedExecutor = {
+      address: normalizedAddress,
+      label: executorLabel.trim() || activeSavedExecutor?.label || defaultExecutorLabel(normalizedAddress),
+      updatedAt: Date.now(),
+    };
+    setSavedExecutors((current) => {
+      const next = [
+        nextExecutor,
+        ...current.filter((executor) => executor.address.toLowerCase() !== normalizedAddress.toLowerCase()),
+      ].slice(0, 8);
+      window.localStorage.setItem(executorStorageKey(wallet.address), JSON.stringify(next));
+      return next;
+    });
+    setExecutorLabel("");
+  }, [activeSavedExecutor?.label, cleanExecutorAddress, executorAddressOk, executorLabel, wallet.address]);
+
+  const useSavedExecutor = React.useCallback((address: string) => {
+    setFieldState((current) => ({
+      ...current,
+      http: current.http.map((field) => (field.key === "executor" ? { ...field, value: address } : field)),
+    }));
+    setExecutorLabel("");
+  }, []);
+
+  const forgetSavedExecutor = React.useCallback(
+    (address: string) => {
+      setSavedExecutors((current) => {
+        const next = current.filter((executor) => executor.address.toLowerCase() !== address.toLowerCase());
+        window.localStorage.setItem(executorStorageKey(wallet.address), JSON.stringify(next));
+        return next;
+      });
+    },
+    [wallet.address],
+  );
 
   const saveRunnerContract = React.useCallback(() => {
     if (!runnerAddressOk) return;
@@ -2079,6 +2172,68 @@ function App() {
                     ))}
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {selectedRecipe.id === "http" ? (
+              <div className="executor-panel utility-panel">
+                <div className="section-head">
+                  <div>
+                    <span>TEE executor</span>
+                    <strong>{executorAddressOk ? "Executor selected" : "Registered executor needed"}</strong>
+                  </div>
+                </div>
+                <div className={executorAddressOk ? "executor-current ok" : "executor-current pending"}>
+                  {executorAddressOk ? <Check size={13} /> : <AlertCircle size={13} />}
+                  <span>{executorAddressOk ? formatAddress(cleanExecutorAddress) : "No registered executor selected"}</span>
+                  <small>from HTTP field</small>
+                </div>
+                <div className="runner-save-row">
+                  <label>
+                    <span>Executor label</span>
+                    <input
+                      value={executorLabel}
+                      onChange={(event) => setExecutorLabel(event.target.value)}
+                      placeholder={
+                        executorAddressOk
+                          ? activeSavedExecutor?.label ?? defaultExecutorLabel(cleanExecutorAddress)
+                          : "TEE executor"
+                      }
+                    />
+                  </label>
+                  <button className="secondary-action" type="button" onClick={saveExecutor} disabled={!executorAddressOk}>
+                    <KeyRound size={15} />
+                    {activeSavedExecutor ? "Update" : "Save"}
+                  </button>
+                </div>
+                <div className="runner-saved">
+                  <div className="runner-history-head">
+                    <span>Saved executors</span>
+                    <strong>{executorStorageScope === "local" ? "local" : formatAddress(wallet.address)}</strong>
+                  </div>
+                  {savedExecutors.length ? (
+                    <div className="saved-runner-list">
+                      {savedExecutors.map((executor) => (
+                        <div className="saved-runner" key={executor.address}>
+                          <button type="button" onClick={() => useSavedExecutor(executor.address)}>
+                            <span>{executor.label}</span>
+                            <code>{formatAddress(executor.address)}</code>
+                          </button>
+                          <button
+                            className="saved-runner-forget"
+                            type="button"
+                            onClick={() => forgetSavedExecutor(executor.address)}
+                            aria-label={`Forget ${executor.label}`}
+                          >
+                            Forget
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>Save a registry executor after you confirm one.</p>
+                  )}
+                </div>
               </div>
             ) : null}
 
