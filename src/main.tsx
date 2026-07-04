@@ -88,6 +88,7 @@ type ImportState = {
 };
 
 type ReceiptStatus = "pending" | "confirmed" | "failed";
+type RunnerHistoryFilter = "all" | ReceiptStatus;
 
 type RpcReceipt = {
   transactionHash: string;
@@ -191,6 +192,12 @@ const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
 const RUNNER_HISTORY_LIMIT = 5;
+const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "pending", label: "Pending" },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "failed", label: "Failed" },
+];
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 const RUNNER_BUILD_COMMAND = "npm run runner:build";
 const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
@@ -916,6 +923,7 @@ function App() {
   const [showRunnerHistoryTransfer, setShowRunnerHistoryTransfer] = React.useState(false);
   const [runnerHistoryImportValue, setRunnerHistoryImportValue] = React.useState("");
   const [runnerHistoryMessage, setRunnerHistoryMessage] = React.useState("");
+  const [runnerHistoryFilter, setRunnerHistoryFilter] = React.useState<RunnerHistoryFilter>("all");
   const [copiedRunnerHistory, setCopiedRunnerHistory] = React.useState(false);
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
   const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
@@ -1059,6 +1067,19 @@ function App() {
   const canImportTx = importTxHashOk && importTxState.status !== "checking";
   const runnerHistoryScopeLabel =
     runnerHistoryScope.endsWith(":local") || !wallet.address ? "local browser" : formatAddress(wallet.address);
+  const runnerHistoryCounts = React.useMemo(
+    () => ({
+      all: runnerRuns.length,
+      pending: runnerRuns.filter((run) => run.status === "pending").length,
+      confirmed: runnerRuns.filter((run) => run.status === "confirmed").length,
+      failed: runnerRuns.filter((run) => run.status === "failed").length,
+    }),
+    [runnerRuns],
+  );
+  const visibleRunnerRuns = React.useMemo(
+    () => (runnerHistoryFilter === "all" ? runnerRuns : runnerRuns.filter((run) => run.status === runnerHistoryFilter)),
+    [runnerHistoryFilter, runnerRuns],
+  );
   const pendingRunnerKey = React.useMemo(
     () =>
       runnerRuns
@@ -2356,7 +2377,7 @@ function App() {
                       <small>{runnerHistoryScopeLabel}</small>
                     </div>
                     <div className="runner-history-tools">
-                      {runnerRuns.length ? <strong>{runnerRuns.length}</strong> : null}
+                      {runnerRuns.length ? <strong>{runnerHistoryCounts[runnerHistoryFilter]}</strong> : null}
                       <button
                         className={showRunnerHistoryTransfer ? "runner-history-toggle open" : "runner-history-toggle"}
                         type="button"
@@ -2426,8 +2447,24 @@ function App() {
                     <p>{runnerHistoryMessage}</p>
                   ) : null}
                   {runnerRuns.length ? (
+                    <div className="runner-history-filter" aria-label="Filter runner transactions by status">
+                      {RUNNER_HISTORY_FILTERS.map((filter) => (
+                        <button
+                          className={runnerHistoryFilter === filter.key ? "active" : ""}
+                          type="button"
+                          key={filter.key}
+                          onClick={() => setRunnerHistoryFilter(filter.key)}
+                          aria-pressed={runnerHistoryFilter === filter.key}
+                        >
+                          <span>{filter.label}</span>
+                          <code>{runnerHistoryCounts[filter.key]}</code>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {runnerRuns.length && visibleRunnerRuns.length ? (
                     <div className="runner-run-list">
-                      {runnerRuns.map((run) => {
+                      {visibleRunnerRuns.map((run) => {
                         const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
                         const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
                         const traceStages = runnerTraceStages(run);
@@ -2481,6 +2518,8 @@ function App() {
                         );
                       })}
                     </div>
+                  ) : runnerRuns.length ? (
+                    <p>No {runnerHistoryFilter} runner transactions in this local history.</p>
                   ) : (
                     <p>Submitted runner transactions will appear here.</p>
                   )}

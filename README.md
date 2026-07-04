@@ -20,6 +20,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Explorer-linked runner transactions using Ritual's `/tx/{hash}` route
 - Transaction hash import for externally submitted runner calls
 - Runner history JSON copy/import for moving traces between browsers
+- Runner history status filters for pending, confirmed, and failed calls
 - Compact transaction trace rows for receipt, `spcCalls`, and decoded `HttpResult` callback completion
 - Local saved runner contracts scoped by wallet
 - Local saved TEE executors scoped by wallet
@@ -112,5 +113,4 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 1. Add more live recipe templates.
 2. Add registry-backed executor discovery once Ritual exposes a stable executor lookup surface.
-3. Add runner history filtering once trace volume grows.
-4. Add richer callback body previews for small text responses.
+3. Add richer callback body previews for small text responses.
