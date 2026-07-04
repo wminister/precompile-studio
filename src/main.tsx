@@ -124,6 +124,8 @@ type RunnerCallbackEvidence = {
     caller?: string;
     statusCode?: number;
     bodyBytes?: number;
+    bodyPreview?: string;
+    bodyPreviewTruncated?: boolean;
     errorMessage?: string;
   };
 };
@@ -192,6 +194,7 @@ const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
 const RUNNER_HISTORY_LIMIT = 5;
+const CALLBACK_BODY_PREVIEW_LIMIT = 140;
 const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }> = [
   { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
@@ -457,6 +460,39 @@ function hexByteLength(value?: string) {
   return Math.max(0, Math.floor((value.length - 2) / 2));
 }
 
+function decodeHexTextPreview(value?: string) {
+  if (!value || !/^0x[a-fA-F0-9]*$/.test(value) || value.length % 2 !== 0) return undefined;
+  const hex = value.slice(2);
+  if (!hex) return undefined;
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+
+  let decoded: string;
+  try {
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+
+  const normalized = decoded.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+
+  const printable = Array.from(normalized).filter((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code === 9 || code === 10 || code === 13 || code >= 32;
+  });
+  if (printable.length / Array.from(normalized).length < 0.9) return undefined;
+
+  const truncated = normalized.length > CALLBACK_BODY_PREVIEW_LIMIT;
+  return {
+    text: truncated ? `${normalized.slice(0, CALLBACK_BODY_PREVIEW_LIMIT).trimEnd()}...` : normalized,
+    truncated,
+  };
+}
+
 function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
   if (!run.receipt) {
     return {
@@ -517,10 +553,12 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
             : undefined;
       const bodyBytes = hexByteLength(args.body);
       const errorMessage = typeof args.errorMessage === "string" ? args.errorMessage : "";
+      const bodyPreview = decodeHexTextPreview(args.body);
       const status = errorMessage ? "failed" : "complete";
       const detailParts = [
         statusCode === undefined ? "Callback emitted" : `HTTP ${statusCode}`,
         bodyBytes ? `${bodyBytes.toLocaleString()} bytes` : undefined,
+        bodyPreview ? `"${bodyPreview.text}"` : undefined,
         errorMessage || undefined,
       ].filter(Boolean);
 
@@ -531,6 +569,8 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
           caller: args.caller,
           statusCode,
           bodyBytes,
+          bodyPreview: bodyPreview?.text,
+          bodyPreviewTruncated: bodyPreview?.truncated || undefined,
           errorMessage: errorMessage || undefined,
         },
       };
