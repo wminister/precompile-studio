@@ -163,6 +163,8 @@ const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
+const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
+const RUNNER_HISTORY_LIMIT = 5;
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 const RUNNER_BUILD_COMMAND = "npm run runner:build";
 const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
@@ -345,6 +347,10 @@ function runnerStorageKey(walletAddress?: string) {
   return `${RUNNER_STORAGE_PREFIX}:${walletAddress?.toLowerCase() ?? "local"}`;
 }
 
+function runnerHistoryStorageKey(walletAddress?: string) {
+  return `${RUNNER_HISTORY_STORAGE_PREFIX}:${walletAddress?.toLowerCase() ?? "local"}`;
+}
+
 function defaultRunnerLabel(address: string) {
   return `HTTP runner ${formatAddress(address)}`;
 }
@@ -484,6 +490,53 @@ function parseSavedRunners(value: string | null): SavedRunner[] {
           isAddress(item.address),
       )
       .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function parseRunnerRuns(value: string | null): RunnerRun[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is RunnerRun => {
+        if (!item || typeof item !== "object") return false;
+        const candidate = item as Partial<RunnerRun>;
+        const sourceOk =
+          candidate.source === undefined || candidate.source === "wallet" || candidate.source === "imported";
+        const receiptOk =
+          candidate.receipt === undefined ||
+          (candidate.receipt !== null &&
+            typeof candidate.receipt === "object" &&
+            typeof candidate.receipt.transactionHash === "string");
+        return (
+          typeof candidate.hash === "string" &&
+          isTransactionHash(candidate.hash) &&
+          typeof candidate.runnerAddress === "string" &&
+          isAddress(candidate.runnerAddress) &&
+          typeof candidate.submittedAt === "number" &&
+          Number.isFinite(candidate.submittedAt) &&
+          typeof candidate.method === "string" &&
+          typeof candidate.url === "string" &&
+          (candidate.status === "pending" || candidate.status === "confirmed" || candidate.status === "failed") &&
+          sourceOk &&
+          receiptOk
+        );
+      })
+      .map((run) => ({
+        hash: run.hash,
+        runnerAddress: run.runnerAddress,
+        submittedAt: run.submittedAt,
+        method: run.method,
+        url: run.url,
+        source: run.source,
+        status: run.status,
+        receipt: run.receipt,
+        error: typeof run.error === "string" ? run.error : undefined,
+      }))
+      .slice(0, RUNNER_HISTORY_LIMIT);
   } catch {
     return [];
   }
@@ -665,7 +718,12 @@ function App() {
   const [importTxHash, setImportTxHash] = React.useState("");
   const [importTxState, setImportTxState] = React.useState<ImportState>({ status: "idle" });
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
-  const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>([]);
+  const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
+  const [runnerHistoryScope, setRunnerHistoryScope] = React.useState(initialRunnerHistoryScope);
+  const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>(() =>
+    parseRunnerRuns(window.localStorage.getItem(initialRunnerHistoryScope)),
+  );
+  const runnerHistoryHydrated = React.useRef(true);
   const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
@@ -786,6 +844,8 @@ function App() {
   const cleanImportTxHash = importTxHash.trim();
   const importTxHashOk = isTransactionHash(cleanImportTxHash);
   const canImportTx = importTxHashOk && importTxState.status !== "checking";
+  const runnerHistoryScopeLabel =
+    runnerHistoryScope.endsWith(":local") || !wallet.address ? "local browser" : formatAddress(wallet.address);
   const pendingRunnerKey = React.useMemo(
     () =>
       runnerRuns
@@ -1028,6 +1088,22 @@ function App() {
   }, [wallet.address]);
 
   React.useEffect(() => {
+    const nextScope = runnerHistoryStorageKey(wallet.address);
+    runnerHistoryHydrated.current = false;
+    setRunnerHistoryScope(nextScope);
+    setRunnerRuns(parseRunnerRuns(window.localStorage.getItem(nextScope)));
+    runnerHistoryHydrated.current = true;
+  }, [wallet.address]);
+
+  React.useEffect(() => {
+    if (!runnerHistoryHydrated.current) return;
+    window.localStorage.setItem(
+      runnerHistoryScope,
+      JSON.stringify(runnerRuns.slice(0, RUNNER_HISTORY_LIMIT)),
+    );
+  }, [runnerHistoryScope, runnerRuns]);
+
+  React.useEffect(() => {
     setRecipePresets(parseRecipePresets(window.localStorage.getItem(PRESET_STORAGE_KEY)));
   }, []);
 
@@ -1167,7 +1243,12 @@ function App() {
         status: receiptStatus(receipt ?? undefined),
         receipt: receipt ?? undefined,
       };
-      setRunnerRuns((current) => [nextRun, ...current.filter((run) => run.hash.toLowerCase() !== hash.toLowerCase())].slice(0, 5));
+      setRunnerRuns((current) =>
+        [nextRun, ...current.filter((run) => run.hash.toLowerCase() !== hash.toLowerCase())].slice(
+          0,
+          RUNNER_HISTORY_LIMIT,
+        ),
+      );
       setImportTxHash("");
       setImportTxState({
         status: "imported",
@@ -1184,6 +1265,11 @@ function App() {
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
   }, []);
+
+  const clearRunnerHistory = React.useCallback(() => {
+    setRunnerRuns([]);
+    window.localStorage.removeItem(runnerHistoryScope);
+  }, [runnerHistoryScope]);
 
   const saveRecipePreset = React.useCallback(() => {
     const label = presetLabel.trim();
@@ -1378,7 +1464,12 @@ function App() {
         url: fieldValue(fieldState.http, "url"),
         status: "pending",
       };
-      setRunnerRuns((current) => [nextRun, ...current.filter((run) => run.hash !== hash)].slice(0, 5));
+      setRunnerRuns((current) =>
+        [nextRun, ...current.filter((run) => run.hash.toLowerCase() !== hash.toLowerCase())].slice(
+          0,
+          RUNNER_HISTORY_LIMIT,
+        ),
+      );
       window.setTimeout(() => {
         refreshRunnerReceipt(hash).catch(() => undefined);
       }, 2500);
@@ -1906,8 +1997,18 @@ function App() {
                 {runnerTxState.status === "error" ? <p>{runnerTxState.error}</p> : null}
                 <div className="runner-history" aria-live="polite">
                   <div className="runner-history-head">
-                    <span>Recent runner txs</span>
-                    {runnerRuns.length ? <strong>{runnerRuns.length}</strong> : null}
+                    <div>
+                      <span>Recent runner txs</span>
+                      <small>{runnerHistoryScopeLabel}</small>
+                    </div>
+                    <div className="runner-history-tools">
+                      {runnerRuns.length ? <strong>{runnerRuns.length}</strong> : null}
+                      {runnerRuns.length ? (
+                        <button type="button" onClick={clearRunnerHistory}>
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="runner-import">
                     <label>

@@ -15,7 +15,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Minimal HTTP runner contract source
 - Runner transaction calldata generation and wallet submit flow
 - Runner deployment checklist with copyable build/deploy commands
-- Session runner transaction history with receipt polling
+- Persisted runner transaction history scoped by wallet or local browser, with receipt polling
 - Explorer-linked runner transactions using Ritual's `/tx/{hash}` route
 - Transaction hash import for externally submitted runner calls
 - Compact transaction trace rows for receipt, `spcCalls`, and callback follow-up state
@@ -61,7 +61,7 @@ The minimal Solidity runner lives at [`contracts/HttpPrecompileRunner.sol`](./co
 
 Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, then use the HTTP composer to generate and submit `fetchHttp(bytes)` calldata. Users still pay their own gas and confirm the transaction in their wallet.
 
-Submitted runner transactions are kept in the current browser session and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash.
+Submitted runner transactions are stored locally, scoped to the connected wallet when available, and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash.
 
 External transaction hashes can also be imported into the runner history, which is useful when a call was submitted from a wallet, terminal, or explorer outside the current browser session.
 
@@ -104,4 +104,4 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 1. Attach callback completion to submitted runner traces.
 2. Add more live recipe templates.
 3. Add runner deployment transaction tracking once deploy flow is automated.
-4. Add persisted transaction history per wallet.
+4. Add transaction history export/import for moving traces between browsers.
