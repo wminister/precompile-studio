@@ -19,7 +19,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Explorer-linked runner transactions using Ritual's `/tx/{hash}` route
 - Transaction hash import for externally submitted runner calls
 - Runner history JSON copy/import for moving traces between browsers
-- Compact transaction trace rows for receipt, `spcCalls`, and callback follow-up state
+- Compact transaction trace rows for receipt, `spcCalls`, and decoded `HttpResult` callback completion
 - Local saved runner contracts scoped by wallet
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP recipe examples for GET and JSON POST requests
@@ -62,7 +62,7 @@ The minimal Solidity runner lives at [`contracts/HttpPrecompileRunner.sol`](./co
 
 Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, then use the HTTP composer to generate and submit `fetchHttp(bytes)` calldata. Users still pay their own gas and confirm the transaction in their wallet.
 
-Submitted runner transactions are stored locally, scoped to the connected wallet when available, and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash.
+Submitted runner transactions are stored locally, scoped to the connected wallet when available, and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash. If the runner emits `HttpResult`, the trace decodes the callback status code, response byte count, and error message.
 
 External transaction hashes can also be imported into the runner history, which is useful when a call was submitted from a wallet, terminal, or explorer outside the current browser session.
 
@@ -104,7 +104,7 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 ## Next Milestones
 
-1. Attach callback completion to submitted runner traces.
-2. Add more live recipe templates.
-3. Add runner deployment transaction tracking once deploy flow is automated.
-4. Add runner history filtering once trace volume grows.
+1. Add more live recipe templates.
+2. Add runner deployment transaction tracking once deploy flow is automated.
+3. Add runner history filtering once trace volume grows.
+4. Add richer callback body previews for small text responses.

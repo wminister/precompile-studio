@@ -26,6 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  decodeEventLog,
   encodeAbiParameters,
   encodeFunctionData,
   formatEther,
@@ -106,6 +107,23 @@ type RunnerRun = {
   status: ReceiptStatus;
   receipt?: RpcReceipt;
   error?: string;
+};
+
+type RpcLog = {
+  address?: string;
+  data?: string;
+  topics?: string[];
+};
+
+type RunnerCallbackEvidence = {
+  status: "pending" | "complete" | "failed" | "missing";
+  detail: string;
+  result?: {
+    caller?: string;
+    statusCode?: number;
+    bodyBytes?: number;
+    errorMessage?: string;
+  };
 };
 
 type SavedRunner = {
@@ -206,6 +224,16 @@ const ritualWalletAbi = [
 
 const httpRunnerAbi = [
   {
+    type: "event",
+    name: "HttpResult",
+    inputs: [
+      { name: "caller", type: "address", indexed: true },
+      { name: "statusCode", type: "uint16", indexed: false },
+      { name: "body", type: "bytes", indexed: false },
+      { name: "errorMessage", type: "string", indexed: false },
+    ],
+  },
+  {
     type: "function",
     name: "fetchHttp",
     stateMutability: "nonpayable",
@@ -225,7 +253,6 @@ const httpRunnerAbi = [
     ],
   },
 ] as const;
-
 
 const recipes: Recipe[] = [
   {
@@ -391,6 +418,109 @@ function hasSpcCalls(receipt?: RpcReceipt) {
   return !Array.isArray(receipt.spcCalls) || receipt.spcCalls.length > 0;
 }
 
+function isRpcLog(value: unknown): value is RpcLog {
+  if (!value || typeof value !== "object") return false;
+  const log = value as RpcLog;
+  return (
+    (log.address === undefined || typeof log.address === "string") &&
+    (log.data === undefined || typeof log.data === "string") &&
+    (log.topics === undefined || (Array.isArray(log.topics) && log.topics.every((topic) => typeof topic === "string")))
+  );
+}
+
+function hexByteLength(value?: string) {
+  if (!value || !/^0x[a-fA-F0-9]*$/.test(value)) return undefined;
+  return Math.max(0, Math.floor((value.length - 2) / 2));
+}
+
+function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
+  if (!run.receipt) {
+    return {
+      status: "pending",
+      detail: "Available after receipt evidence",
+    };
+  }
+
+  if (run.status === "failed") {
+    return {
+      status: "failed",
+      detail: "Transaction failed before callback",
+    };
+  }
+
+  const logs = Array.isArray(run.receipt.logs) ? run.receipt.logs.filter(isRpcLog) : [];
+  if (!logs.length) {
+    return {
+      status: "missing",
+      detail: "Receipt has no logs",
+    };
+  }
+
+  const runnerAddress = run.runnerAddress.toLowerCase();
+  const scopedLogs =
+    runnerAddress === zeroAddress
+      ? logs
+      : logs.filter((log) => log.address?.toLowerCase() === runnerAddress);
+  if (runnerAddress !== zeroAddress && !scopedLogs.length) {
+    return {
+      status: "missing",
+      detail: "No runner logs found",
+    };
+  }
+  const candidateLogs = runnerAddress === zeroAddress ? logs : scopedLogs;
+
+  for (const log of candidateLogs) {
+    if (!log.data || !log.topics?.length) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: httpRunnerAbi,
+        data: log.data as `0x${string}`,
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+      });
+      if (decoded.eventName !== "HttpResult") continue;
+
+      const args = decoded.args as {
+        caller?: string;
+        statusCode?: number | bigint;
+        body?: string;
+        errorMessage?: string;
+      };
+      const statusCode =
+        typeof args.statusCode === "bigint"
+          ? Number(args.statusCode)
+          : typeof args.statusCode === "number"
+            ? args.statusCode
+            : undefined;
+      const bodyBytes = hexByteLength(args.body);
+      const errorMessage = typeof args.errorMessage === "string" ? args.errorMessage : "";
+      const status = errorMessage ? "failed" : "complete";
+      const detailParts = [
+        statusCode === undefined ? "Callback emitted" : `HTTP ${statusCode}`,
+        bodyBytes ? `${bodyBytes.toLocaleString()} bytes` : undefined,
+        errorMessage || undefined,
+      ].filter(Boolean);
+
+      return {
+        status,
+        detail: detailParts.join(" · "),
+        result: {
+          caller: args.caller,
+          statusCode,
+          bodyBytes,
+          errorMessage: errorMessage || undefined,
+        },
+      };
+    } catch {
+      // Ignore unrelated logs. Receipts often include events from other contracts.
+    }
+  }
+
+  return {
+    status: "missing",
+    detail: "No HttpResult event found",
+  };
+}
+
 function formatSubmittedAt(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
@@ -402,6 +532,7 @@ function formatSubmittedAt(timestamp: number) {
 function runnerTraceStages(run: RunnerRun) {
   const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
   const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
+  const callback = describeRunnerCallback(run);
   const receiptDetail =
     run.status === "pending"
       ? "Waiting for receipt"
@@ -428,8 +559,13 @@ function runnerTraceStages(run: RunnerRun) {
     },
     {
       label: "Callback",
-      tone: "wait" as const,
-      detail: run.receipt ? "Callback tracking not attached yet" : "Available after receipt evidence",
+      tone:
+        callback.status === "complete"
+          ? ("ok" as const)
+          : callback.status === "failed"
+            ? ("bad" as const)
+            : ("wait" as const),
+      detail: callback.detail,
     },
   ];
 }
@@ -450,6 +586,7 @@ function runnerTraceJson(run: RunnerRun) {
       receipt: run.receipt ?? null,
       evidence: {
         spcCalls: run.receipt?.spcCalls ?? null,
+        callback: describeRunnerCallback(run),
       },
     },
     null,

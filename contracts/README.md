@@ -40,6 +40,6 @@ After deployment, copy the deployed contract address into Precompile Studio's ru
 2. Fund `RitualWallet` from the inspector if escrow is empty.
 3. Paste or load the deployed runner address.
 4. Send `fetchHttp(bytes)` from the runner panel.
-5. Watch the submitted transaction history for the receipt and `spcCalls` evidence.
+5. Watch the submitted transaction history for the receipt, `spcCalls`, and decoded `HttpResult` callback evidence.
 
 The connected wallet still pays its own Ritual testnet gas and precompile fees.
