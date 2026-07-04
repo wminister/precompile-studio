@@ -318,6 +318,8 @@ h2 {
 .runner-run-main button:focus-visible,
 .runner-refresh:focus-visible,
 .saved-runner button:focus-visible,
+.runner-command-list button:focus-visible,
+.runner-setup-body a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
@@ -955,6 +957,129 @@ select:focus {
   padding: 0 9px;
   color: var(--quiet);
   font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.runner-setup {
+  display: grid;
+  gap: 8px;
+}
+
+.runner-setup-toggle {
+  width: 100%;
+  justify-content: space-between;
+  min-height: 34px;
+}
+
+.runner-setup-toggle span {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 2px 7px;
+  color: var(--quiet);
+  font-size: 0.68rem;
+}
+
+.runner-setup-body {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 8px;
+}
+
+.runner-command-list,
+.runner-check-list {
+  display: grid;
+  gap: 5px;
+}
+
+.runner-command-list button {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.16);
+  padding: 7px 8px;
+  color: rgba(248, 247, 242, 0.86);
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.runner-command-list button:hover {
+  border-color: rgba(143, 240, 196, 0.2);
+  background: rgba(52, 211, 153, 0.055);
+  color: var(--ink);
+}
+
+.runner-command-list svg {
+  color: var(--accent-ink);
+}
+
+.runner-command-list span {
+  color: rgba(248, 247, 242, 0.86);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.runner-command-list code {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runner-check {
+  display: grid;
+  min-height: 32px;
+  grid-template-columns: 13px minmax(0, 0.72fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  color: var(--amber);
+  padding: 5px 0;
+}
+
+.runner-check:last-child {
+  border-bottom: 0;
+}
+
+.runner-check.ok {
+  color: var(--accent-ink);
+}
+
+.runner-check span {
+  color: rgba(248, 247, 242, 0.84);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.runner-check small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.32;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runner-setup-body a {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 5px;
+  color: var(--accent-ink);
+  font-size: 0.76rem;
   font-weight: 600;
 }
 
@@ -1605,6 +1730,23 @@ pre {
   .runner-save-row,
   .saved-runner {
     grid-template-columns: 1fr;
+  }
+
+  .runner-command-list button {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .runner-command-list code {
+    grid-column: 2;
+  }
+
+  .runner-check {
+    grid-template-columns: 13px minmax(0, 1fr);
+  }
+
+  .runner-check small {
+    grid-column: 2;
+    white-space: normal;
   }
 
   .primary-action,

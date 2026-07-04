@@ -14,6 +14,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - RitualWallet deposit flow for funding precompile escrow
 - Minimal HTTP runner contract source
 - Runner transaction calldata generation and wallet submit flow
+- Runner deployment checklist with copyable build/deploy commands
 - Session runner transaction history with receipt polling
 - Local saved runner contracts scoped by wallet
 - Local recipe presets for saving and reloading composer fields
@@ -97,5 +98,5 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 1. Add explorer-linked transaction history once the explorer transaction route is verified.
 2. Track async job lifecycle and callback completion.
-3. Add a runner deployment status checklist inside the app.
-4. Add more live recipe templates.
+3. Add more live recipe templates.
+4. Add runner deployment transaction tracking once deploy flow is automated.

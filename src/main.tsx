@@ -19,6 +19,7 @@ import {
   RadioTower,
   RefreshCw,
   Route,
+  TerminalSquare,
   Upload,
   Wallet,
   Wand2,
@@ -157,6 +158,9 @@ const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
+const RUNNER_BUILD_COMMAND = "npm run runner:build";
+const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
+const RUNNER_GUIDE_URL = "https://github.com/wminister/precompile-studio/blob/main/contracts/README.md";
 
 const HTTP_METHOD_IDS: Record<string, number> = {
   GET: 1,
@@ -560,6 +564,7 @@ function App() {
   const [showContracts, setShowContracts] = React.useState(false);
   const [showFunding, setShowFunding] = React.useState(true);
   const [showPresetTransfer, setShowPresetTransfer] = React.useState(false);
+  const [showRunnerSetup, setShowRunnerSetup] = React.useState(false);
   const [presetLabel, setPresetLabel] = React.useState("");
   const [presetImportValue, setPresetImportValue] = React.useState("");
   const [presetTransferMessage, setPresetTransferMessage] = React.useState("");
@@ -641,6 +646,56 @@ function App() {
     isRightChain &&
     isRitualWalletFunded &&
     runnerTxState.status !== "submitting";
+  const runnerSetupChecks = React.useMemo(
+    () => [
+      {
+        ok: Boolean(runnerCalldata),
+        label: "HTTP input encoded",
+        detail: runnerCalldata ? `${Math.floor((runnerCalldata.length - 2) / 2)} calldata bytes` : "Resolve ABI input first.",
+      },
+      {
+        ok: runnerAddressOk,
+        label: "Runner contract address set",
+        detail: runnerAddressOk ? formatAddress(cleanRunnerAddress) : "Deploy runner, then paste its address.",
+      },
+      {
+        ok: Boolean(activeSavedRunner),
+        label: "Runner saved locally",
+        detail: activeSavedRunner?.label ?? "Save the deployed address for reuse.",
+      },
+      {
+        ok: wallet.status === "connected" && isRightChain,
+        label: "Wallet on Ritual",
+        detail:
+          wallet.status === "connected"
+            ? isRightChain
+              ? formatAddress(wallet.address)
+              : `Current chain ${wallet.chainId ?? "unknown"}`
+            : "Connect wallet before sending.",
+      },
+      {
+        ok: wallet.status === "connected" && isRitualWalletFunded,
+        label: "RitualWallet funded",
+        detail:
+          wallet.status === "connected"
+            ? `${wallet.ritualWalletBalance ?? "0"} RITUAL escrow`
+            : "Escrow is checked after wallet connect.",
+      },
+    ],
+    [
+      activeSavedRunner,
+      cleanRunnerAddress,
+      isRightChain,
+      isRitualWalletFunded,
+      runnerAddressOk,
+      runnerCalldata,
+      wallet.address,
+      wallet.chainId,
+      wallet.ritualWalletBalance,
+      wallet.status,
+    ],
+  );
+  const runnerSetupOpenCount = runnerSetupChecks.filter((check) => !check.ok).length;
   const pendingRunnerKey = React.useMemo(
     () =>
       runnerRuns
@@ -1671,6 +1726,46 @@ function App() {
                   ) : (
                     <p>No saved runner contracts yet.</p>
                   )}
+                </div>
+                <div className="runner-setup">
+                  <button
+                    className={showRunnerSetup ? "section-toggle open runner-setup-toggle" : "section-toggle runner-setup-toggle"}
+                    type="button"
+                    onClick={() => setShowRunnerSetup((current) => !current)}
+                    aria-expanded={showRunnerSetup}
+                  >
+                    <ChevronDown size={15} />
+                    Deployment checklist
+                    <span>{runnerSetupOpenCount ? `${runnerSetupOpenCount} open` : "ready"}</span>
+                  </button>
+                  {showRunnerSetup ? (
+                    <div className="runner-setup-body">
+                      <div className="runner-command-list">
+                        <button type="button" onClick={() => copyValue(RUNNER_BUILD_COMMAND)}>
+                          <TerminalSquare size={14} />
+                          <span>Build</span>
+                          <code>{RUNNER_BUILD_COMMAND}</code>
+                        </button>
+                        <button type="button" onClick={() => copyValue(RUNNER_DEPLOY_COMMAND)}>
+                          <TerminalSquare size={14} />
+                          <span>Deploy</span>
+                          <code>{RUNNER_DEPLOY_COMMAND}</code>
+                        </button>
+                      </div>
+                      <div className="runner-check-list">
+                        {runnerSetupChecks.map((check) => (
+                          <div className={check.ok ? "runner-check ok" : "runner-check pending"} key={check.label}>
+                            {check.ok ? <Check size={13} /> : <AlertCircle size={13} />}
+                            <span>{check.label}</span>
+                            <small>{check.detail}</small>
+                          </div>
+                        ))}
+                      </div>
+                      <a href={RUNNER_GUIDE_URL} target="_blank" rel="noreferrer">
+                        Runner deployment guide <ArrowUpRight size={13} />
+                      </a>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="runner-actions">
                   <button className="secondary-action" type="button" onClick={copyRunnerCalldata} disabled={!runnerCalldata}>
