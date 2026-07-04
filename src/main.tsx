@@ -87,6 +87,13 @@ type ImportState = {
   error?: string;
 };
 
+type RunnerCodeState = {
+  status: "idle" | "checking" | "contract" | "empty" | "error";
+  address?: string;
+  byteLength?: number;
+  error?: string;
+};
+
 type ReceiptStatus = "pending" | "confirmed" | "failed";
 type RunnerHistoryFilter = "all" | ReceiptStatus;
 
@@ -407,6 +414,14 @@ function defaultRunnerLabel(address: string) {
 
 function defaultExecutorLabel(address: string) {
   return `TEE executor ${formatAddress(address)}`;
+}
+
+function describeRunnerCodeState(state: RunnerCodeState) {
+  if (state.status === "contract") return `${state.byteLength?.toLocaleString() ?? "Verified"} bytecode bytes`;
+  if (state.status === "empty") return "No bytecode at this address.";
+  if (state.status === "checking") return "Checking bytecode...";
+  if (state.status === "error") return state.error ?? "Could not verify bytecode.";
+  return "Set a runner address to check bytecode.";
 }
 
 function formatBalance(hex?: string) {
@@ -966,6 +981,7 @@ function App() {
   const [runnerHistoryFilter, setRunnerHistoryFilter] = React.useState<RunnerHistoryFilter>("all");
   const [copiedRunnerHistory, setCopiedRunnerHistory] = React.useState(false);
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
   const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
   const [runnerHistoryScope, setRunnerHistoryScope] = React.useState(initialRunnerHistoryScope);
   const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>(() =>
@@ -1041,6 +1057,7 @@ function App() {
   const canSendRunner =
     Boolean(runnerCalldata) &&
     runnerAddressOk &&
+    runnerCodeState.status === "contract" &&
     wallet.status === "connected" &&
     isRightChain &&
     isRitualWalletFunded &&
@@ -1061,6 +1078,11 @@ function App() {
         ok: runnerAddressOk,
         label: "Runner contract address set",
         detail: runnerAddressOk ? formatAddress(cleanRunnerAddress) : "Deploy runner, then paste its address.",
+      },
+      {
+        ok: runnerCodeState.status === "contract",
+        label: "Runner bytecode verified",
+        detail: describeRunnerCodeState(runnerCodeState),
       },
       {
         ok: Boolean(activeSavedRunner),
@@ -1095,6 +1117,7 @@ function App() {
       isRitualWalletFunded,
       runnerAddressOk,
       runnerCalldata,
+      runnerCodeState,
       wallet.address,
       wallet.chainId,
       wallet.ritualWalletBalance,
@@ -1363,6 +1386,40 @@ function App() {
   }, [wallet.address]);
 
   React.useEffect(() => {
+    if (!runnerAddressOk) {
+      setRunnerCodeState({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    const address = cleanRunnerAddress;
+    setRunnerCodeState({ status: "checking", address });
+
+    rpc<string>("eth_getCode", [address, "latest"])
+      .then((code) => {
+        if (cancelled) return;
+        const byteLength = hexByteLength(code);
+        setRunnerCodeState(
+          code && code !== "0x" && byteLength !== undefined && byteLength > 0
+            ? { status: "contract", address, byteLength }
+            : { status: "empty", address },
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setRunnerCodeState({
+          status: "error",
+          address,
+          error: error instanceof Error ? error.message : "Could not verify runner bytecode.",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cleanRunnerAddress, runnerAddressOk]);
+
+  React.useEffect(() => {
     const nextScope = runnerHistoryStorageKey(wallet.address);
     runnerHistoryHydrated.current = false;
     setRunnerHistoryScope(nextScope);
@@ -1427,6 +1484,10 @@ function App() {
       runner: {
         address: cleanRunnerAddress || "unset",
         executor: cleanExecutorAddress || "unset",
+        bytecode: {
+          status: runnerCodeState.status,
+          bytes: runnerCodeState.byteLength ?? null,
+        },
         recentTransactions: runnerRuns.map((run) => ({
           hash: run.hash,
           status: run.status,
@@ -1446,6 +1507,8 @@ function App() {
     selectedFields,
     selectedRecipe.id,
     runnerRuns,
+    runnerCodeState.byteLength,
+    runnerCodeState.status,
     wallet.ritualLockUntil,
     wallet.ritualWalletBalance,
     wallet.status,
