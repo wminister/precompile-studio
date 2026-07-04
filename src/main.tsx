@@ -542,6 +542,24 @@ function parseRunnerRuns(value: string | null): RunnerRun[] {
   }
 }
 
+function parseRunnerHistoryImport(value: string): RunnerRun[] {
+  try {
+    const parsed = JSON.parse(value);
+    const candidates = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.runs)
+        ? parsed.runs
+        : Array.isArray(parsed?.history)
+          ? parsed.history
+          : parsed?.run
+            ? [parsed.run]
+            : [];
+    return parseRunnerRuns(JSON.stringify(candidates));
+  } catch {
+    return [];
+  }
+}
+
 function parseRecipePresets(value: string | null): RecipePreset[] {
   if (!value) return [];
   try {
@@ -717,6 +735,10 @@ function App() {
   const [savedRunners, setSavedRunners] = React.useState<SavedRunner[]>([]);
   const [importTxHash, setImportTxHash] = React.useState("");
   const [importTxState, setImportTxState] = React.useState<ImportState>({ status: "idle" });
+  const [showRunnerHistoryTransfer, setShowRunnerHistoryTransfer] = React.useState(false);
+  const [runnerHistoryImportValue, setRunnerHistoryImportValue] = React.useState("");
+  const [runnerHistoryMessage, setRunnerHistoryMessage] = React.useState("");
+  const [copiedRunnerHistory, setCopiedRunnerHistory] = React.useState(false);
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
   const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
   const [runnerHistoryScope, setRunnerHistoryScope] = React.useState(initialRunnerHistoryScope);
@@ -1269,7 +1291,45 @@ function App() {
   const clearRunnerHistory = React.useCallback(() => {
     setRunnerRuns([]);
     window.localStorage.removeItem(runnerHistoryScope);
+    setRunnerHistoryMessage("Runner history cleared.");
   }, [runnerHistoryScope]);
+
+  const copyRunnerHistoryJson = React.useCallback(async () => {
+    if (!runnerRuns.length) return;
+    await navigator.clipboard.writeText(
+      JSON.stringify(
+        {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          scope: runnerHistoryScopeLabel,
+          runs: runnerRuns,
+        },
+        null,
+        2,
+      ),
+    );
+    setCopiedRunnerHistory(true);
+    setRunnerHistoryMessage("Runner history JSON copied.");
+    window.setTimeout(() => setCopiedRunnerHistory(false), 1400);
+  }, [runnerHistoryScopeLabel, runnerRuns]);
+
+  const importRunnerHistoryJson = React.useCallback(() => {
+    const imported = parseRunnerHistoryImport(runnerHistoryImportValue);
+    if (!imported.length) {
+      setRunnerHistoryMessage("Paste valid Precompile Studio runner history JSON.");
+      return;
+    }
+
+    setRunnerRuns((current) => {
+      const importedHashes = new Set(imported.map((run) => run.hash.toLowerCase()));
+      return [...imported, ...current.filter((run) => !importedHashes.has(run.hash.toLowerCase()))].slice(
+        0,
+        RUNNER_HISTORY_LIMIT,
+      );
+    });
+    setRunnerHistoryImportValue("");
+    setRunnerHistoryMessage(`${imported.length} ${imported.length === 1 ? "transaction" : "transactions"} imported.`);
+  }, [runnerHistoryImportValue]);
 
   const saveRecipePreset = React.useCallback(() => {
     const label = presetLabel.trim();
@@ -2003,8 +2063,16 @@ function App() {
                     </div>
                     <div className="runner-history-tools">
                       {runnerRuns.length ? <strong>{runnerRuns.length}</strong> : null}
+                      <button
+                        className={showRunnerHistoryTransfer ? "runner-history-toggle open" : "runner-history-toggle"}
+                        type="button"
+                        onClick={() => setShowRunnerHistoryTransfer((current) => !current)}
+                        aria-expanded={showRunnerHistoryTransfer}
+                      >
+                        JSON
+                      </button>
                       {runnerRuns.length ? (
-                        <button type="button" onClick={clearRunnerHistory}>
+                        <button className="runner-history-clear" type="button" onClick={clearRunnerHistory}>
                           Clear
                         </button>
                       ) : null}
@@ -2030,6 +2098,39 @@ function App() {
                   </div>
                   {!importTxHashOk && cleanImportTxHash ? <p>Transaction hash must be 0x plus 64 hex characters.</p> : null}
                   {importTxState.error ? <p>{importTxState.error}</p> : null}
+                  {showRunnerHistoryTransfer ? (
+                    <div className="runner-history-transfer">
+                      <div className="runner-history-transfer-actions">
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          onClick={copyRunnerHistoryJson}
+                          disabled={!runnerRuns.length}
+                        >
+                          {copiedRunnerHistory ? <Check size={15} /> : <Download size={15} />}
+                          {copiedRunnerHistory ? "Copied" : "Copy history"}
+                        </button>
+                        <button
+                          className="primary-action"
+                          type="button"
+                          onClick={importRunnerHistoryJson}
+                          disabled={!runnerHistoryImportValue.trim()}
+                        >
+                          <Upload size={15} />
+                          Import JSON
+                        </button>
+                      </div>
+                      <textarea
+                        value={runnerHistoryImportValue}
+                        onChange={(event) => setRunnerHistoryImportValue(event.target.value)}
+                        placeholder="Paste Precompile Studio runner history JSON"
+                        spellCheck={false}
+                      />
+                      {runnerHistoryMessage ? <p>{runnerHistoryMessage}</p> : null}
+                    </div>
+                  ) : runnerHistoryMessage ? (
+                    <p>{runnerHistoryMessage}</p>
+                  ) : null}
                   {runnerRuns.length ? (
                     <div className="runner-run-list">
                       {runnerRuns.map((run) => {

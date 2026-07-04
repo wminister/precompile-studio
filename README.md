@@ -18,6 +18,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Persisted runner transaction history scoped by wallet or local browser, with receipt polling
 - Explorer-linked runner transactions using Ritual's `/tx/{hash}` route
 - Transaction hash import for externally submitted runner calls
+- Runner history JSON copy/import for moving traces between browsers
 - Compact transaction trace rows for receipt, `spcCalls`, and callback follow-up state
 - Local saved runner contracts scoped by wallet
 - Local recipe presets for saving and reloading composer fields
@@ -65,6 +66,8 @@ Submitted runner transactions are stored locally, scoped to the connected wallet
 
 External transaction hashes can also be imported into the runner history, which is useful when a call was submitted from a wallet, terminal, or explorer outside the current browser session.
 
+Runner history can be copied or imported as JSON from the runner panel, allowing trace evidence to move between local browsers without connecting a backend account.
+
 Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md) and [`examples/http-preset.json`](./examples/http-preset.json) for the preset format.
@@ -104,4 +107,4 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 1. Attach callback completion to submitted runner traces.
 2. Add more live recipe templates.
 3. Add runner deployment transaction tracking once deploy flow is automated.
-4. Add transaction history export/import for moving traces between browsers.
+4. Add runner history filtering once trace volume grows.
