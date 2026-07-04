@@ -1123,6 +1123,41 @@ select:focus {
   text-align: center;
 }
 
+.runner-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 8px;
+}
+
+.runner-import label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.runner-import span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.runner-import input {
+  min-height: 34px;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
+.runner-import .secondary-action {
+  min-height: 34px;
+  padding-inline: 10px;
+  font-size: 0.78rem;
+}
+
 .runner-run-list {
   display: grid;
   gap: 6px;
@@ -1792,6 +1827,10 @@ pre {
 
   .runner-command-list button {
     grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .runner-import {
+    grid-template-columns: 1fr;
   }
 
   .runner-command-list code {

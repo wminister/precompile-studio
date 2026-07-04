@@ -80,6 +80,11 @@ type TransactionState = {
   error?: string;
 };
 
+type ImportState = {
+  status: "idle" | "checking" | "imported" | "error";
+  error?: string;
+};
+
 type ReceiptStatus = "pending" | "confirmed" | "failed";
 
 type RpcReceipt = {
@@ -97,6 +102,7 @@ type RunnerRun = {
   submittedAt: number;
   method: string;
   url: string;
+  source?: "wallet" | "imported";
   status: ReceiptStatus;
   receipt?: RpcReceipt;
   error?: string;
@@ -327,6 +333,10 @@ function formatHash(hash?: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
 
+function isTransactionHash(value: string) {
+  return /^0x[a-fA-F0-9]{64}$/.test(value.trim());
+}
+
 function explorerTransactionUrl(hash: string) {
   return `${RITUAL.explorer}/tx/${hash}`;
 }
@@ -422,6 +432,7 @@ function runnerTraceJson(run: RunnerRun) {
   return JSON.stringify(
     {
       hash: run.hash,
+      source: run.source ?? "wallet",
       runnerAddress: run.runnerAddress,
       submittedAt: new Date(run.submittedAt).toISOString(),
       request: {
@@ -651,6 +662,8 @@ function App() {
   const [runnerAddress, setRunnerAddress] = React.useState("");
   const [runnerLabel, setRunnerLabel] = React.useState("");
   const [savedRunners, setSavedRunners] = React.useState<SavedRunner[]>([]);
+  const [importTxHash, setImportTxHash] = React.useState("");
+  const [importTxState, setImportTxState] = React.useState<ImportState>({ status: "idle" });
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
   const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>([]);
   const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
@@ -770,6 +783,9 @@ function App() {
     ],
   );
   const runnerSetupOpenCount = runnerSetupChecks.filter((check) => !check.ok).length;
+  const cleanImportTxHash = importTxHash.trim();
+  const importTxHashOk = isTransactionHash(cleanImportTxHash);
+  const canImportTx = importTxHashOk && importTxState.status !== "checking";
   const pendingRunnerKey = React.useMemo(
     () =>
       runnerRuns
@@ -1130,6 +1146,40 @@ function App() {
       );
     }
   }, []);
+
+  const importRunnerTransaction = React.useCallback(async () => {
+    const hash = cleanImportTxHash;
+    if (!isTransactionHash(hash)) {
+      setImportTxState({ status: "error", error: "Paste a 66-character transaction hash." });
+      return;
+    }
+
+    setImportTxState({ status: "checking" });
+    try {
+      const receipt = await rpc<RpcReceipt | null>("eth_getTransactionReceipt", [hash]);
+      const nextRun: RunnerRun = {
+        hash,
+        runnerAddress: runnerAddressOk ? cleanRunnerAddress : zeroAddress,
+        submittedAt: Date.now(),
+        method: "external",
+        url: "Imported transaction hash",
+        source: "imported",
+        status: receiptStatus(receipt ?? undefined),
+        receipt: receipt ?? undefined,
+      };
+      setRunnerRuns((current) => [nextRun, ...current.filter((run) => run.hash.toLowerCase() !== hash.toLowerCase())].slice(0, 5));
+      setImportTxHash("");
+      setImportTxState({
+        status: "imported",
+        error: receipt ? undefined : "Transaction imported. Receipt is not available yet.",
+      });
+    } catch (error) {
+      setImportTxState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Unable to import transaction.",
+      });
+    }
+  }, [cleanImportTxHash, cleanRunnerAddress, runnerAddressOk]);
 
   const copyValue = React.useCallback(async (value: string) => {
     await navigator.clipboard.writeText(value);
@@ -1859,6 +1909,26 @@ function App() {
                     <span>Recent runner txs</span>
                     {runnerRuns.length ? <strong>{runnerRuns.length}</strong> : null}
                   </div>
+                  <div className="runner-import">
+                    <label>
+                      <span>Import tx hash</span>
+                      <input
+                        value={importTxHash}
+                        onChange={(event) => {
+                          setImportTxHash(event.target.value);
+                          if (importTxState.status !== "checking") setImportTxState({ status: "idle" });
+                        }}
+                        placeholder="0x..."
+                        spellCheck={false}
+                      />
+                    </label>
+                    <button className="secondary-action" type="button" onClick={importRunnerTransaction} disabled={!canImportTx}>
+                      {importTxState.status === "checking" ? <Loader2 className="spin" size={15} /> : <ArrowUpRight size={15} />}
+                      {importTxState.status === "checking" ? "Checking" : "Import"}
+                    </button>
+                  </div>
+                  {!importTxHashOk && cleanImportTxHash ? <p>Transaction hash must be 0x plus 64 hex characters.</p> : null}
+                  {importTxState.error ? <p>{importTxState.error}</p> : null}
                   {runnerRuns.length ? (
                     <div className="runner-run-list">
                       {runnerRuns.map((run) => {
@@ -1874,6 +1944,7 @@ function App() {
                               </button>
                             </div>
                             <div className="runner-run-meta">
+                              <span>{run.source === "imported" ? "imported" : "wallet"}</span>
                               <span>{run.method}</span>
                               <span title={run.url}>{run.url}</span>
                               <span>{describeSpcCalls(run.receipt)}</span>
