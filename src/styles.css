@@ -318,6 +318,7 @@ h2 {
 .runner-run-main button:focus-visible,
 .runner-refresh:focus-visible,
 .runner-run-actions button:focus-visible,
+.runner-run-actions a:focus-visible,
 .saved-runner button:focus-visible,
 .runner-command-list button:focus-visible,
 .runner-setup-body a:focus-visible,
@@ -1192,6 +1193,7 @@ select:focus {
 
 .runner-run-main button,
 .runner-run-actions button,
+.runner-run-actions a,
 .runner-refresh {
   display: inline-flex;
   align-items: center;
@@ -1212,6 +1214,7 @@ select:focus {
 
 .runner-run-main button:hover,
 .runner-run-actions button:hover,
+.runner-run-actions a:hover,
 .runner-refresh:hover {
   border-color: rgba(143, 240, 196, 0.2);
   background: rgba(52, 211, 153, 0.06);

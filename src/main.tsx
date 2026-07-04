@@ -327,6 +327,10 @@ function formatHash(hash?: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
 
+function explorerTransactionUrl(hash: string) {
+  return `${RITUAL.explorer}/tx/${hash}`;
+}
+
 function runnerStorageKey(walletAddress?: string) {
   return `${RUNNER_STORAGE_PREFIX}:${walletAddress?.toLowerCase() ?? "local"}`;
 }
@@ -424,6 +428,7 @@ function runnerTraceJson(run: RunnerRun) {
         method: run.method,
         url: run.url,
       },
+      explorerUrl: explorerTransactionUrl(run.hash),
       status: run.status,
       receipt: run.receipt ?? null,
       evidence: {
@@ -1886,6 +1891,10 @@ function App() {
                             </div>
                             {run.error ? <p>{run.error}</p> : null}
                             <div className="runner-run-actions">
+                              <a href={explorerTransactionUrl(run.hash)} target="_blank" rel="noreferrer">
+                                <ArrowUpRight size={13} />
+                                Explorer
+                              </a>
                               <button type="button" onClick={() => copyValue(runnerTraceJson(run))}>
                                 <Clipboard size={13} />
                                 Copy trace
