@@ -33,12 +33,18 @@ The importer accepts either:
 
 ## Field Rules
 
-- `recipeId` must match a known recipe tab, currently `http`, `llm`, `agent`, or `scheduler`.
+- `recipeId` must match a known recipe tab, currently `http`, `llm`, `jq`, `agent`, or `scheduler`.
 - Imported `fields` can be minimal `key` and `value` pairs.
 - The app normalizes imported fields against the current recipe schema, so labels, select controls, textarea controls, and option lists stay consistent.
 - Unknown field keys are ignored.
 - Missing known field keys fall back to that recipe's default value.
 - Imported preset ids are replaced locally to avoid collisions.
+
+## Examples
+
+- [`examples/http-preset.json`](../examples/http-preset.json) stores a GET request for HTTP precompile `0x0801`.
+- [`examples/llm-preset.json`](../examples/llm-preset.json) stores a GLM-4.7 chat-completion draft for LLM precompile `0x0802`. Replace the zero executor with a registered TEE executor before encoding.
+- [`examples/jq-preset.json`](../examples/jq-preset.json) stores a synchronous JSON price extraction for JQ precompile `0x0803`.
 
 ## Safety
 

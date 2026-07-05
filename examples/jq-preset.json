@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "preset": {
+    "id": "jq-extract-price",
+    "recipeId": "jq",
+    "label": "Extract price",
+    "updatedAt": 1783110000000,
+    "fields": [
+      {
+        "key": "query",
+        "value": ".data.price"
+      },
+      {
+        "key": "inputData",
+        "value": "{\"data\":{\"price\":1979}}"
+      },
+      {
+        "key": "outputType",
+        "value": "uint256"
+      }
+    ]
+  }
+}

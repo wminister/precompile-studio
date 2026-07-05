@@ -26,7 +26,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local saved runner contracts scoped by wallet
 - Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
-- Built-in HTTP recipe examples for GET and JSON POST requests
+- Built-in HTTP, LLM, and JQ recipe examples
 - Live HTTP, LLM, and JQ recipe composers, with Agent and Scheduler shells
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
@@ -78,7 +78,7 @@ Runner contract addresses can be saved locally and reused from the runner panel.
 
 TEE executor addresses can also be saved locally from the HTTP composer. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 
-Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md) and [`examples/http-preset.json`](./examples/http-preset.json) for the preset format.
+Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), and [`examples/jq-preset.json`](./examples/jq-preset.json) for the preset format.
 
 See [`contracts/README.md`](./contracts/README.md) for runner build and deployment steps.
 

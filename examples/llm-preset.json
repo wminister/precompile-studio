@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "preset": {
+    "id": "llm-one-line-summary",
+    "recipeId": "llm",
+    "label": "One-line summary",
+    "updatedAt": 1783110000000,
+    "fields": [
+      {
+        "key": "executor",
+        "value": "0x0000000000000000000000000000000000000000"
+      },
+      {
+        "key": "ttl",
+        "value": "30"
+      },
+      {
+        "key": "messagesJson",
+        "value": "[{\"role\":\"user\",\"content\":\"Summarize why Ritual precompiles matter in one sentence.\"}]"
+      },
+      {
+        "key": "model",
+        "value": "zai-org/GLM-4.7-FP8"
+      },
+      {
+        "key": "temperature",
+        "value": "0.7"
+      },
+      {
+        "key": "stream",
+        "value": "false"
+      },
+      {
+        "key": "historyPlatform",
+        "value": "gcs"
+      },
+      {
+        "key": "historyPath",
+        "value": "convos/precompile-studio.jsonl"
+      },
+      {
+        "key": "historyKeyRef",
+        "value": "GCS_CREDS"
+      }
+    ]
+  }
+}
