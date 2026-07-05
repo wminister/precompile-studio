@@ -155,6 +155,8 @@ type AbiDraftView = {
   }>;
 };
 
+type StorageRefTuple = [string, string, string];
+
 type SavedRunner = {
   address: string;
   label: string;
@@ -215,11 +217,14 @@ const SYSTEM_CONTRACTS = {
 const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const LLM_INFERENCE_PRECOMPILE = "0x0000000000000000000000000000000000000802";
 const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
+const SOVEREIGN_AGENT_PRECOMPILE = "0x000000000000000000000000000000000000080c";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
 const LLM_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, string, int256, string, bool, int256, string, string, uint256, bool, int256, string, bytes, int256, string, string, bool, int256, bytes, bytes, int256, int256, string, bool, (string,string,string)";
 const JQ_ABI_SIGNATURE = "string, string, uint8";
+const SOVEREIGN_AGENT_ABI_SIGNATURE =
+  "address, uint256, bytes, uint64, uint64, string, address, bytes4, uint256, uint256, uint256, uint16, string, bytes, (string,string,string), (string,string,string), (string,string,string)[], (string,string,string), string, string[], uint16, uint32, string";
 const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
@@ -260,6 +265,8 @@ const JQ_OUTPUT_TYPES: Record<string, number> = {
   "bool[]": 8,
   "address[]": 9,
 };
+
+const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
 
 const ritualWalletAbi = [
   {
@@ -374,14 +381,44 @@ const recipes: Recipe[] = [
   {
     id: "agent",
     name: "Agent",
-    label: "Recipe shell",
+    label: "Live CLI recipe",
     icon: Route,
-    status: "preview",
-    description: "Multi-step action shell with sender-lock checks visible.",
+    status: "live",
+    description: "23-field Sovereign Agent input for CLI execution at precompile 0x080C.",
     fields: [
-      { key: "objective", label: "Objective", value: "Fetch, summarize, and commit the result.", type: "textarea" },
-      { key: "tools", label: "Allowed tools", value: "http,llm" },
-      { key: "ttl", label: "TTL blocks", value: "320" },
+      { key: "executor", label: "Executor", value: zeroAddress },
+      { key: "ttl", label: "TTL blocks", value: "30" },
+      { key: "pollInterval", label: "Poll interval", value: "10" },
+      { key: "maxPollBlock", label: "Max poll block", value: "200" },
+      { key: "taskIdMarker", label: "Task marker", value: "" },
+      { key: "callbackAddress", label: "Callback contract", value: zeroAddress },
+      { key: "callbackSelector", label: "Callback selector", value: AGENT_CALLBACK_SELECTOR },
+      { key: "gasLimit", label: "Callback gas", value: "250000" },
+      { key: "maxFeePerGas", label: "Max fee wei", value: "0" },
+      { key: "maxPriorityFeePerGas", label: "Priority fee wei", value: "0" },
+      { key: "cliType", label: "CLI type", value: "0" },
+      {
+        key: "prompt",
+        label: "Prompt",
+        value: "Audit the latest runner trace and return the next onchain action as JSON.",
+        type: "textarea",
+      },
+      { key: "encryptedSecrets", label: "Encrypted secrets", value: "0x", type: "textarea" },
+      { key: "historyPlatform", label: "History platform", value: "gcs" },
+      { key: "historyPath", label: "History path", value: "agents/precompile-studio/history.jsonl" },
+      { key: "historyKeyRef", label: "History key ref", value: "GCS_CREDS" },
+      { key: "outputPlatform", label: "Output platform", value: "gcs" },
+      { key: "outputPath", label: "Output path", value: "agents/precompile-studio/output.json" },
+      { key: "outputKeyRef", label: "Output key ref", value: "GCS_CREDS" },
+      { key: "skillsJson", label: "Skills refs JSON", value: "[]", type: "textarea" },
+      { key: "systemPromptPlatform", label: "System platform", value: "" },
+      { key: "systemPromptPath", label: "System path", value: "" },
+      { key: "systemPromptKeyRef", label: "System key ref", value: "" },
+      { key: "model", label: "Model", value: "claude-code" },
+      { key: "tools", label: "Allowed tools", value: "read,write,shell", type: "textarea" },
+      { key: "maxTurns", label: "Max turns", value: "8" },
+      { key: "maxTokens", label: "Max tokens", value: "4096" },
+      { key: "rpcUrls", label: "RPC URLs", value: RITUAL.rpc, type: "textarea" },
     ],
   },
   {
@@ -461,6 +498,46 @@ const builtInRecipePresets: RecipePreset[] = [
       { key: "historyPlatform", value: "gcs" },
       { key: "historyPath", value: "convos/precompile-studio.jsonl" },
       { key: "historyKeyRef", value: "GCS_CREDS" },
+    ]),
+  },
+  {
+    id: "example-agent-runner-audit",
+    recipeId: "agent",
+    label: "Example: Runner trace audit",
+    updatedAt: 0,
+    source: "example",
+    fields: normalizePresetFields("agent", [
+      { key: "executor", value: zeroAddress },
+      { key: "ttl", value: "30" },
+      { key: "pollInterval", value: "10" },
+      { key: "maxPollBlock", value: "200" },
+      { key: "taskIdMarker", value: "" },
+      { key: "callbackAddress", value: zeroAddress },
+      { key: "callbackSelector", value: AGENT_CALLBACK_SELECTOR },
+      { key: "gasLimit", value: "250000" },
+      { key: "maxFeePerGas", value: "0" },
+      { key: "maxPriorityFeePerGas", value: "0" },
+      { key: "cliType", value: "0" },
+      {
+        key: "prompt",
+        value: "Audit the latest runner trace and return the next onchain action as JSON.",
+      },
+      { key: "encryptedSecrets", value: "0x" },
+      { key: "historyPlatform", value: "gcs" },
+      { key: "historyPath", value: "agents/precompile-studio/history.jsonl" },
+      { key: "historyKeyRef", value: "GCS_CREDS" },
+      { key: "outputPlatform", value: "gcs" },
+      { key: "outputPath", value: "agents/precompile-studio/output.json" },
+      { key: "outputKeyRef", value: "GCS_CREDS" },
+      { key: "skillsJson", value: "[]" },
+      { key: "systemPromptPlatform", value: "" },
+      { key: "systemPromptPath", value: "" },
+      { key: "systemPromptKeyRef", value: "" },
+      { key: "model", value: "claude-code" },
+      { key: "tools", value: "read,write,shell" },
+      { key: "maxTurns", value: "8" },
+      { key: "maxTokens", value: "4096" },
+      { key: "rpcUrls", value: RITUAL.rpc },
     ]),
   },
 ];
@@ -977,6 +1054,91 @@ function parseHeaders(input: string) {
     );
 }
 
+function parseStringList(input: string) {
+  return input
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseUintField(value: string, label: string, errors: string[], options: { min?: bigint; max?: bigint } = {}) {
+  const normalized = value.trim();
+  const min = options.min ?? 0n;
+  if (!/^\d+$/.test(normalized)) {
+    errors.push(`${label} must be a whole number.`);
+    return 0n;
+  }
+
+  const parsed = BigInt(normalized);
+  if (parsed < min) errors.push(`${label} must be at least ${min.toString()}.`);
+  if (options.max !== undefined && parsed > options.max) {
+    errors.push(`${label} must fit within ${options.max.toString()}.`);
+  }
+  return parsed;
+}
+
+function parseHexBytesField(value: string, label: string, errors: string[], options: { byteLength?: number } = {}) {
+  const normalized = value.trim() || "0x";
+  if (!/^0x[a-fA-F0-9]*$/.test(normalized) || normalized.length % 2 !== 0) {
+    errors.push(`${label} must be 0x-prefixed hex bytes.`);
+    return "0x";
+  }
+  if (options.byteLength !== undefined && (normalized.length - 2) / 2 !== options.byteLength) {
+    errors.push(`${label} must be ${options.byteLength} bytes.`);
+  }
+  return normalized;
+}
+
+function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
+  return [
+    fieldValue(fields, `${prefix}Platform`).trim(),
+    fieldValue(fields, `${prefix}Path`).trim(),
+    fieldValue(fields, `${prefix}KeyRef`).trim(),
+  ];
+}
+
+function parseStorageRefList(input: string, errors: string[]) {
+  const trimmed = input.trim();
+  if (!trimmed) return [] as StorageRefTuple[];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    errors.push("Skills refs JSON must parse as an array.");
+    return [] as StorageRefTuple[];
+  }
+
+  if (!Array.isArray(parsed)) {
+    errors.push("Skills refs JSON must be an array.");
+    return [] as StorageRefTuple[];
+  }
+
+  const refs: StorageRefTuple[] = [];
+  parsed.forEach((item, index) => {
+    if (Array.isArray(item) && item.length === 3 && item.every((value) => typeof value === "string")) {
+      refs.push([item[0], item[1], item[2]]);
+      return;
+    }
+    if (
+      item &&
+      typeof item === "object" &&
+      "platform" in item &&
+      "path" in item &&
+      "keyRef" in item &&
+      typeof item.platform === "string" &&
+      typeof item.path === "string" &&
+      typeof item.keyRef === "string"
+    ) {
+      refs.push([item.platform, item.path, item.keyRef]);
+      return;
+    }
+    errors.push(`Skills ref ${index + 1} must be [platform, path, keyRef] or { platform, path, keyRef }.`);
+  });
+
+  return refs;
+}
+
 function fieldValue(fields: ComposerField[], key: string) {
   return fields.find((field) => field.key === key)?.value ?? "";
 }
@@ -1168,6 +1330,109 @@ function buildJqDraft(fields: ComposerField[]) {
   };
 }
 
+function buildAgentDraft(fields: ComposerField[]) {
+  const executor = fieldValue(fields, "executor").trim();
+  const errors: string[] = [];
+  const ttl = parseUintField(fieldValue(fields, "ttl"), "TTL", errors, { min: 1n });
+  const pollInterval = parseUintField(fieldValue(fields, "pollInterval"), "Poll interval", errors, { min: 1n });
+  const maxPollBlock = parseUintField(fieldValue(fields, "maxPollBlock"), "Max poll block", errors, { min: 1n });
+  const taskIdMarker = fieldValue(fields, "taskIdMarker").trim();
+  const callbackAddress = fieldValue(fields, "callbackAddress").trim();
+  const callbackSelector = parseHexBytesField(fieldValue(fields, "callbackSelector"), "Callback selector", errors, {
+    byteLength: 4,
+  });
+  const gasLimit = parseUintField(fieldValue(fields, "gasLimit"), "Callback gas", errors, { min: 1n });
+  const maxFeePerGas = parseUintField(fieldValue(fields, "maxFeePerGas"), "Max fee wei", errors);
+  const maxPriorityFeePerGas = parseUintField(fieldValue(fields, "maxPriorityFeePerGas"), "Priority fee wei", errors);
+  const cliType = parseUintField(fieldValue(fields, "cliType"), "CLI type", errors, { max: 65535n });
+  const prompt = fieldValue(fields, "prompt").trim();
+  const encryptedSecrets = parseHexBytesField(fieldValue(fields, "encryptedSecrets"), "Encrypted secrets", errors);
+  const convoHistory = storageRefFromFields(fields, "history");
+  const output = storageRefFromFields(fields, "output");
+  const skills = parseStorageRefList(fieldValue(fields, "skillsJson"), errors);
+  const systemPrompt = storageRefFromFields(fields, "systemPrompt");
+  const model = fieldValue(fields, "model").trim();
+  const tools = parseStringList(fieldValue(fields, "tools"));
+  const maxTurns = parseUintField(fieldValue(fields, "maxTurns"), "Max turns", errors, { min: 1n, max: 65535n });
+  const maxTokens = parseUintField(fieldValue(fields, "maxTokens"), "Max tokens", errors, { min: 1n, max: 4294967295n });
+  const rpcUrls = fieldValue(fields, "rpcUrls").trim();
+
+  if (!isAddress(executor) || executor.toLowerCase() === zeroAddress) {
+    errors.push("Select a non-zero TEE executor before encoding.");
+  }
+  if (!isAddress(callbackAddress) || callbackAddress.toLowerCase() === zeroAddress) {
+    errors.push("Set the contract callback address for two-phase delivery.");
+  }
+  if (callbackSelector === "0x00000000") {
+    errors.push("Callback selector should point to onSovereignAgentResult(bytes32,bytes).");
+  }
+  if (!prompt) errors.push("Prompt is required.");
+  if (!convoHistory.every(Boolean)) {
+    errors.push("Conversation history storage ref needs platform, path, and key ref.");
+  }
+  if (!output.every(Boolean)) {
+    errors.push("Output storage ref needs platform, path, and key ref.");
+  }
+  if (!model) errors.push("Model is required.");
+  if (!tools.length) errors.push("At least one allowed tool is required.");
+  if (!rpcUrls) errors.push("RPC URLs are required for chain-aware agents.");
+
+  const encodedInput =
+    errors.length === 0
+      ? encodeAbiParameters(parseAbiParameters(SOVEREIGN_AGENT_ABI_SIGNATURE), [
+          executor as `0x${string}`,
+          ttl,
+          "0x",
+          pollInterval,
+          maxPollBlock,
+          taskIdMarker,
+          callbackAddress as `0x${string}`,
+          callbackSelector as `0x${string}`,
+          gasLimit,
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+          Number(cliType),
+          prompt,
+          encryptedSecrets as `0x${string}`,
+          convoHistory,
+          output,
+          skills,
+          systemPrompt,
+          model,
+          tools,
+          Number(maxTurns),
+          Number(maxTokens),
+          rpcUrls,
+        ])
+      : undefined;
+
+  return {
+    precompile: "0x080C",
+    callTarget: SOVEREIGN_AGENT_PRECOMPILE,
+    abi: SOVEREIGN_AGENT_ABI_SIGNATURE,
+    executor,
+    ttl,
+    pollInterval,
+    maxPollBlock,
+    callbackAddress,
+    callbackSelector,
+    cliType,
+    prompt,
+    encryptedSecrets,
+    convoHistory,
+    output,
+    skills,
+    systemPrompt,
+    model,
+    tools,
+    maxTurns,
+    maxTokens,
+    rpcUrls,
+    encodedInput,
+    errors,
+  };
+}
+
 async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
   const response = await fetch(RITUAL.rpc, {
     method: "POST",
@@ -1253,6 +1518,7 @@ function App() {
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
   const llmDraft = React.useMemo(() => buildLlmDraft(fieldState.llm), [fieldState.llm]);
   const jqDraft = React.useMemo(() => buildJqDraft(fieldState.jq), [fieldState.jq]);
+  const agentDraft = React.useMemo(() => buildAgentDraft(fieldState.agent), [fieldState.agent]);
   const liveAbiDraft =
     selectedRecipe.id === "http"
       ? httpDraft
@@ -1260,7 +1526,9 @@ function App() {
         ? llmDraft
         : selectedRecipe.id === "jq"
           ? jqDraft
-          : undefined;
+          : selectedRecipe.id === "agent"
+            ? agentDraft
+            : undefined;
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
@@ -1492,6 +1760,8 @@ function App() {
         ? "LLM precompile"
       : selectedRecipe.id === "jq"
         ? "JQ precompile"
+        : selectedRecipe.id === "agent"
+          ? "Sovereign Agent"
         : `${selectedRecipe.name} recipe`;
   const contextCode =
     selectedRecipe.id === "http"
@@ -1500,7 +1770,9 @@ function App() {
         ? "0x0802"
         : selectedRecipe.id === "jq"
           ? "0x0803"
-          : "preview";
+          : selectedRecipe.id === "agent"
+            ? "0x080C"
+            : "preview";
   const contextDetail =
     selectedRecipe.id === "http"
       ? "13-field ABI"
@@ -1508,7 +1780,9 @@ function App() {
         ? "30-field chat ABI"
         : selectedRecipe.id === "jq"
           ? "3-field sync ABI"
-          : "planning shell";
+          : selectedRecipe.id === "agent"
+            ? "23-field CLI ABI"
+            : "planning shell";
   const stageTitle = selectedRecipe.status === "live" ? "Composer" : `${selectedRecipe.name} preview`;
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
@@ -1599,6 +1873,36 @@ function App() {
               },
             ],
           }
+        : selectedRecipe.id === "agent"
+          ? {
+              label: "Agent",
+              abi: agentDraft.abi,
+              encodedInput: agentDraft.encodedInput,
+              errors: agentDraft.errors,
+              facts: [
+                { label: "target", value: agentDraft.callTarget, copyValue: agentDraft.callTarget },
+                { label: "cli", value: String(agentDraft.cliType), copyValue: String(agentDraft.cliType) },
+                {
+                  label: "callback",
+                  value: isAddress(agentDraft.callbackAddress) ? formatAddress(agentDraft.callbackAddress) : "missing",
+                  copyValue: agentDraft.callbackAddress,
+                },
+                {
+                  label: "tools",
+                  value: agentDraft.tools.length ? String(agentDraft.tools.length) : "missing",
+                  copyValue: agentDraft.tools.join(","),
+                },
+                {
+                  label: "bytes",
+                  value: agentDraft.encodedInput
+                    ? `${Math.floor((agentDraft.encodedInput.length - 2) / 2)} bytes`
+                    : "not encoded",
+                  copyValue: agentDraft.encodedInput
+                    ? `${Math.floor((agentDraft.encodedInput.length - 2) / 2)} bytes`
+                    : "not encoded",
+                },
+              ],
+            }
         : undefined;
 
   const refreshRpc = React.useCallback(async () => {

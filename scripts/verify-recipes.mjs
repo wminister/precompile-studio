@@ -10,6 +10,8 @@ const httpSignature =
 const llmSignature =
   "address, bytes[], uint256, bytes[], bytes, string, string, int256, string, bool, int256, string, string, uint256, bool, int256, string, bytes, int256, string, string, bool, int256, bytes, bytes, int256, int256, string, bool, (string,string,string)";
 const jqSignature = "string, string, uint8";
+const agentSignature =
+  "address, uint256, bytes, uint64, uint64, string, address, bytes4, uint256, uint256, uint256, uint16, string, bytes, (string,string,string), (string,string,string), (string,string,string)[], (string,string,string), string, string[], uint16, uint32, string";
 
 const requiredFields = {
   http: ["executor", "method", "ttl", "url", "headers", "body"],
@@ -25,6 +27,36 @@ const requiredFields = {
     "historyKeyRef",
   ],
   jq: ["query", "inputData", "outputType"],
+  agent: [
+    "executor",
+    "ttl",
+    "pollInterval",
+    "maxPollBlock",
+    "taskIdMarker",
+    "callbackAddress",
+    "callbackSelector",
+    "gasLimit",
+    "maxFeePerGas",
+    "maxPriorityFeePerGas",
+    "cliType",
+    "prompt",
+    "encryptedSecrets",
+    "historyPlatform",
+    "historyPath",
+    "historyKeyRef",
+    "outputPlatform",
+    "outputPath",
+    "outputKeyRef",
+    "skillsJson",
+    "systemPromptPlatform",
+    "systemPromptPath",
+    "systemPromptKeyRef",
+    "model",
+    "tools",
+    "maxTurns",
+    "maxTokens",
+    "rpcUrls",
+  ],
 };
 
 const httpMethodIds = {
@@ -54,6 +86,7 @@ const exampleFiles = [
   "examples/http-preset.json",
   "examples/llm-preset.json",
   "examples/jq-preset.json",
+  "examples/agent-preset.json",
 ];
 
 function readJson(path) {
@@ -176,10 +209,96 @@ function encodeJq(fields) {
   return encodeAbiParameters(parseAbiParameters(jqSignature), [fields.query, fields.inputData, outputType]);
 }
 
+function parseStringList(value) {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseUint(value, label, { min = 0n, max } = {}) {
+  if (!/^\d+$/.test(value.trim())) throw new Error(`${label} must be a whole number`);
+  const parsed = BigInt(value.trim());
+  if (parsed < min) throw new Error(`${label} must be >= ${min}`);
+  if (max !== undefined && parsed > max) throw new Error(`${label} must be <= ${max}`);
+  return parsed;
+}
+
+function parseHexBytes(value, label, byteLength) {
+  const normalized = value.trim() || "0x";
+  if (!/^0x[a-fA-F0-9]*$/.test(normalized) || normalized.length % 2 !== 0) {
+    throw new Error(`${label} must be 0x-prefixed hex bytes`);
+  }
+  if (byteLength !== undefined && (normalized.length - 2) / 2 !== byteLength) {
+    throw new Error(`${label} must be ${byteLength} bytes`);
+  }
+  return normalized;
+}
+
+function storageRef(fields, prefix) {
+  return [fields[`${prefix}Platform`], fields[`${prefix}Path`], fields[`${prefix}KeyRef`]];
+}
+
+function parseStorageRefList(value) {
+  const parsed = JSON.parse(value || "[]");
+  if (!Array.isArray(parsed)) throw new Error("skillsJson must be an array");
+  return parsed.map((item, index) => {
+    if (Array.isArray(item) && item.length === 3 && item.every((part) => typeof part === "string")) {
+      return item;
+    }
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof item.platform === "string" &&
+      typeof item.path === "string" &&
+      typeof item.keyRef === "string"
+    ) {
+      return [item.platform, item.path, item.keyRef];
+    }
+    throw new Error(`skillsJson item ${index + 1} must be a storage ref`);
+  });
+}
+
+function encodeAgent(fields) {
+  const executor = fields.executor === zeroAddress ? testExecutor : fields.executor;
+  const callbackAddress = fields.callbackAddress === zeroAddress ? testExecutor : fields.callbackAddress;
+  const prompt = fields.prompt.trim();
+  const tools = parseStringList(fields.tools);
+  if (!prompt) throw new Error("Agent prompt is required");
+  if (!tools.length) throw new Error("Agent tools are required");
+  if (!fields.rpcUrls.trim()) throw new Error("Agent rpcUrls are required");
+  return encodeAbiParameters(parseAbiParameters(agentSignature), [
+    executor,
+    parseUint(fields.ttl, "Agent ttl", { min: 1n }),
+    "0x",
+    parseUint(fields.pollInterval, "Agent pollInterval", { min: 1n }),
+    parseUint(fields.maxPollBlock, "Agent maxPollBlock", { min: 1n }),
+    fields.taskIdMarker,
+    callbackAddress,
+    parseHexBytes(fields.callbackSelector, "Agent callbackSelector", 4),
+    parseUint(fields.gasLimit, "Agent gasLimit", { min: 1n }),
+    parseUint(fields.maxFeePerGas, "Agent maxFeePerGas"),
+    parseUint(fields.maxPriorityFeePerGas, "Agent maxPriorityFeePerGas"),
+    Number(parseUint(fields.cliType, "Agent cliType", { max: 65535n })),
+    prompt,
+    parseHexBytes(fields.encryptedSecrets, "Agent encryptedSecrets"),
+    storageRef(fields, "history"),
+    storageRef(fields, "output"),
+    parseStorageRefList(fields.skillsJson),
+    storageRef(fields, "systemPrompt"),
+    fields.model,
+    tools,
+    Number(parseUint(fields.maxTurns, "Agent maxTurns", { min: 1n, max: 65535n })),
+    Number(parseUint(fields.maxTokens, "Agent maxTokens", { min: 1n, max: 4294967295n })),
+    fields.rpcUrls,
+  ]);
+}
+
 const encoders = {
   http: encodeHttp,
   llm: encodeLlm,
   jq: encodeJq,
+  agent: encodeAgent,
 };
 
 const results = exampleFiles.map((file) => {

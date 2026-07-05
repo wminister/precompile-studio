@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "preset": {
+    "id": "agent-runner-audit-example",
+    "recipeId": "agent",
+    "label": "Runner trace audit",
+    "updatedAt": 1783110000000,
+    "fields": [
+      { "key": "executor", "value": "0x0000000000000000000000000000000000000000" },
+      { "key": "ttl", "value": "30" },
+      { "key": "pollInterval", "value": "10" },
+      { "key": "maxPollBlock", "value": "200" },
+      { "key": "taskIdMarker", "value": "" },
+      { "key": "callbackAddress", "value": "0x0000000000000000000000000000000000000000" },
+      { "key": "callbackSelector", "value": "0x8ca12055" },
+      { "key": "gasLimit", "value": "250000" },
+      { "key": "maxFeePerGas", "value": "0" },
+      { "key": "maxPriorityFeePerGas", "value": "0" },
+      { "key": "cliType", "value": "0" },
+      {
+        "key": "prompt",
+        "value": "Audit the latest runner trace and return the next onchain action as JSON."
+      },
+      { "key": "encryptedSecrets", "value": "0x" },
+      { "key": "historyPlatform", "value": "gcs" },
+      { "key": "historyPath", "value": "agents/precompile-studio/history.jsonl" },
+      { "key": "historyKeyRef", "value": "GCS_CREDS" },
+      { "key": "outputPlatform", "value": "gcs" },
+      { "key": "outputPath", "value": "agents/precompile-studio/output.json" },
+      { "key": "outputKeyRef", "value": "GCS_CREDS" },
+      { "key": "skillsJson", "value": "[]" },
+      { "key": "systemPromptPlatform", "value": "" },
+      { "key": "systemPromptPath", "value": "" },
+      { "key": "systemPromptKeyRef", "value": "" },
+      { "key": "model", "value": "claude-code" },
+      { "key": "tools", "value": "read,write,shell" },
+      { "key": "maxTurns", "value": "8" },
+      { "key": "maxTokens", "value": "4096" },
+      { "key": "rpcUrls", "value": "https://rpc.ritualfoundation.org" }
+    ]
+  }
+}
