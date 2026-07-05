@@ -472,6 +472,12 @@ function formatAddress(address?: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function formatNameList(values: string[]) {
+  if (values.length <= 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+}
+
 function formatHash(hash?: string) {
   if (!hash) return "";
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
@@ -1219,6 +1225,10 @@ function App() {
   const [copiedEncoded, setCopiedEncoded] = React.useState(false);
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
+  const liveRecipeLabel = React.useMemo(
+    () => formatNameList(recipes.filter((recipe) => recipe.status === "live").map((recipe) => recipe.name)),
+    [],
+  );
   const selectedFields = fieldState[selectedRecipe.id];
   const activeRecipePresets = React.useMemo(
     () => recipePresets.filter((preset) => preset.recipeId === selectedRecipe.id),
@@ -1431,7 +1441,7 @@ function App() {
         label:
           selectedRecipe.status === "live"
             ? liveAbiDraft?.errors[0] ?? `${selectedRecipe.name} ABI input encodes`
-            : "HTTP and JQ are live recipes",
+            : `${liveRecipeLabel} are live recipes`,
         help:
           selectedRecipe.status === "live"
             ? liveAbiDraft?.encodedInput
@@ -1446,6 +1456,7 @@ function App() {
     isRightChain,
     isRitualWalletFunded,
     liveAbiDraft,
+    liveRecipeLabel,
     rpcState.error,
     rpcState.status,
     selectedRecipe.name,
