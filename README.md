@@ -58,7 +58,7 @@ See [`DESIGN.md`](./DESIGN.md) before making UI changes. The app should stay clo
 npm run build
 ```
 
-The production output is written to `dist/`.
+The build verifies recipe example JSON and ABI smoke encoding before writing production output to `dist/`.
 
 ## HTTP Runner
 
