@@ -1794,6 +1794,15 @@ function App() {
     };
   }, [refreshWallet]);
 
+  const previewNextStep =
+    selectedRecipe.id === "http"
+      ? isReady
+        ? "Ready for a contract runner call."
+        : "Resolve readiness checks before sending."
+      : liveAbiDraft?.encodedInput
+        ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
+        : `Resolve ${selectedRecipe.name} field errors before copying ABI input.`;
+
   const requestPreview = React.useMemo(() => {
     const values = Object.fromEntries(selectedFields.map((field) => [field.key, field.value]));
     return {
@@ -1812,33 +1821,39 @@ function App() {
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
       llmDraft: selectedRecipe.id === "llm" ? llmDraft : undefined,
       jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
-      runner: {
-        address: cleanRunnerAddress || "unset",
-        executor: cleanExecutorAddress || "unset",
-        bytecode: {
-          status: runnerCodeState.status,
-          bytes: runnerCodeState.byteLength ?? null,
-        },
-        recentTransactions: runnerRuns.map((run) => ({
-          hash: run.hash,
-          status: run.status,
-          blockNumber: decodeHexNumber(run.receipt?.blockNumber) ?? "pending",
-          spcCalls: describeSpcCalls(run.receipt),
-        })),
-      },
-      nextStep: isReady ? "Ready for a contract runner call." : "Resolve readiness checks before sending.",
+      runner:
+        selectedRecipe.id === "http"
+          ? {
+              address: cleanRunnerAddress || "unset",
+              executor: cleanExecutorAddress || "unset",
+              bytecode: {
+                status: runnerCodeState.status,
+                bytes: runnerCodeState.byteLength ?? null,
+              },
+              recentTransactions: runnerRuns.map((run) => ({
+                hash: run.hash,
+                status: run.status,
+                blockNumber: decodeHexNumber(run.receipt?.blockNumber) ?? "pending",
+                spcCalls: describeSpcCalls(run.receipt),
+              })),
+            }
+          : undefined,
+      nextStep: previewNextStep,
     };
   }, [
     cleanExecutorAddress,
     cleanRunnerAddress,
     httpDraft,
-    isReady,
     isRightChain,
     jqDraft,
     llmDraft,
+    liveAbiDraft?.callTarget,
+    liveAbiDraft?.encodedInput,
+    previewNextStep,
     rpcState.status,
     selectedFields,
     selectedRecipe.id,
+    selectedRecipe.name,
     runnerRuns,
     runnerCodeState.byteLength,
     runnerCodeState.status,
