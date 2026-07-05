@@ -26,8 +26,8 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local saved runner contracts scoped by wallet
 - Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
-- Built-in HTTP, LLM, JQ, and Sovereign Agent recipe examples
-- Live HTTP, LLM, JQ, and Sovereign Agent recipe composers, with a Scheduler shell
+- Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduler recipe examples
+- Live HTTP, LLM, JQ, Sovereign Agent, and Scheduler calldata composers
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
 - Responsive app layout for desktop and mobile
@@ -78,7 +78,7 @@ Runner contract addresses can be saved locally and reused from the runner panel.
 
 TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP, LLM, and Sovereign Agent. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 
-Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), and [`examples/agent-preset.json`](./examples/agent-preset.json) for the preset format.
+Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.
 
 See [`contracts/README.md`](./contracts/README.md) for runner build and deployment steps.
 
@@ -112,5 +112,5 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 ## Next Milestones
 
-1. Add more live recipe templates beyond HTTP, LLM, JQ, and Sovereign Agent.
+1. Add more live recipe templates beyond HTTP, LLM, JQ, Sovereign Agent, and Scheduler.
 2. Add registry-backed executor discovery once Ritual exposes a stable executor lookup surface.

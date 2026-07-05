@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "preset": {
+    "id": "scheduler-recurring-callback-example",
+    "recipeId": "scheduler",
+    "label": "Recurring callback",
+    "updatedAt": 1783110000000,
+    "fields": [
+      { "key": "callbackData", "value": "0x000000000000000000000000000000000000000000000000000000000000000000000000" },
+      { "key": "gas", "value": "500000" },
+      { "key": "startBlock", "value": "120" },
+      { "key": "numCalls", "value": "4" },
+      { "key": "frequency", "value": "50" },
+      { "key": "ttl", "value": "30" },
+      { "key": "maxFeePerGas", "value": "0" },
+      { "key": "maxPriorityFeePerGas", "value": "0" },
+      { "key": "value", "value": "0" },
+      { "key": "payer", "value": "0x0000000000000000000000000000000000000000" }
+    ]
+  }
+}

@@ -211,6 +211,7 @@ const SYSTEM_CONTRACTS = {
   RitualWallet: "0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948",
   AsyncJobTracker: "0xC069FFCa0389f44eCA2C626e55491b0ab045AEF5",
   TEEServiceRegistry: "0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F",
+  Scheduler: "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B",
   AsyncDelivery: "0x5A16214fF555848411544b005f7Ac063742f39F6",
 } as const;
 
@@ -267,6 +268,27 @@ const JQ_OUTPUT_TYPES: Record<string, number> = {
 };
 
 const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
+
+const schedulerAbi = [
+  {
+    type: "function",
+    name: "schedule",
+    stateMutability: "payable",
+    inputs: [
+      { name: "data", type: "bytes" },
+      { name: "gas", type: "uint32" },
+      { name: "startBlock", type: "uint32" },
+      { name: "numCalls", type: "uint32" },
+      { name: "frequency", type: "uint32" },
+      { name: "ttl", type: "uint32" },
+      { name: "maxFeePerGas", type: "uint256" },
+      { name: "maxPriorityFeePerGas", type: "uint256" },
+      { name: "value", type: "uint256" },
+      { name: "payer", type: "address" },
+    ],
+    outputs: [],
+  },
+] as const;
 
 const ritualWalletAbi = [
   {
@@ -424,14 +446,21 @@ const recipes: Recipe[] = [
   {
     id: "scheduler",
     name: "Schedule",
-    label: "Guardrail pass",
+    label: "Live calldata",
     icon: Activity,
-    status: "preview",
-    description: "Timing, expiry, and retry shell for scheduled calls.",
+    status: "live",
+    description: "Scheduler.schedule calldata for future or recurring contract execution.",
     fields: [
-      { key: "target", label: "Target contract", value: "0x0000000000000000000000000000000000000000" },
-      { key: "start", label: "Start block", value: "latest + 30" },
-      { key: "ttl", label: "TTL blocks", value: "120" },
+      { key: "callbackData", label: "Callback calldata", value: "0x000000000000000000000000000000000000000000000000000000000000000000000000", type: "textarea" },
+      { key: "gas", label: "Gas limit", value: "500000" },
+      { key: "startBlock", label: "Start block", value: "120" },
+      { key: "numCalls", label: "Executions", value: "4" },
+      { key: "frequency", label: "Frequency blocks", value: "50" },
+      { key: "ttl", label: "TTL blocks", value: "30" },
+      { key: "maxFeePerGas", label: "Max fee wei", value: "0" },
+      { key: "maxPriorityFeePerGas", label: "Priority fee wei", value: "0" },
+      { key: "value", label: "Value wei", value: "0" },
+      { key: "payer", label: "Payer", value: zeroAddress },
     ],
   },
 ];
@@ -538,6 +567,25 @@ const builtInRecipePresets: RecipePreset[] = [
       { key: "maxTurns", value: "8" },
       { key: "maxTokens", value: "4096" },
       { key: "rpcUrls", value: RITUAL.rpc },
+    ]),
+  },
+  {
+    id: "example-scheduler-price-check",
+    recipeId: "scheduler",
+    label: "Example: Recurring callback",
+    updatedAt: 0,
+    source: "example",
+    fields: normalizePresetFields("scheduler", [
+      { key: "callbackData", value: "0x000000000000000000000000000000000000000000000000000000000000000000000000" },
+      { key: "gas", value: "500000" },
+      { key: "startBlock", value: "120" },
+      { key: "numCalls", value: "4" },
+      { key: "frequency", value: "50" },
+      { key: "ttl", value: "30" },
+      { key: "maxFeePerGas", value: "0" },
+      { key: "maxPriorityFeePerGas", value: "0" },
+      { key: "value", value: "0" },
+      { key: "payer", value: zeroAddress },
     ]),
   },
 ];
@@ -1433,6 +1481,65 @@ function buildAgentDraft(fields: ComposerField[]) {
   };
 }
 
+function buildScheduleDraft(fields: ComposerField[]) {
+  const errors: string[] = [];
+  const callbackData = parseHexBytesField(fieldValue(fields, "callbackData"), "Callback calldata", errors);
+  const gasLimit = parseUintField(fieldValue(fields, "gas"), "Gas limit", errors, { min: 1n, max: 4294967295n });
+  const startBlock = parseUintField(fieldValue(fields, "startBlock"), "Start block", errors, { min: 1n, max: 4294967295n });
+  const numCalls = parseUintField(fieldValue(fields, "numCalls"), "Executions", errors, { min: 1n, max: 4294967295n });
+  const frequency = parseUintField(fieldValue(fields, "frequency"), "Frequency", errors, { min: 1n, max: 4294967295n });
+  const ttl = parseUintField(fieldValue(fields, "ttl"), "TTL", errors, { min: 1n, max: 500n });
+  const maxFeePerGas = parseUintField(fieldValue(fields, "maxFeePerGas"), "Max fee wei", errors);
+  const maxPriorityFeePerGas = parseUintField(fieldValue(fields, "maxPriorityFeePerGas"), "Priority fee wei", errors);
+  const value = parseUintField(fieldValue(fields, "value"), "Value wei", errors);
+  const payer = fieldValue(fields, "payer").trim();
+
+  if ((callbackData.length - 2) / 2 < 36) {
+    errors.push("Callback calldata should include a 4-byte selector and uint256 executionIndex placeholder.");
+  }
+  if (!isAddress(payer) || payer.toLowerCase() === zeroAddress) {
+    errors.push("Set the contract address paying from RitualWallet.");
+  }
+
+  const encodedInput =
+    errors.length === 0
+      ? encodeFunctionData({
+          abi: schedulerAbi,
+          functionName: "schedule",
+          args: [
+            callbackData as `0x${string}`,
+            Number(gasLimit),
+            Number(startBlock),
+            Number(numCalls),
+            Number(frequency),
+            Number(ttl),
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+            value,
+            payer as `0x${string}`,
+          ],
+        })
+      : undefined;
+
+  return {
+    precompile: "Scheduler",
+    callTarget: SYSTEM_CONTRACTS.Scheduler,
+    abi: "schedule(bytes data,uint32 gas,uint32 startBlock,uint32 numCalls,uint32 frequency,uint32 ttl,uint256 maxFeePerGas,uint256 maxPriorityFeePerGas,uint256 value,address payer)",
+    callbackData,
+    gasLimit,
+    startBlock,
+    numCalls,
+    frequency,
+    ttl,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+    value,
+    payer,
+    encodedInput,
+    errors,
+  };
+}
+
 async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
   const response = await fetch(RITUAL.rpc, {
     method: "POST",
@@ -1519,6 +1626,7 @@ function App() {
   const llmDraft = React.useMemo(() => buildLlmDraft(fieldState.llm), [fieldState.llm]);
   const jqDraft = React.useMemo(() => buildJqDraft(fieldState.jq), [fieldState.jq]);
   const agentDraft = React.useMemo(() => buildAgentDraft(fieldState.agent), [fieldState.agent]);
+  const scheduleDraft = React.useMemo(() => buildScheduleDraft(fieldState.scheduler), [fieldState.scheduler]);
   const liveAbiDraft =
     selectedRecipe.id === "http"
       ? httpDraft
@@ -1528,7 +1636,9 @@ function App() {
           ? jqDraft
           : selectedRecipe.id === "agent"
             ? agentDraft
-            : undefined;
+            : selectedRecipe.id === "scheduler"
+              ? scheduleDraft
+              : undefined;
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
@@ -1762,6 +1872,8 @@ function App() {
         ? "JQ precompile"
         : selectedRecipe.id === "agent"
           ? "Sovereign Agent"
+          : selectedRecipe.id === "scheduler"
+            ? "Scheduler"
         : `${selectedRecipe.name} recipe`;
   const contextCode =
     selectedRecipe.id === "http"
@@ -1772,7 +1884,9 @@ function App() {
           ? "0x0803"
           : selectedRecipe.id === "agent"
             ? "0x080C"
-            : "preview";
+            : selectedRecipe.id === "scheduler"
+              ? "schedule"
+              : "preview";
   const contextDetail =
     selectedRecipe.id === "http"
       ? "13-field ABI"
@@ -1782,7 +1896,9 @@ function App() {
           ? "3-field sync ABI"
           : selectedRecipe.id === "agent"
             ? "23-field CLI ABI"
-            : "planning shell";
+            : selectedRecipe.id === "scheduler"
+              ? "system calldata"
+              : "planning shell";
   const stageTitle = selectedRecipe.status === "live" ? "Composer" : `${selectedRecipe.name} preview`;
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
@@ -1793,10 +1909,16 @@ function App() {
     .filter(Boolean)
     .join(" ");
   const encodedActionLabel = copiedEncoded
-    ? "Copied input"
+    ? selectedRecipe.id === "scheduler"
+      ? "Copied calldata"
+      : "Copied input"
     : liveAbiDraft?.encodedInput
-      ? "Copy ABI input"
-      : "Resolve ABI input";
+      ? selectedRecipe.id === "scheduler"
+        ? "Copy calldata"
+        : "Copy ABI input"
+      : selectedRecipe.id === "scheduler"
+        ? "Resolve calldata"
+        : "Resolve ABI input";
   const activeAbiDraft: AbiDraftView | undefined =
     selectedRecipe.id === "http"
       ? {
@@ -1903,6 +2025,28 @@ function App() {
                 },
               ],
             }
+          : selectedRecipe.id === "scheduler"
+            ? {
+                label: "Scheduler",
+                abi: scheduleDraft.abi,
+                encodedInput: scheduleDraft.encodedInput,
+                errors: scheduleDraft.errors,
+                facts: [
+                  { label: "target", value: formatAddress(scheduleDraft.callTarget), copyValue: scheduleDraft.callTarget },
+                  { label: "start", value: String(scheduleDraft.startBlock), copyValue: String(scheduleDraft.startBlock) },
+                  { label: "calls", value: String(scheduleDraft.numCalls), copyValue: String(scheduleDraft.numCalls) },
+                  { label: "freq", value: String(scheduleDraft.frequency), copyValue: String(scheduleDraft.frequency) },
+                  {
+                    label: "bytes",
+                    value: scheduleDraft.encodedInput
+                      ? `${Math.floor((scheduleDraft.encodedInput.length - 2) / 2)} bytes`
+                      : "not encoded",
+                    copyValue: scheduleDraft.encodedInput
+                      ? `${Math.floor((scheduleDraft.encodedInput.length - 2) / 2)} bytes`
+                      : "not encoded",
+                  },
+                ],
+              }
         : undefined;
 
   const refreshRpc = React.useCallback(async () => {
@@ -2132,6 +2276,10 @@ function App() {
       ? isReady
         ? "Ready for a contract runner call."
         : "Resolve readiness checks before sending."
+      : selectedRecipe.id === "scheduler"
+        ? scheduleDraft.encodedInput
+          ? "Copy Scheduler calldata and call the system Scheduler from an approved contract."
+          : "Resolve Scheduler field errors before copying calldata."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
         : `Resolve ${selectedRecipe.name} field errors before copying ABI input.`;
@@ -2154,6 +2302,8 @@ function App() {
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
       llmDraft: selectedRecipe.id === "llm" ? llmDraft : undefined,
       jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
+      agentDraft: selectedRecipe.id === "agent" ? agentDraft : undefined,
+      scheduleDraft: selectedRecipe.id === "scheduler" ? scheduleDraft : undefined,
       runner:
         selectedRecipe.id === "http"
           ? {
@@ -2176,6 +2326,7 @@ function App() {
   }, [
     cleanHttpExecutorAddress,
     cleanRunnerAddress,
+    agentDraft,
     httpDraft,
     isRightChain,
     jqDraft,
@@ -2184,6 +2335,7 @@ function App() {
     liveAbiDraft?.encodedInput,
     previewNextStep,
     rpcState.status,
+    scheduleDraft,
     selectedFields,
     selectedRecipe.id,
     selectedRecipe.name,
@@ -2221,11 +2373,14 @@ function App() {
 
   const copyEncodedInput = React.useCallback(async () => {
     if (!liveAbiDraft?.encodedInput) return;
-    const copiedToClipboard = await copyText(liveAbiDraft.encodedInput, `${selectedRecipe.name} ABI input copied.`);
+    const copiedToClipboard = await copyText(
+      liveAbiDraft.encodedInput,
+      selectedRecipe.id === "scheduler" ? "Scheduler calldata copied." : `${selectedRecipe.name} ABI input copied.`,
+    );
     if (!copiedToClipboard) return;
     setCopiedEncoded(true);
     window.setTimeout(() => setCopiedEncoded(false), 1400);
-  }, [copyText, liveAbiDraft, selectedRecipe.name]);
+  }, [copyText, liveAbiDraft, selectedRecipe.id, selectedRecipe.name]);
 
   const copyRunnerCalldata = React.useCallback(async () => {
     if (!runnerCalldata) return;

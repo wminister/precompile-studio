@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { encodeAbiParameters, parseAbiParameters, stringToHex, zeroAddress } from "viem";
+import { encodeAbiParameters, encodeFunctionData, parseAbiParameters, stringToHex, zeroAddress } from "viem";
 
 const root = process.cwd();
 const testExecutor = "0x1111111111111111111111111111111111111111";
@@ -57,6 +57,18 @@ const requiredFields = {
     "maxTokens",
     "rpcUrls",
   ],
+  scheduler: [
+    "callbackData",
+    "gas",
+    "startBlock",
+    "numCalls",
+    "frequency",
+    "ttl",
+    "maxFeePerGas",
+    "maxPriorityFeePerGas",
+    "value",
+    "payer",
+  ],
 };
 
 const httpMethodIds = {
@@ -87,6 +99,28 @@ const exampleFiles = [
   "examples/llm-preset.json",
   "examples/jq-preset.json",
   "examples/agent-preset.json",
+  "examples/scheduler-preset.json",
+];
+
+const schedulerAbi = [
+  {
+    type: "function",
+    name: "schedule",
+    stateMutability: "payable",
+    inputs: [
+      { name: "data", type: "bytes" },
+      { name: "gas", type: "uint32" },
+      { name: "startBlock", type: "uint32" },
+      { name: "numCalls", type: "uint32" },
+      { name: "frequency", type: "uint32" },
+      { name: "ttl", type: "uint32" },
+      { name: "maxFeePerGas", type: "uint256" },
+      { name: "maxPriorityFeePerGas", type: "uint256" },
+      { name: "value", type: "uint256" },
+      { name: "payer", type: "address" },
+    ],
+    outputs: [],
+  },
 ];
 
 function readJson(path) {
@@ -294,11 +328,36 @@ function encodeAgent(fields) {
   ]);
 }
 
+function encodeScheduler(fields) {
+  const payer = fields.payer === zeroAddress ? testExecutor : fields.payer;
+  const callbackData = parseHexBytes(fields.callbackData, "Scheduler callbackData");
+  if ((callbackData.length - 2) / 2 < 36) {
+    throw new Error("Scheduler callbackData must include selector and executionIndex placeholder");
+  }
+  return encodeFunctionData({
+    abi: schedulerAbi,
+    functionName: "schedule",
+    args: [
+      callbackData,
+      Number(parseUint(fields.gas, "Scheduler gas", { min: 1n, max: 4294967295n })),
+      Number(parseUint(fields.startBlock, "Scheduler startBlock", { min: 1n, max: 4294967295n })),
+      Number(parseUint(fields.numCalls, "Scheduler numCalls", { min: 1n, max: 4294967295n })),
+      Number(parseUint(fields.frequency, "Scheduler frequency", { min: 1n, max: 4294967295n })),
+      Number(parseUint(fields.ttl, "Scheduler ttl", { min: 1n, max: 500n })),
+      parseUint(fields.maxFeePerGas, "Scheduler maxFeePerGas"),
+      parseUint(fields.maxPriorityFeePerGas, "Scheduler maxPriorityFeePerGas"),
+      parseUint(fields.value, "Scheduler value"),
+      payer,
+    ],
+  });
+}
+
 const encoders = {
   http: encodeHttp,
   llm: encodeLlm,
   jq: encodeJq,
   agent: encodeAgent,
+  scheduler: encodeScheduler,
 };
 
 const results = exampleFiles.map((file) => {
