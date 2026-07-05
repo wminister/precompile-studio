@@ -137,6 +137,18 @@ type RunnerCallbackEvidence = {
   };
 };
 
+type AbiDraftView = {
+  label: string;
+  abi: string;
+  encodedInput?: string;
+  errors: string[];
+  facts: Array<{
+    label: string;
+    value: string;
+    copyValue: string;
+  }>;
+};
+
 type SavedRunner = {
   address: string;
   label: string;
@@ -158,7 +170,7 @@ type RecipePreset = {
   source?: "local" | "example";
 };
 
-type RecipeId = "http" | "llm" | "agent" | "scheduler";
+type RecipeId = "http" | "jq" | "llm" | "agent" | "scheduler";
 
 type Recipe = {
   id: RecipeId;
@@ -195,8 +207,10 @@ const SYSTEM_CONTRACTS = {
 } as const;
 
 const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
+const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
+const JQ_ABI_SIGNATURE = "string, string, uint8";
 const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
@@ -222,6 +236,19 @@ const HTTP_METHOD_IDS: Record<string, number> = {
   PATCH: 5,
   HEAD: 6,
   OPTIONS: 7,
+};
+
+const JQ_OUTPUT_TYPES: Record<string, number> = {
+  int256: 0,
+  uint256: 1,
+  string: 2,
+  bool: 3,
+  address: 4,
+  "int256[]": 5,
+  "uint256[]": 6,
+  "string[]": 7,
+  "bool[]": 8,
+  "address[]": 9,
 };
 
 const ritualWalletAbi = [
@@ -298,6 +325,19 @@ const recipes: Recipe[] = [
     ],
   },
   {
+    id: "jq",
+    name: "JQ",
+    label: "Live sync recipe",
+    icon: Code2,
+    status: "live",
+    description: "3-field JQ input for synchronous JSON extraction at precompile 0x0803.",
+    fields: [
+      { key: "query", label: "Query", value: ".data.price" },
+      { key: "inputData", label: "Input JSON", value: "{\"data\":{\"price\":1979}}", type: "textarea" },
+      { key: "outputType", label: "Output type", value: "uint256", type: "select", options: Object.keys(JQ_OUTPUT_TYPES) },
+    ],
+  },
+  {
     id: "llm",
     name: "LLM",
     label: "Coming next",
@@ -369,11 +409,23 @@ const builtInRecipePresets: RecipePreset[] = [
       { key: "body", value: "{\"hello\":\"ritual\"}" },
     ]),
   },
+  {
+    id: "example-jq-price",
+    recipeId: "jq",
+    label: "Example: Extract price",
+    updatedAt: 0,
+    source: "example",
+    fields: normalizePresetFields("jq", [
+      { key: "query", value: ".data.price" },
+      { key: "inputData", value: "{\"data\":{\"price\":1979}}" },
+      { key: "outputType", value: "uint256" },
+    ]),
+  },
 ];
 
 const timeline = [
   { title: "Readiness", body: "RPC, wallet, chain, and escrow checks." },
-  { title: "Encode", body: "13-field ABI payload for 0x0801." },
+  { title: "Encode", body: "ABI payload for the selected live precompile." },
   { title: "Submit", body: "Connected wallet signs the call." },
   { title: "Trace", body: "Receipt and callbacks stay attached." },
 ];
@@ -937,6 +989,43 @@ function buildHttpDraft(fields: ComposerField[]) {
   };
 }
 
+function buildJqDraft(fields: ComposerField[]) {
+  const query = fieldValue(fields, "query").trim();
+  const inputData = fieldValue(fields, "inputData").trim();
+  const outputTypeKey = fieldValue(fields, "outputType").trim();
+  const outputType = JQ_OUTPUT_TYPES[outputTypeKey];
+  const errors: string[] = [];
+
+  if (!query) errors.push("JQ query is required.");
+  if (!inputData) {
+    errors.push("Input JSON is required.");
+  } else {
+    try {
+      JSON.parse(inputData);
+    } catch {
+      errors.push("Input JSON must parse before encoding.");
+    }
+  }
+  if (outputType === undefined) errors.push("Choose a supported JQ output type.");
+
+  const encodedInput =
+    errors.length === 0
+      ? encodeAbiParameters(parseAbiParameters(JQ_ABI_SIGNATURE), [query, inputData, outputType])
+      : undefined;
+
+  return {
+    precompile: "0x0803",
+    callTarget: JQ_PRECOMPILE,
+    abi: JQ_ABI_SIGNATURE,
+    query,
+    inputData,
+    outputTypeKey,
+    outputType,
+    encodedInput,
+    errors,
+  };
+}
+
 async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
   const response = await fetch(RITUAL.rpc, {
     method: "POST",
@@ -1014,6 +1103,8 @@ function App() {
   );
   const selectedPreset = visibleRecipePresets.find((preset) => preset.id === selectedPresetId);
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
+  const jqDraft = React.useMemo(() => buildJqDraft(fieldState.jq), [fieldState.jq]);
+  const liveAbiDraft = selectedRecipe.id === "http" ? httpDraft : selectedRecipe.id === "jq" ? jqDraft : undefined;
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
@@ -1033,7 +1124,7 @@ function App() {
     Number.isFinite(depositLock) &&
     depositLock > 0 &&
     depositState.status !== "submitting";
-  const canCopyEncoded = selectedRecipe.id === "http" && Boolean(httpDraft.encodedInput);
+  const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
   const cleanExecutorAddress = fieldValue(fieldState.http, "executor").trim();
   const executorAddressOk = isAddress(cleanExecutorAddress) && cleanExecutorAddress.toLowerCase() !== zeroAddress;
   const executorStorageScope = wallet.address?.toLowerCase() ?? "local";
@@ -1193,15 +1284,15 @@ function App() {
             : "Escrow balance appears after connect.",
       },
       {
-        ok: selectedRecipe.id === "http" && httpDraft.errors.length === 0 && Boolean(httpDraft.encodedInput),
+        ok: Boolean(liveAbiDraft?.encodedInput) && (liveAbiDraft?.errors.length ?? 1) === 0,
         label:
-          selectedRecipe.id === "http"
-            ? httpDraft.errors[0] ?? "HTTP ABI input encodes"
-            : "HTTP is the only live recipe",
+          selectedRecipe.status === "live"
+            ? liveAbiDraft?.errors[0] ?? `${selectedRecipe.name} ABI input encodes`
+            : "HTTP and JQ are live recipes",
         help:
-          selectedRecipe.id === "http"
-            ? httpDraft.encodedInput
-              ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} encoded bytes`
+          selectedRecipe.status === "live"
+            ? liveAbiDraft?.encodedInput
+              ? `${Math.floor((liveAbiDraft.encodedInput.length - 2) / 2)} encoded bytes`
               : "Fix fields before copying ABI input."
             : "Preview recipes are planning shells for now.",
       },
@@ -1209,13 +1300,13 @@ function App() {
 
     return checks;
   }, [
-    httpDraft.encodedInput,
-    httpDraft.errors,
     isRightChain,
     isRitualWalletFunded,
+    liveAbiDraft,
     rpcState.error,
     rpcState.status,
-    selectedRecipe.id,
+    selectedRecipe.name,
+    selectedRecipe.status,
     wallet.address,
     wallet.chainId,
     wallet.error,
@@ -1233,9 +1324,15 @@ function App() {
       : rpcState.status === "offline"
         ? "offline"
         : "pending";
-  const contextLabel = selectedRecipe.id === "http" ? "HTTP precompile" : `${selectedRecipe.name} recipe`;
-  const contextDetail = selectedRecipe.id === "http" ? "13-field ABI" : "planning shell";
-  const stageTitle = selectedRecipe.id === "http" ? "Composer" : `${selectedRecipe.name} preview`;
+  const contextLabel =
+    selectedRecipe.id === "http"
+      ? "HTTP precompile"
+      : selectedRecipe.id === "jq"
+        ? "JQ precompile"
+        : `${selectedRecipe.name} recipe`;
+  const contextDetail =
+    selectedRecipe.id === "http" ? "13-field ABI" : selectedRecipe.id === "jq" ? "3-field sync ABI" : "planning shell";
+  const stageTitle = selectedRecipe.status === "live" ? "Composer" : `${selectedRecipe.name} preview`;
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
     "ready-pill",
@@ -1246,9 +1343,57 @@ function App() {
     .join(" ");
   const encodedActionLabel = copiedEncoded
     ? "Copied input"
-    : httpDraft.encodedInput
+    : liveAbiDraft?.encodedInput
       ? "Copy ABI input"
       : "Resolve ABI input";
+  const activeAbiDraft: AbiDraftView | undefined =
+    selectedRecipe.id === "http"
+      ? {
+          label: "HTTP",
+          abi: httpDraft.abi,
+          encodedInput: httpDraft.encodedInput,
+          errors: httpDraft.errors,
+          facts: [
+            { label: "target", value: httpDraft.callTarget, copyValue: httpDraft.callTarget },
+            { label: "method", value: String(httpDraft.methodId), copyValue: String(httpDraft.methodId) },
+            {
+              label: "ttl",
+              value: Number.isFinite(httpDraft.ttl) ? String(httpDraft.ttl) : "invalid",
+              copyValue: Number.isFinite(httpDraft.ttl) ? String(httpDraft.ttl) : "invalid",
+            },
+            {
+              label: "bytes",
+              value: httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded",
+              copyValue: httpDraft.encodedInput
+                ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
+                : "not encoded",
+            },
+          ],
+        }
+      : selectedRecipe.id === "jq"
+        ? {
+            label: "JQ",
+            abi: jqDraft.abi,
+            encodedInput: jqDraft.encodedInput,
+            errors: jqDraft.errors,
+            facts: [
+              { label: "target", value: jqDraft.callTarget, copyValue: jqDraft.callTarget },
+              { label: "output", value: jqDraft.outputTypeKey, copyValue: String(jqDraft.outputType ?? "invalid") },
+              {
+                label: "query",
+                value: jqDraft.query || "empty",
+                copyValue: jqDraft.query || "",
+              },
+              {
+                label: "bytes",
+                value: jqDraft.encodedInput ? `${Math.floor((jqDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded",
+                copyValue: jqDraft.encodedInput
+                  ? `${Math.floor((jqDraft.encodedInput.length - 2) / 2)} bytes`
+                  : "not encoded",
+              },
+            ],
+          }
+        : undefined;
 
   const refreshRpc = React.useCallback(async () => {
     const startedAt = performance.now();
@@ -1481,6 +1626,7 @@ function App() {
       },
       request: values,
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
+      jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
       runner: {
         address: cleanRunnerAddress || "unset",
         executor: cleanExecutorAddress || "unset",
@@ -1503,6 +1649,7 @@ function App() {
     httpDraft,
     isReady,
     isRightChain,
+    jqDraft,
     rpcState.status,
     selectedFields,
     selectedRecipe.id,
@@ -1521,11 +1668,11 @@ function App() {
   }, [requestPreview]);
 
   const copyEncodedInput = React.useCallback(async () => {
-    if (!httpDraft.encodedInput) return;
-    await navigator.clipboard.writeText(httpDraft.encodedInput);
+    if (!liveAbiDraft?.encodedInput) return;
+    await navigator.clipboard.writeText(liveAbiDraft.encodedInput);
     setCopiedEncoded(true);
     window.setTimeout(() => setCopiedEncoded(false), 1400);
-  }, [httpDraft.encodedInput]);
+  }, [liveAbiDraft]);
 
   const copyRunnerCalldata = React.useCallback(async () => {
     if (!runnerCalldata) return;
@@ -2230,7 +2377,7 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy draft"}
                 </button>
-                {selectedRecipe.id === "http" ? (
+                {selectedRecipe.status === "live" ? (
                   <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
                     {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}
                     {encodedActionLabel}
@@ -2239,12 +2386,12 @@ function App() {
               </div>
             </div>
 
-            {selectedRecipe.id === "http" ? (
+            {activeAbiDraft ? (
               <div className="abi-panel utility-panel">
                 <div className="section-head">
                   <div>
-                    <span>HTTP ABI</span>
-                    <strong>{httpDraft.encodedInput ? "Encoded input ready" : "Input needs attention"}</strong>
+                    <span>{activeAbiDraft.label} ABI</span>
+                    <strong>{activeAbiDraft.encodedInput ? "Encoded input ready" : "Input needs attention"}</strong>
                   </div>
                   <button
                     className={showAbiDetails ? "section-toggle open" : "section-toggle"}
@@ -2256,42 +2403,22 @@ function App() {
                     {showAbiDetails ? "Hide" : "Show"}
                   </button>
                 </div>
-                {showAbiDetails ? <code>{httpDraft.abi}</code> : null}
+                {showAbiDetails ? <code>{activeAbiDraft.abi}</code> : null}
                 <div className="abi-facts">
-                  <button type="button" onClick={() => copyValue(httpDraft.callTarget)} title={`Copy target ${httpDraft.callTarget}`}>
-                    target {httpDraft.callTarget}
-                  </button>
-                  <button type="button" onClick={() => copyValue(String(httpDraft.methodId))} title={`Copy method ${httpDraft.methodId}`}>
-                    method {httpDraft.methodId}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => copyValue(Number.isFinite(httpDraft.ttl) ? String(httpDraft.ttl) : "invalid")}
-                    title={`Copy ttl ${Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}`}
-                  >
-                    ttl {Number.isFinite(httpDraft.ttl) ? httpDraft.ttl : "invalid"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyValue(
-                        httpDraft.encodedInput
-                          ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
-                          : "not encoded",
-                      )
-                    }
-                    title={
-                      httpDraft.encodedInput
-                        ? `Copy ${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes`
-                        : "Copy not encoded"
-                    }
-                  >
-                    {httpDraft.encodedInput ? `${Math.floor((httpDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded"}
-                  </button>
+                  {activeAbiDraft.facts.map((fact) => (
+                    <button
+                      type="button"
+                      onClick={() => copyValue(fact.copyValue)}
+                      title={`Copy ${fact.label} ${fact.copyValue}`}
+                      key={fact.label}
+                    >
+                      {fact.label} {fact.value}
+                    </button>
+                  ))}
                 </div>
-                {httpDraft.errors.length ? (
+                {activeAbiDraft.errors.length ? (
                   <div className="abi-errors" role="alert" aria-live="polite">
-                    {httpDraft.errors.map((error) => (
+                    {activeAbiDraft.errors.map((error) => (
                       <p key={error}>{error}</p>
                     ))}
                   </div>
