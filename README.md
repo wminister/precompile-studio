@@ -76,7 +76,7 @@ Runner history can be copied or imported as JSON from the runner panel, allowing
 
 Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
-TEE executor addresses can also be saved locally from the HTTP composer. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
+TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP and LLM. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), and [`examples/jq-preset.json`](./examples/jq-preset.json) for the preset format.
 

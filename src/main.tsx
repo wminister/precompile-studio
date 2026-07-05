@@ -1248,6 +1248,7 @@ function App() {
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
   const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
+  const hasExecutorField = selectedFields.some((field) => field.key === "executor");
   const depositLock = Number.parseInt(depositLockBlocks, 10);
   const depositAmountValid = (() => {
     try {
@@ -1264,11 +1265,14 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
-  const cleanExecutorAddress = fieldValue(fieldState.http, "executor").trim();
-  const executorAddressOk = isAddress(cleanExecutorAddress) && cleanExecutorAddress.toLowerCase() !== zeroAddress;
+  const cleanHttpExecutorAddress = fieldValue(fieldState.http, "executor").trim();
+  const httpExecutorAddressOk = isAddress(cleanHttpExecutorAddress) && cleanHttpExecutorAddress.toLowerCase() !== zeroAddress;
+  const cleanSelectedExecutorAddress = hasExecutorField ? fieldValue(selectedFields, "executor").trim() : "";
+  const selectedExecutorAddressOk =
+    isAddress(cleanSelectedExecutorAddress) && cleanSelectedExecutorAddress.toLowerCase() !== zeroAddress;
   const executorStorageScope = wallet.address?.toLowerCase() ?? "local";
   const activeSavedExecutor = savedExecutors.find(
-    (executor) => executor.address.toLowerCase() === cleanExecutorAddress.toLowerCase(),
+    (executor) => executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase(),
   );
   const cleanRunnerAddress = runnerAddress.trim();
   const runnerAddressOk = isAddress(cleanRunnerAddress);
@@ -1300,9 +1304,9 @@ function App() {
         detail: runnerCalldata ? `${Math.floor((runnerCalldata.length - 2) / 2)} calldata bytes` : "Resolve ABI input first.",
       },
       {
-        ok: executorAddressOk,
+        ok: httpExecutorAddressOk,
         label: "TEE executor selected",
-        detail: executorAddressOk ? formatAddress(cleanExecutorAddress) : "Set a registered executor before sending.",
+        detail: httpExecutorAddressOk ? formatAddress(cleanHttpExecutorAddress) : "Set a registered executor before sending.",
       },
       {
         ok: runnerAddressOk,
@@ -1340,9 +1344,9 @@ function App() {
     ],
     [
       activeSavedRunner,
-      cleanExecutorAddress,
+      cleanHttpExecutorAddress,
       cleanRunnerAddress,
-      executorAddressOk,
+      httpExecutorAddressOk,
       isRightChain,
       isRitualWalletFunded,
       runnerAddressOk,
@@ -1825,7 +1829,7 @@ function App() {
         selectedRecipe.id === "http"
           ? {
               address: cleanRunnerAddress || "unset",
-              executor: cleanExecutorAddress || "unset",
+              executor: cleanHttpExecutorAddress || "unset",
               bytecode: {
                 status: runnerCodeState.status,
                 bytes: runnerCodeState.byteLength ?? null,
@@ -1841,7 +1845,7 @@ function App() {
       nextStep: previewNextStep,
     };
   }, [
-    cleanExecutorAddress,
+    cleanHttpExecutorAddress,
     cleanRunnerAddress,
     httpDraft,
     isRightChain,
@@ -2077,8 +2081,8 @@ function App() {
   }, [presetImportValue, selectedRecipe.id]);
 
   const saveExecutor = React.useCallback(() => {
-    if (!executorAddressOk) return;
-    const normalizedAddress = cleanExecutorAddress;
+    if (!selectedExecutorAddressOk) return;
+    const normalizedAddress = cleanSelectedExecutorAddress;
     const nextExecutor: SavedExecutor = {
       address: normalizedAddress,
       label: executorLabel.trim() || activeSavedExecutor?.label || defaultExecutorLabel(normalizedAddress),
@@ -2093,15 +2097,20 @@ function App() {
       return next;
     });
     setExecutorLabel("");
-  }, [activeSavedExecutor?.label, cleanExecutorAddress, executorAddressOk, executorLabel, wallet.address]);
+  }, [activeSavedExecutor?.label, cleanSelectedExecutorAddress, executorLabel, selectedExecutorAddressOk, wallet.address]);
 
-  const useSavedExecutor = React.useCallback((address: string) => {
-    setFieldState((current) => ({
-      ...current,
-      http: current.http.map((field) => (field.key === "executor" ? { ...field, value: address } : field)),
-    }));
-    setExecutorLabel("");
-  }, []);
+  const useSavedExecutor = React.useCallback(
+    (address: string) => {
+      setFieldState((current) => ({
+        ...current,
+        [selectedRecipe.id]: current[selectedRecipe.id].map((field) =>
+          field.key === "executor" ? { ...field, value: address } : field,
+        ),
+      }));
+      setExecutorLabel("");
+    },
+    [selectedRecipe.id],
+  );
 
   const forgetSavedExecutor = React.useCallback(
     (address: string) => {
@@ -2627,18 +2636,20 @@ function App() {
               </div>
             ) : null}
 
-            {selectedRecipe.id === "http" ? (
+            {hasExecutorField ? (
               <div className="executor-panel utility-panel">
                 <div className="section-head">
                   <div>
                     <span>TEE executor</span>
-                    <strong>{executorAddressOk ? "Executor selected" : "Registered executor needed"}</strong>
+                    <strong>{selectedExecutorAddressOk ? "Executor selected" : "Registered executor needed"}</strong>
                   </div>
                 </div>
-                <div className={executorAddressOk ? "executor-current ok" : "executor-current pending"}>
-                  {executorAddressOk ? <Check size={13} /> : <AlertCircle size={13} />}
-                  <span>{executorAddressOk ? formatAddress(cleanExecutorAddress) : "No registered executor selected"}</span>
-                  <small>from HTTP field</small>
+                <div className={selectedExecutorAddressOk ? "executor-current ok" : "executor-current pending"}>
+                  {selectedExecutorAddressOk ? <Check size={13} /> : <AlertCircle size={13} />}
+                  <span>
+                    {selectedExecutorAddressOk ? formatAddress(cleanSelectedExecutorAddress) : "No registered executor selected"}
+                  </span>
+                  <small>from {selectedRecipe.name} field</small>
                 </div>
                 <div className="runner-save-row">
                   <label>
@@ -2647,13 +2658,13 @@ function App() {
                       value={executorLabel}
                       onChange={(event) => setExecutorLabel(event.target.value)}
                       placeholder={
-                        executorAddressOk
-                          ? activeSavedExecutor?.label ?? defaultExecutorLabel(cleanExecutorAddress)
+                        selectedExecutorAddressOk
+                          ? activeSavedExecutor?.label ?? defaultExecutorLabel(cleanSelectedExecutorAddress)
                           : "TEE executor"
                       }
                     />
                   </label>
-                  <button className="secondary-action" type="button" onClick={saveExecutor} disabled={!executorAddressOk}>
+                  <button className="secondary-action" type="button" onClick={saveExecutor} disabled={!selectedExecutorAddressOk}>
                     <KeyRound size={15} />
                     {activeSavedExecutor ? "Update" : "Save"}
                   </button>
