@@ -88,6 +88,11 @@ type ImportState = {
   error?: string;
 };
 
+type CopyFeedback = {
+  tone: "ok" | "bad";
+  message: string;
+};
+
 type RunnerCodeState = {
   status: "idle" | "checking" | "contract" | "empty" | "error";
   address?: string;
@@ -1223,6 +1228,8 @@ function App() {
   );
   const [copied, setCopied] = React.useState(false);
   const [copiedEncoded, setCopiedEncoded] = React.useState(false);
+  const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback | undefined>();
+  const copyFeedbackTimer = React.useRef<number | undefined>(undefined);
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
   const liveRecipeLabel = React.useMemo(
@@ -1783,6 +1790,13 @@ function App() {
     setRecipePresets(parseRecipePresets(window.localStorage.getItem(PRESET_STORAGE_KEY)));
   }, []);
 
+  React.useEffect(
+    () => () => {
+      if (copyFeedbackTimer.current) window.clearTimeout(copyFeedbackTimer.current);
+    },
+    [],
+  );
+
   React.useEffect(() => {
     if (selectedPresetId && !visibleRecipePresets.some((preset) => preset.id === selectedPresetId)) {
       setSelectedPresetId("");
@@ -1877,25 +1891,45 @@ function App() {
     wallet.status,
   ]);
 
+  const copyText = React.useCallback(async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyFeedback({ tone: "ok", message: successMessage });
+      if (copyFeedbackTimer.current) window.clearTimeout(copyFeedbackTimer.current);
+      copyFeedbackTimer.current = window.setTimeout(() => setCopyFeedback(undefined), 1800);
+      return true;
+    } catch (error) {
+      if (copyFeedbackTimer.current) window.clearTimeout(copyFeedbackTimer.current);
+      setCopyFeedback({
+        tone: "bad",
+        message: error instanceof Error ? `Copy failed: ${error.message}` : "Copy failed. Check browser clipboard permissions.",
+      });
+      return false;
+    }
+  }, []);
+
   const copyPreview = React.useCallback(async () => {
-    await navigator.clipboard.writeText(JSON.stringify(requestPreview, null, 2));
+    const copiedToClipboard = await copyText(JSON.stringify(requestPreview, null, 2), "Draft JSON copied.");
+    if (!copiedToClipboard) return;
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
-  }, [requestPreview]);
+  }, [copyText, requestPreview]);
 
   const copyEncodedInput = React.useCallback(async () => {
     if (!liveAbiDraft?.encodedInput) return;
-    await navigator.clipboard.writeText(liveAbiDraft.encodedInput);
+    const copiedToClipboard = await copyText(liveAbiDraft.encodedInput, `${selectedRecipe.name} ABI input copied.`);
+    if (!copiedToClipboard) return;
     setCopiedEncoded(true);
     window.setTimeout(() => setCopiedEncoded(false), 1400);
-  }, [liveAbiDraft]);
+  }, [copyText, liveAbiDraft, selectedRecipe.name]);
 
   const copyRunnerCalldata = React.useCallback(async () => {
     if (!runnerCalldata) return;
-    await navigator.clipboard.writeText(runnerCalldata);
+    const copiedToClipboard = await copyText(runnerCalldata, "Runner calldata copied.");
+    if (!copiedToClipboard) return;
     setCopiedRunnerCalldata(true);
     window.setTimeout(() => setCopiedRunnerCalldata(false), 1400);
-  }, [runnerCalldata]);
+  }, [copyText, runnerCalldata]);
 
   const refreshRunnerReceipt = React.useCallback(async (hash: string) => {
     try {
@@ -1965,9 +1999,12 @@ function App() {
     }
   }, [cleanImportTxHash, cleanRunnerAddress, runnerAddressOk]);
 
-  const copyValue = React.useCallback(async (value: string) => {
-    await navigator.clipboard.writeText(value);
-  }, []);
+  const copyValue = React.useCallback(
+    async (value: string) => {
+      await copyText(value, "Value copied.");
+    },
+    [copyText],
+  );
 
   const clearRunnerHistory = React.useCallback(() => {
     setRunnerRuns([]);
@@ -1977,7 +2014,7 @@ function App() {
 
   const copyRunnerHistoryJson = React.useCallback(async () => {
     if (!runnerRuns.length) return;
-    await navigator.clipboard.writeText(
+    const copiedToClipboard = await copyText(
       JSON.stringify(
         {
           version: 1,
@@ -1988,11 +2025,16 @@ function App() {
         null,
         2,
       ),
+      "Runner history JSON copied.",
     );
+    if (!copiedToClipboard) {
+      setRunnerHistoryMessage("Copy failed. Check browser clipboard permissions.");
+      return;
+    }
     setCopiedRunnerHistory(true);
     setRunnerHistoryMessage("Runner history JSON copied.");
     window.setTimeout(() => setCopiedRunnerHistory(false), 1400);
-  }, [runnerHistoryScopeLabel, runnerRuns]);
+  }, [copyText, runnerHistoryScopeLabel, runnerRuns]);
 
   const importRunnerHistoryJson = React.useCallback(() => {
     const imported = parseRunnerHistoryImport(runnerHistoryImportValue);
@@ -2053,7 +2095,7 @@ function App() {
 
   const copySelectedPresetJson = React.useCallback(async () => {
     if (!selectedPreset) return;
-    await navigator.clipboard.writeText(
+    const copiedToClipboard = await copyText(
       JSON.stringify(
         {
           version: 1,
@@ -2062,11 +2104,16 @@ function App() {
         null,
         2,
       ),
+      "Preset JSON copied.",
     );
+    if (!copiedToClipboard) {
+      setPresetTransferMessage("Copy failed. Check browser clipboard permissions.");
+      return;
+    }
     setCopiedPresetJson(true);
     setPresetTransferMessage("Preset JSON copied.");
     window.setTimeout(() => setCopiedPresetJson(false), 1400);
-  }, [selectedPreset]);
+  }, [copyText, selectedPreset]);
 
   const importRecipePresetJson = React.useCallback(() => {
     const imported = parseRecipePresetImport(presetImportValue);
@@ -2605,6 +2652,11 @@ function App() {
                   </button>
                 ) : null}
               </div>
+              {copyFeedback ? (
+                <p className={`copy-feedback ${copyFeedback.tone}`} aria-live="polite">
+                  {copyFeedback.message}
+                </p>
+              ) : null}
             </div>
 
             {activeAbiDraft ? (
