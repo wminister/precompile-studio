@@ -27,7 +27,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP recipe examples for GET and JSON POST requests
-- Live HTTP and JQ recipe composers, with LLM, Agent, and Scheduler shells
+- Live HTTP, LLM, and JQ recipe composers, with Agent and Scheduler shells
 - Request preview with copy action
 - Guardrail inspector for common pre-submit blockers
 - Responsive app layout for desktop and mobile
@@ -112,5 +112,5 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 ## Next Milestones
 
-1. Add more live recipe templates beyond HTTP and JQ.
+1. Add more live recipe templates beyond HTTP, LLM, and JQ.
 2. Add registry-backed executor discovery once Ritual exposes a stable executor lookup surface.

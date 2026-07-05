@@ -42,6 +42,7 @@ import "./styles.css";
 declare global {
   interface Window {
     ethereum?: Eip1193Provider;
+    __precompileStudioRoot?: ReturnType<typeof createRoot>;
   }
 }
 
@@ -207,9 +208,12 @@ const SYSTEM_CONTRACTS = {
 } as const;
 
 const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
+const LLM_INFERENCE_PRECOMPILE = "0x0000000000000000000000000000000000000802";
 const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
+const LLM_ABI_SIGNATURE =
+  "address, bytes[], uint256, bytes[], bytes, string, string, int256, string, bool, int256, string, string, uint256, bool, int256, string, bytes, int256, string, string, bool, int256, bytes, bytes, int256, int256, string, bool, (string,string,string)";
 const JQ_ABI_SIGNATURE = "string, string, uint8";
 const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
@@ -227,6 +231,7 @@ const RUNNER_BUILD_COMMAND = "npm run runner:build";
 const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
 const RUNNER_GUIDE_URL = "https://github.com/wminister/precompile-studio/blob/main/contracts/README.md";
 const DEFAULT_HTTP_RUNNER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileRunner.address;
+const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 
 const HTTP_METHOD_IDS: Record<string, number> = {
   GET: 1,
@@ -340,14 +345,25 @@ const recipes: Recipe[] = [
   {
     id: "llm",
     name: "LLM",
-    label: "Coming next",
+    label: "Live chat recipe",
     icon: Wand2,
-    status: "preview",
-    description: "Prompt and callback shell for future LLM precompile work.",
+    status: "live",
+    description: "30-field LLM input for GLM-4.7 chat completion at precompile 0x0802.",
     fields: [
-      { key: "model", label: "Model", value: "ritual/default" },
-      { key: "prompt", label: "Prompt", value: "Explain the last async job failure in one sentence.", type: "textarea" },
-      { key: "ttl", label: "TTL blocks", value: "240" },
+      { key: "executor", label: "Executor", value: zeroAddress },
+      { key: "ttl", label: "TTL blocks", value: "30" },
+      {
+        key: "messagesJson",
+        label: "Messages JSON",
+        value: '[{"role":"user","content":"Summarize why Ritual precompiles matter in one sentence."}]',
+        type: "textarea",
+      },
+      { key: "model", label: "Model", value: DEFAULT_LLM_MODEL },
+      { key: "temperature", label: "Temperature", value: "0.7" },
+      { key: "stream", label: "Streaming", value: "false", type: "select", options: ["false", "true"] },
+      { key: "historyPlatform", label: "History platform", value: "gcs" },
+      { key: "historyPath", label: "History path", value: "convos/precompile-studio.jsonl" },
+      { key: "historyKeyRef", label: "History key ref", value: "GCS_CREDS" },
     ],
   },
   {
@@ -419,6 +435,27 @@ const builtInRecipePresets: RecipePreset[] = [
       { key: "query", value: ".data.price" },
       { key: "inputData", value: "{\"data\":{\"price\":1979}}" },
       { key: "outputType", value: "uint256" },
+    ]),
+  },
+  {
+    id: "example-llm-summary",
+    recipeId: "llm",
+    label: "Example: One-line summary",
+    updatedAt: 0,
+    source: "example",
+    fields: normalizePresetFields("llm", [
+      { key: "executor", value: zeroAddress },
+      { key: "ttl", value: "30" },
+      {
+        key: "messagesJson",
+        value: '[{"role":"user","content":"Summarize why Ritual precompiles matter in one sentence."}]',
+      },
+      { key: "model", value: DEFAULT_LLM_MODEL },
+      { key: "temperature", value: "0.7" },
+      { key: "stream", value: "false" },
+      { key: "historyPlatform", value: "gcs" },
+      { key: "historyPath", value: "convos/precompile-studio.jsonl" },
+      { key: "historyKeyRef", value: "GCS_CREDS" },
     ]),
   },
 ];
@@ -989,6 +1026,100 @@ function buildHttpDraft(fields: ComposerField[]) {
   };
 }
 
+function buildLlmDraft(fields: ComposerField[]) {
+  const executor = fieldValue(fields, "executor").trim();
+  const ttlValue = fieldValue(fields, "ttl").trim();
+  const ttl = Number(ttlValue);
+  const messagesJson = fieldValue(fields, "messagesJson").trim();
+  const model = fieldValue(fields, "model").trim();
+  const temperatureValue = fieldValue(fields, "temperature").trim();
+  const temperature = Number(temperatureValue);
+  const stream = fieldValue(fields, "stream").trim() === "true";
+  const historyPlatform = fieldValue(fields, "historyPlatform").trim();
+  const historyPath = fieldValue(fields, "historyPath").trim();
+  const historyKeyRef = fieldValue(fields, "historyKeyRef").trim();
+  const errors: string[] = [];
+
+  if (!isAddress(executor) || executor.toLowerCase() === zeroAddress) {
+    errors.push("Select a non-zero TEE executor before encoding.");
+  }
+  if (!Number.isFinite(ttl) || ttl <= 0 || !Number.isInteger(ttl)) {
+    errors.push("TTL must be a positive whole number.");
+  }
+  if (!messagesJson) {
+    errors.push("Messages JSON is required.");
+  } else {
+    try {
+      const messages = JSON.parse(messagesJson);
+      if (!Array.isArray(messages) || messages.length === 0) {
+        errors.push("Messages JSON must be a non-empty array.");
+      }
+    } catch {
+      errors.push("Messages JSON must parse before encoding.");
+    }
+  }
+  if (!model) errors.push("Model is required.");
+  if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
+    errors.push("Temperature must be between 0 and 2.");
+  }
+  if (!historyPlatform || !historyPath || !historyKeyRef) {
+    errors.push("Conversation history platform, path, and key ref are required.");
+  }
+
+  const temperatureScaled = Number.isFinite(temperature) ? BigInt(Math.round(temperature * 1000)) : 0n;
+  const encodedInput =
+    errors.length === 0
+      ? encodeAbiParameters(parseAbiParameters(LLM_ABI_SIGNATURE), [
+          executor as `0x${string}`,
+          [],
+          BigInt(ttl),
+          [],
+          "0x",
+          messagesJson,
+          model,
+          0n,
+          "",
+          false,
+          -1n,
+          "",
+          "",
+          1n,
+          false,
+          0n,
+          "",
+          "0x",
+          -1n,
+          "",
+          "",
+          stream,
+          temperatureScaled,
+          "0x",
+          "0x",
+          -1n,
+          1000n,
+          "",
+          false,
+          [historyPlatform, historyPath, historyKeyRef],
+        ])
+      : undefined;
+
+  return {
+    precompile: "0x0802",
+    callTarget: LLM_INFERENCE_PRECOMPILE,
+    abi: LLM_ABI_SIGNATURE,
+    executor,
+    ttl,
+    messagesJson,
+    model,
+    stream,
+    temperature,
+    temperatureScaled,
+    convoHistory: [historyPlatform, historyPath, historyKeyRef] as const,
+    encodedInput,
+    errors,
+  };
+}
+
 function buildJqDraft(fields: ComposerField[]) {
   const query = fieldValue(fields, "query").trim();
   const inputData = fieldValue(fields, "inputData").trim();
@@ -1103,8 +1234,16 @@ function App() {
   );
   const selectedPreset = visibleRecipePresets.find((preset) => preset.id === selectedPresetId);
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
+  const llmDraft = React.useMemo(() => buildLlmDraft(fieldState.llm), [fieldState.llm]);
   const jqDraft = React.useMemo(() => buildJqDraft(fieldState.jq), [fieldState.jq]);
-  const liveAbiDraft = selectedRecipe.id === "http" ? httpDraft : selectedRecipe.id === "jq" ? jqDraft : undefined;
+  const liveAbiDraft =
+    selectedRecipe.id === "http"
+      ? httpDraft
+      : selectedRecipe.id === "llm"
+        ? llmDraft
+        : selectedRecipe.id === "jq"
+          ? jqDraft
+          : undefined;
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
@@ -1327,11 +1466,27 @@ function App() {
   const contextLabel =
     selectedRecipe.id === "http"
       ? "HTTP precompile"
+      : selectedRecipe.id === "llm"
+        ? "LLM precompile"
       : selectedRecipe.id === "jq"
         ? "JQ precompile"
         : `${selectedRecipe.name} recipe`;
+  const contextCode =
+    selectedRecipe.id === "http"
+      ? "0x0801"
+      : selectedRecipe.id === "llm"
+        ? "0x0802"
+        : selectedRecipe.id === "jq"
+          ? "0x0803"
+          : "preview";
   const contextDetail =
-    selectedRecipe.id === "http" ? "13-field ABI" : selectedRecipe.id === "jq" ? "3-field sync ABI" : "planning shell";
+    selectedRecipe.id === "http"
+      ? "13-field ABI"
+      : selectedRecipe.id === "llm"
+        ? "30-field chat ABI"
+        : selectedRecipe.id === "jq"
+          ? "3-field sync ABI"
+          : "planning shell";
   const stageTitle = selectedRecipe.status === "live" ? "Composer" : `${selectedRecipe.name} preview`;
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
@@ -1370,6 +1525,35 @@ function App() {
             },
           ],
         }
+      : selectedRecipe.id === "llm"
+        ? {
+            label: "LLM",
+            abi: llmDraft.abi,
+            encodedInput: llmDraft.encodedInput,
+            errors: llmDraft.errors,
+            facts: [
+              { label: "target", value: llmDraft.callTarget, copyValue: llmDraft.callTarget },
+              { label: "model", value: llmDraft.model || "empty", copyValue: llmDraft.model || "" },
+              {
+                label: "temp",
+                value: Number.isFinite(llmDraft.temperature) ? String(llmDraft.temperature) : "invalid",
+                copyValue: Number.isFinite(llmDraft.temperature) ? String(llmDraft.temperatureScaled) : "invalid",
+              },
+              { label: "stream", value: llmDraft.stream ? "true" : "false", copyValue: llmDraft.stream ? "true" : "false" },
+              {
+                label: "history",
+                value: llmDraft.convoHistory[1] || "missing",
+                copyValue: llmDraft.convoHistory.join("/"),
+              },
+              {
+                label: "bytes",
+                value: llmDraft.encodedInput ? `${Math.floor((llmDraft.encodedInput.length - 2) / 2)} bytes` : "not encoded",
+                copyValue: llmDraft.encodedInput
+                  ? `${Math.floor((llmDraft.encodedInput.length - 2) / 2)} bytes`
+                  : "not encoded",
+              },
+            ],
+          }
       : selectedRecipe.id === "jq"
         ? {
             label: "JQ",
@@ -1626,6 +1810,7 @@ function App() {
       },
       request: values,
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
+      llmDraft: selectedRecipe.id === "llm" ? llmDraft : undefined,
       jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
       runner: {
         address: cleanRunnerAddress || "unset",
@@ -1650,6 +1835,7 @@ function App() {
     isReady,
     isRightChain,
     jqDraft,
+    llmDraft,
     rpcState.status,
     selectedFields,
     selectedRecipe.id,
@@ -2149,7 +2335,7 @@ function App() {
           <div className="context-strip" aria-label="Current workbench context">
             <Code2 size={17} />
             <span>{contextLabel}</span>
-            <code>0x0801</code>
+            <code>{contextCode}</code>
             <span>{contextDetail}</span>
           </div>
         </section>
@@ -2942,7 +3128,13 @@ function Guard({ ok, label, help }: { ok: boolean; label: string; help?: string 
   );
 }
 
-createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error("Precompile Studio root element is missing.");
+
+const root = window.__precompileStudioRoot ?? createRoot(rootElement);
+window.__precompileStudioRoot = root;
+
+root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
