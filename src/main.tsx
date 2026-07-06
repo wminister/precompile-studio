@@ -1600,6 +1600,7 @@ function App() {
   );
   const [copied, setCopied] = React.useState(false);
   const [copiedEncoded, setCopiedEncoded] = React.useState(false);
+  const [copiedCallRequest, setCopiedCallRequest] = React.useState(false);
   const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback | undefined>();
   const copyFeedbackTimer = React.useRef<number | undefined>(undefined);
 
@@ -1660,6 +1661,20 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
+  const callRequest = React.useMemo(
+    () =>
+      liveAbiDraft?.encodedInput
+        ? {
+            chainId: RITUAL.chainId,
+            recipe: selectedRecipe.id,
+            label: selectedRecipe.name,
+            to: liveAbiDraft.callTarget,
+            data: liveAbiDraft.encodedInput,
+            value: "0",
+          }
+        : undefined,
+    [liveAbiDraft?.callTarget, liveAbiDraft?.encodedInput, selectedRecipe.id, selectedRecipe.name],
+  );
   const cleanHttpExecutorAddress = fieldValue(fieldState.http, "executor").trim();
   const httpExecutorAddressOk = isAddress(cleanHttpExecutorAddress) && cleanHttpExecutorAddress.toLowerCase() !== zeroAddress;
   const cleanSelectedExecutorAddress = hasExecutorField ? fieldValue(selectedFields, "executor").trim() : "";
@@ -2299,6 +2314,7 @@ function App() {
         ritualLockUntil: wallet.ritualLockUntil ?? "unknown",
       },
       request: values,
+      callRequest,
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
       llmDraft: selectedRecipe.id === "llm" ? llmDraft : undefined,
       jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
@@ -2327,6 +2343,7 @@ function App() {
     cleanHttpExecutorAddress,
     cleanRunnerAddress,
     agentDraft,
+    callRequest,
     httpDraft,
     isRightChain,
     jqDraft,
@@ -2370,6 +2387,14 @@ function App() {
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
   }, [copyText, requestPreview]);
+
+  const copyCallRequest = React.useCallback(async () => {
+    if (!callRequest) return;
+    const copiedToClipboard = await copyText(JSON.stringify(callRequest, null, 2), `${selectedRecipe.name} call JSON copied.`);
+    if (!copiedToClipboard) return;
+    setCopiedCallRequest(true);
+    window.setTimeout(() => setCopiedCallRequest(false), 1400);
+  }, [callRequest, copyText, selectedRecipe.name]);
 
   const copyEncodedInput = React.useCallback(async () => {
     if (!liveAbiDraft?.encodedInput) return;
@@ -3104,6 +3129,12 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy draft"}
                 </button>
+                {selectedRecipe.status === "live" ? (
+                  <button className="secondary-action" onClick={copyCallRequest} disabled={!callRequest}>
+                    {copiedCallRequest ? <Check size={16} /> : <Code2 size={16} />}
+                    {copiedCallRequest ? "Copied call" : "Copy call JSON"}
+                  </button>
+                ) : null}
                 {selectedRecipe.status === "live" ? (
                   <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
                     {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}

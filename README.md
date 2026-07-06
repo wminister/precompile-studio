@@ -29,6 +29,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduler recipe examples
 - Live HTTP, LLM, JQ, Sovereign Agent, and Scheduler calldata composers
 - Request preview with copy action
+- Copyable normalized call JSON for encoded live recipes
 - Guardrail inspector for common pre-submit blockers
 - Responsive app layout for desktop and mobile
 
