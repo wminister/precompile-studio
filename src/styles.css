@@ -151,6 +151,11 @@ a {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.header-nav a[aria-current="page"] {
+  color: var(--accent-ink);
+  background: rgba(52, 211, 153, 0.08);
+}
+
 .workspace {
   display: flex;
   max-width: 1344px;
@@ -159,6 +164,190 @@ a {
   gap: 12px;
   margin: 0 auto;
   padding: 22px 20px 44px;
+}
+
+.faq-page {
+  display: grid;
+  max-width: 1180px;
+  min-width: 0;
+  gap: 18px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.faq-hero {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 2px 24px;
+}
+
+.faq-hero > div {
+  display: grid;
+  max-width: 760px;
+  min-width: 0;
+  gap: 8px;
+}
+
+.faq-hero span {
+  color: var(--accent-ink);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.faq-hero p,
+.faq-section p,
+.faq-aside p,
+.faq-list p,
+.recipe-guide-list p {
+  color: var(--muted);
+  line-height: 1.58;
+  text-wrap: pretty;
+}
+
+.faq-hero p {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.faq-page-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.faq-aside,
+.faq-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(17, 17, 23, 0.42);
+}
+
+.faq-aside {
+  position: sticky;
+  top: 70px;
+  padding: 16px;
+}
+
+.faq-aside h2,
+.faq-section h2 {
+  font-size: 1.12rem;
+}
+
+.faq-aside ol {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: faq-step;
+}
+
+.faq-aside li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  counter-increment: faq-step;
+}
+
+.faq-aside li::before {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  content: counter(faq-step);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+.faq-aside strong,
+.recipe-guide-list strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.faq-aside p,
+.recipe-guide-list p,
+.faq-list p {
+  margin: 5px 0 0;
+  font-size: 0.9rem;
+}
+
+.faq-content {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.faq-section {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.faq-section > p {
+  max-width: 76ch;
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.recipe-guide-list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.recipe-guide-list > div {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.24fr) minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.recipe-guide-list > div:last-child {
+  border-bottom: 0;
+}
+
+.faq-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.faq-list details {
+  border-bottom: 1px solid var(--line);
+  padding: 0;
+}
+
+.faq-list details:last-child {
+  border-bottom: 0;
+}
+
+.faq-list summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 600;
+  list-style-position: outside;
+}
+
+.faq-list summary::marker {
+  color: var(--accent-ink);
+}
+
+.faq-list p {
+  max-width: 76ch;
+  margin: 0 0 14px 18px;
 }
 
 .workbench-head {
@@ -240,36 +429,8 @@ h2 {
   flex-wrap: wrap;
 }
 
-.network-pill {
-  display: inline-flex;
-  min-height: 36px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
-  padding: 0 12px;
-  color: var(--muted);
-}
-
-.network-pill span {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--amber);
-  box-shadow: 0 0 0 3px rgba(247, 198, 111, 0.1);
-}
-
-.network-pill.ok span {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.11);
-}
-
-.network-pill code {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  font-weight: 600;
+.topbar-actions {
+  justify-content: flex-end;
 }
 
 .ghost-link,
@@ -1914,30 +2075,39 @@ pre {
   }
 
   .topbar-actions {
-    display: grid;
-    width: 100%;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .network-pill {
-    min-width: 0;
-    min-height: 40px;
-    padding-inline: 10px;
-  }
-
-  .network-pill code {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .topbar-actions .primary-action {
     min-width: 0;
-    width: 100%;
   }
 
   .workspace {
     padding: 16px 14px 34px;
+  }
+
+  .faq-page {
+    padding: 18px 14px 34px;
+  }
+
+  .faq-hero {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .faq-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .faq-aside {
+    position: static;
+  }
+
+  .recipe-guide-list > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .workbench-head {

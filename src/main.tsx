@@ -244,6 +244,72 @@ const RUNNER_GUIDE_URL = "https://github.com/wminister/precompile-studio/blob/ma
 const DEFAULT_HTTP_RUNNER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileRunner.address;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 
+const FAQ_ITEMS = [
+  {
+    question: "What exactly does Precompile Studio do?",
+    answer:
+      "Precompile Studio is a Ritual testnet workbench. It turns human-readable recipe fields into the exact calldata needed for Ritual precompiles, then shows whether your wallet, chain, gas, RitualWallet balance, and selected route are ready before you copy or submit anything.",
+  },
+  {
+    question: "How do I use it from start to finish?",
+    answer:
+      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, inspect the request preview, then use the available action: copy calldata, copy a direct call export, or send the HTTP runner transaction from your connected wallet.",
+  },
+  {
+    question: "What is the simplest example?",
+    answer:
+      "Use the HTTP recipe with method GET and a public URL. The studio encodes that HTTP request for Ritual's HTTP precompile. If a runner contract is set and verified, your wallet can submit the runner transaction and later inspect the receipt, spcCalls, and decoded callback evidence.",
+  },
+  {
+    question: "Does the app send transactions automatically?",
+    answer:
+      "No. The studio prepares and validates data locally in the browser. It only asks your wallet to send a transaction when you explicitly press a send action, and the wallet confirmation is still required.",
+  },
+  {
+    question: "Who pays gas?",
+    answer:
+      "The connected user pays their own Ritual testnet gas. The studio does not sponsor or relay transactions. For flows that use RitualWallet escrow, the UI shows whether the connected account has escrowed funds available.",
+  },
+  {
+    question: "Why do some buttons say Contract only?",
+    answer:
+      "Some Ritual flows are not meant to be sent directly from a wallet. Scheduler, for example, expects an approved contract path. In those cases the studio still prepares calldata, but direct call JSON and cast exports are disabled to avoid sending the wrong transaction.",
+  },
+  {
+    question: "What is stored by the app?",
+    answer:
+      "Drafts, saved presets, runner addresses, and runner history stay in the browser's local storage. The app warns about secret-looking fields before copying or sharing previews.",
+  },
+  {
+    question: "Do I need a private key?",
+    answer:
+      "Not for normal browser use. Connect your wallet for signing. A private key is only needed if you deploy the optional HTTP runner contract from your terminal, and that should be a testnet-only deployer key.",
+  },
+] as const;
+
+const FAQ_WORKFLOW_STEPS = [
+  {
+    title: "Choose a recipe",
+    body: "HTTP, JQ, LLM, Agent, and Scheduler recipes each map to a different Ritual precompile or system flow.",
+  },
+  {
+    title: "Fill the fields",
+    body: "Use the composer fields as the source of truth. Presets are only starting points; replace zero addresses and placeholder values before encoding.",
+  },
+  {
+    title: "Resolve checks",
+    body: "The readiness strip and inspector show RPC, wallet, chain, gas, escrow, executor, and ABI problems before a transaction leaves the app.",
+  },
+  {
+    title: "Copy or submit",
+    body: "Copy calldata or call JSON when the flow supports direct exports. For HTTP runner calls, connect a wallet and send through the runner panel.",
+  },
+  {
+    title: "Trace the result",
+    body: "Runner history stores submitted hashes locally, polls receipts, and surfaces spcCalls plus decoded callback evidence when available.",
+  },
+] as const;
+
 const HTTP_METHOD_IDS: Record<string, number> = {
   GET: 1,
   POST: 2,
@@ -1612,6 +1678,7 @@ async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
 }
 
 function App() {
+  const [route, setRoute] = React.useState(() => (window.location.pathname === "/faq" ? "faq" : "studio"));
   const [rpcState, setRpcState] = React.useState<RpcState>({ status: "checking" });
   const [wallet, setWallet] = React.useState<WalletState>({ status: "idle" });
   const [activeRecipe, setActiveRecipe] = React.useState<RecipeId>("http");
@@ -1955,12 +2022,6 @@ function App() {
   const blockerSummary = openBlockers.length
     ? `${openBlockers.length} ${openBlockers.length === 1 ? "blocker" : "blockers"}`
     : "Ready to copy";
-  const blockLabel =
-    rpcState.status === "online" && rpcState.block
-      ? rpcState.block.toLocaleString()
-      : rpcState.status === "offline"
-        ? "offline"
-        : "pending";
   const contextLabel =
     selectedRecipe.id === "http"
       ? "HTTP precompile"
@@ -2342,6 +2403,12 @@ function App() {
     },
     [],
   );
+
+  React.useEffect(() => {
+    const syncRoute = () => setRoute(window.location.pathname === "/faq" ? "faq" : "studio");
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, []);
 
   React.useEffect(() => {
     if (selectedPresetId && !visibleRecipePresets.some((preset) => preset.id === selectedPresetId)) {
@@ -2950,16 +3017,40 @@ function App() {
     }
   }, []);
 
+  const navigate = React.useCallback((path: "/" | "/faq") => {
+    window.history.pushState(null, "", path);
+    setRoute(path === "/faq" ? "faq" : "studio");
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <main className="studio-shell">
       <header className="explorer-header">
         <div className="header-inner">
-          <a className="brand-lockup" href="/" aria-label="Precompile Studio home">
+          <a
+            className="brand-lockup"
+            href="/"
+            aria-label="Precompile Studio home"
+            onClick={(event) => {
+              event.preventDefault();
+              navigate("/");
+            }}
+          >
             <span className="brand-mark">
               <Blocks size={22} />
             </span>
           </a>
           <nav className="header-nav" aria-label="Ritual links">
+            <a
+              href="/faq"
+              aria-current={route === "faq" ? "page" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                navigate("/faq");
+              }}
+            >
+              FAQ
+            </a>
             <a href={RITUAL.docs} target="_blank" rel="noreferrer">
               Docs
             </a>
@@ -2971,13 +3062,6 @@ function App() {
             </a>
           </nav>
           <div className="topbar-actions">
-            <div
-              className={rpcState.status === "online" ? "network-pill ok" : "network-pill"}
-              aria-label={`Ritual block ${blockLabel}`}
-            >
-              <span aria-hidden="true" />
-              <code>{blockLabel}</code>
-            </div>
             <button className="primary-action" onClick={connectWallet} disabled={wallet.status === "connecting"}>
               {wallet.status === "connecting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
               {wallet.status === "connected" ? formatAddress(wallet.address) : "Connect"}
@@ -2986,6 +3070,9 @@ function App() {
         </div>
       </header>
 
+      {route === "faq" ? (
+        <FaqPage onStart={() => navigate("/")} />
+      ) : (
       <section className="workspace">
         <section className="workbench-head">
           <div>
@@ -3802,7 +3889,112 @@ function App() {
           </aside>
         </section>
       </section>
+      )}
     </main>
+  );
+}
+
+function FaqPage({ onStart }: { onStart: () => void }) {
+  return (
+    <section className="faq-page" aria-labelledby="faq-title">
+      <div className="faq-hero">
+        <div>
+          <span>Precompile Studio guide</span>
+          <h1 id="faq-title">FAQ</h1>
+          <p>
+            A practical guide to what the studio prepares, how to use each flow, what your wallet signs,
+            and where Ritual testnet costs come from.
+          </p>
+        </div>
+        <button className="primary-action" type="button" onClick={onStart}>
+          <Code2 size={16} />
+          Open studio
+        </button>
+      </div>
+
+      <div className="faq-page-grid">
+        <aside className="faq-aside" aria-label="How to use Precompile Studio">
+          <h2>How to use it</h2>
+          <ol>
+            {FAQ_WORKFLOW_STEPS.map((step) => (
+              <li key={step.title}>
+                <strong>{step.title}</strong>
+                <p>{step.body}</p>
+              </li>
+            ))}
+          </ol>
+        </aside>
+
+        <div className="faq-content">
+          <section className="faq-section">
+            <h2>What this service is</h2>
+            <p>
+              Precompile Studio is not another explorer and not a custodial wallet. It is a browser-based
+              composer for Ritual testnet precompile calls. The main job is to make a technical transaction
+              understandable before you sign it: inputs, encoded calldata, readiness checks, runner details,
+              and trace evidence all stay visible in one place.
+            </p>
+            <p>
+              Simple example: choose the HTTP recipe, keep method as GET, and enter a public API URL. The
+              studio encodes that request for Ritual&apos;s HTTP precompile. If the HTTP runner contract is
+              configured, you can ask your wallet to submit the runner transaction, then watch the local
+              runner history for receipt, spcCalls, and callback output.
+            </p>
+          </section>
+
+          <section className="faq-section">
+            <h2>Recipe paths</h2>
+            <div className="recipe-guide-list">
+              <div>
+                <strong>HTTP</strong>
+                <p>Encode an HTTP request and submit it through the runner contract when checks pass.</p>
+              </div>
+              <div>
+                <strong>JQ</strong>
+                <p>Prepare a synchronous JSON query payload for Ritual&apos;s JQ precompile.</p>
+              </div>
+              <div>
+                <strong>LLM</strong>
+                <p>Prepare an LLM inference payload with model, messages, temperature, and history refs.</p>
+              </div>
+              <div>
+                <strong>Agent</strong>
+                <p>Prepare Sovereign Agent calldata for CLI-style tasks, tools, callbacks, and output refs.</p>
+              </div>
+              <div>
+                <strong>Scheduler</strong>
+                <p>Prepare Scheduler calldata for an approved contract path; direct wallet exports are disabled.</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="faq-section">
+            <h2>Questions</h2>
+            <div className="faq-list">
+              {FAQ_ITEMS.map((item, index) => (
+                <details key={item.question} open={index < 3}>
+                  <summary>{item.question}</summary>
+                  <p>{item.answer}</p>
+                </details>
+              ))}
+            </div>
+          </section>
+
+          <section className="faq-section">
+            <h2>Costs and safety</h2>
+            <p>
+              Users pay their own Ritual testnet gas from the connected wallet. The studio does not sponsor
+              gas and does not send transactions without a wallet confirmation. Local presets, runner addresses,
+              and runner history are saved in browser storage, so they are convenient but not a backend account.
+            </p>
+            <p>
+              Do not paste private keys, seed phrases, or real API secrets into recipe fields. For terminal
+              runner deployment, use a testnet-only private key and keep it outside the repo.
+            </p>
+          </section>
+        </div>
+      </div>
+    </section>
   );
 }
 
