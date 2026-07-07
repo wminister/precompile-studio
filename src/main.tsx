@@ -1274,8 +1274,9 @@ function walletErrorCode(error: unknown): number | string | undefined {
   if ("code" in error) return (error as { code?: number | string }).code;
   if ("data" in error) {
     const data = (error as { data?: unknown }).data;
-    if (data && typeof data === "object" && "originalError" in data) {
-      return walletErrorCode((data as { originalError?: unknown }).originalError);
+    if (data && typeof data === "object") {
+      if ("code" in data) return (data as { code?: number | string }).code;
+      if ("originalError" in data) return walletErrorCode((data as { originalError?: unknown }).originalError);
     }
   }
   return undefined;
@@ -1732,6 +1733,7 @@ function App() {
   const [copiedRunnerHistory, setCopiedRunnerHistory] = React.useState(false);
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
   const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
+  const [isSwitchingChain, setIsSwitchingChain] = React.useState(false);
   const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
   const [runnerHistoryScope, setRunnerHistoryScope] = React.useState(initialRunnerHistoryScope);
   const [runnerRuns, setRunnerRuns] = React.useState<RunnerRun[]>(() =>
@@ -1751,6 +1753,8 @@ function App() {
   const [copiedCastCommand, setCopiedCastCommand] = React.useState(false);
   const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback | undefined>();
   const copyFeedbackTimer = React.useRef<number | undefined>(undefined);
+  const chainSwitchingRef = React.useRef(false);
+  const chainSwitchAccountRef = React.useRef<string | undefined>(undefined);
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
   const liveRecipeLabel = React.useMemo(
@@ -2323,6 +2327,9 @@ function App() {
     const provider = window.ethereum;
     if (!provider) return;
     const currentAddress = wallet.address;
+    chainSwitchingRef.current = true;
+    chainSwitchAccountRef.current = currentAddress;
+    setIsSwitchingChain(true);
     try {
       await provider.request({
         method: "wallet_switchEthereumChain",
@@ -2334,7 +2341,6 @@ function App() {
       if (code !== 4902 && code !== "4902") {
         setWallet((current) => ({
           ...current,
-          status: "error",
           error: switchError instanceof Error ? switchError.message : "Could not switch to Ritual.",
         }));
         return;
@@ -2353,10 +2359,13 @@ function App() {
       } catch (addError) {
         setWallet((current) => ({
           ...current,
-          status: "error",
           error: addError instanceof Error ? addError.message : "Could not add Ritual testnet to wallet.",
         }));
       }
+    } finally {
+      chainSwitchingRef.current = false;
+      chainSwitchAccountRef.current = undefined;
+      setIsSwitchingChain(false);
     }
   }, [refreshWallet, wallet.address]);
 
@@ -2449,10 +2458,11 @@ function App() {
 
     const handleAccounts = (...args: unknown[]) => {
       const accounts = args[0] as string[];
+      if (!accounts?.[0] && chainSwitchingRef.current) return;
       if (!accounts?.[0]) setWallet({ status: "idle" });
       else refreshWallet(provider, accounts[0]).catch(() => undefined);
     };
-    const handleChain = () => refreshWallet(provider).catch(() => undefined);
+    const handleChain = () => refreshWallet(provider, chainSwitchAccountRef.current ?? wallet.address).catch(() => undefined);
 
     provider.on?.("accountsChanged", handleAccounts);
     provider.on?.("chainChanged", handleChain);
@@ -2460,7 +2470,7 @@ function App() {
       provider.removeListener?.("accountsChanged", handleAccounts);
       provider.removeListener?.("chainChanged", handleChain);
     };
-  }, [refreshWallet]);
+  }, [refreshWallet, wallet.address]);
 
   const previewNextStep =
     selectedRecipe.id === "http"
@@ -3139,9 +3149,14 @@ function App() {
             tone={wallet.status !== "connected" ? "wait" : isRightChain ? "ok" : "bad"}
             action={
               wallet.status === "connected" && !isRightChain ? (
-                <button className="chain-switch-action" type="button" onClick={switchToRitual}>
-                  <Link2 size={13} />
-                  Ritual
+                <button
+                  className="chain-switch-action"
+                  type="button"
+                  onClick={switchToRitual}
+                  disabled={isSwitchingChain}
+                >
+                  {isSwitchingChain ? <Loader2 className="spin" size={13} /> : <Link2 size={13} />}
+                  {isSwitchingChain ? "Switching" : "Ritual"}
                 </button>
               ) : undefined
             }

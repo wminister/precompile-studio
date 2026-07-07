@@ -630,6 +630,7 @@ select:focus-visible {
 
 .status-action .chain-switch-action {
   display: inline-flex;
+  min-width: 82px;
   min-height: 28px;
   align-items: center;
   gap: 6px;
