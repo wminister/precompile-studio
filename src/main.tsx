@@ -1715,13 +1715,13 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
-  const castCommandUnavailableReason =
+  const directCallUnavailableReason =
     selectedRecipe.id === "scheduler"
       ? "Scheduler calls must originate from a contract that approved Scheduler callbacks."
       : undefined;
   const callRequest = React.useMemo(
     () =>
-      liveAbiDraft?.encodedInput
+      liveAbiDraft?.encodedInput && !directCallUnavailableReason
         ? {
             chainId: RITUAL.chainId,
             recipe: selectedRecipe.id,
@@ -1731,14 +1731,14 @@ function App() {
             value: "0",
           }
         : undefined,
-    [liveAbiDraft?.callTarget, liveAbiDraft?.encodedInput, selectedRecipe.id, selectedRecipe.name],
+    [directCallUnavailableReason, liveAbiDraft?.callTarget, liveAbiDraft?.encodedInput, selectedRecipe.id, selectedRecipe.name],
   );
   const castCommand = React.useMemo(
     () =>
-      callRequest && !castCommandUnavailableReason
+      callRequest
         ? `cast send --rpc-url ${RITUAL.rpc} ${callRequest.to} --data ${callRequest.data} --value ${callRequest.value}`
         : undefined,
-    [callRequest, castCommandUnavailableReason],
+    [callRequest],
   );
   const cleanHttpExecutorAddress = fieldValue(fieldState.http, "executor").trim();
   const httpExecutorAddressOk = isAddress(cleanHttpExecutorAddress) && cleanHttpExecutorAddress.toLowerCase() !== zeroAddress;
@@ -3233,9 +3233,14 @@ function App() {
                   {copied ? "Copied" : "Copy draft"}
                 </button>
                 {selectedRecipe.status === "live" ? (
-                  <button className="secondary-action" onClick={copyCallRequest} disabled={!callRequest}>
+                  <button
+                    className="secondary-action"
+                    onClick={copyCallRequest}
+                    disabled={!callRequest}
+                    title={directCallUnavailableReason}
+                  >
                     {copiedCallRequest ? <Check size={16} /> : <Code2 size={16} />}
-                    {copiedCallRequest ? "Copied call" : "Copy call JSON"}
+                    {copiedCallRequest ? "Copied call" : directCallUnavailableReason ? "Contract only" : "Copy call JSON"}
                   </button>
                 ) : null}
                 {selectedRecipe.status === "live" ? (
@@ -3243,10 +3248,10 @@ function App() {
                     className="secondary-action"
                     onClick={copyCastCommand}
                     disabled={!castCommand}
-                    title={castCommandUnavailableReason}
+                    title={directCallUnavailableReason}
                   >
                     {copiedCastCommand ? <Check size={16} /> : <TerminalSquare size={16} />}
-                    {copiedCastCommand ? "Copied cast" : castCommandUnavailableReason ? "Contract only" : "Copy cast"}
+                    {copiedCastCommand ? "Copied cast" : directCallUnavailableReason ? "Contract only" : "Copy cast"}
                   </button>
                 ) : null}
                 {selectedRecipe.status === "live" ? (
