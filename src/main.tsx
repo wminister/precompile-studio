@@ -1715,6 +1715,10 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
+  const castCommandUnavailableReason =
+    selectedRecipe.id === "scheduler"
+      ? "Scheduler calls must originate from a contract that approved Scheduler callbacks."
+      : undefined;
   const callRequest = React.useMemo(
     () =>
       liveAbiDraft?.encodedInput
@@ -1731,10 +1735,10 @@ function App() {
   );
   const castCommand = React.useMemo(
     () =>
-      callRequest
+      callRequest && !castCommandUnavailableReason
         ? `cast send --rpc-url ${RITUAL.rpc} ${callRequest.to} --data ${callRequest.data} --value ${callRequest.value}`
         : undefined,
-    [callRequest],
+    [callRequest, castCommandUnavailableReason],
   );
   const cleanHttpExecutorAddress = fieldValue(fieldState.http, "executor").trim();
   const httpExecutorAddressOk = isAddress(cleanHttpExecutorAddress) && cleanHttpExecutorAddress.toLowerCase() !== zeroAddress;
@@ -3235,9 +3239,14 @@ function App() {
                   </button>
                 ) : null}
                 {selectedRecipe.status === "live" ? (
-                  <button className="secondary-action" onClick={copyCastCommand} disabled={!castCommand}>
+                  <button
+                    className="secondary-action"
+                    onClick={copyCastCommand}
+                    disabled={!castCommand}
+                    title={castCommandUnavailableReason}
+                  >
                     {copiedCastCommand ? <Check size={16} /> : <TerminalSquare size={16} />}
-                    {copiedCastCommand ? "Copied cast" : "Copy cast"}
+                    {copiedCastCommand ? "Copied cast" : castCommandUnavailableReason ? "Contract only" : "Copy cast"}
                   </button>
                 ) : null}
                 {selectedRecipe.status === "live" ? (
