@@ -1102,6 +1102,58 @@ function parseHeaders(input: string) {
     );
 }
 
+const SENSITIVE_HEADER_NAMES = new Set([
+  "authorization",
+  "proxy-authorization",
+  "x-api-key",
+  "api-key",
+  "cookie",
+  "set-cookie",
+]);
+
+const SECRET_ASSIGNMENT_PATTERN =
+  /(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|private[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{12,}/i;
+const BEARER_PATTERN = /bearer\s+[A-Za-z0-9._~+/=-]{12,}/i;
+const JWT_PATTERN = /\b[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{12,}\b/;
+const PRIVATE_KEY_HEX_PATTERN = /^0x[a-fA-F0-9]{64}$/;
+const PROVIDER_KEY_PATTERN = /\b(?:sk|pk|rk|ghp|github_pat|xoxb|xoxp|ya29)[-_][A-Za-z0-9._-]{16,}\b/i;
+
+function detectSensitiveFields(fields: ComposerField[]) {
+  return fields
+    .filter((field) => {
+      const value = field.value.trim();
+      if (!value || value === "0x" || value === zeroAddress) return false;
+
+      if (field.key.toLowerCase().includes("headers")) {
+        const headerLines = value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (
+          headerLines.some((line) => {
+            const separator = line.indexOf(":");
+            if (separator < 1) return false;
+            const name = line.slice(0, separator).trim().toLowerCase();
+            const headerValue = line.slice(separator + 1).trim();
+            return SENSITIVE_HEADER_NAMES.has(name) && headerValue.length >= 8 && !/^<.*>$/.test(headerValue);
+          })
+        ) {
+          return true;
+        }
+      }
+
+      const fieldName = `${field.key} ${field.label}`.toLowerCase();
+      return (
+        BEARER_PATTERN.test(value) ||
+        JWT_PATTERN.test(value) ||
+        PROVIDER_KEY_PATTERN.test(value) ||
+        SECRET_ASSIGNMENT_PATTERN.test(value) ||
+        ((fieldName.includes("secret") || fieldName.includes("private")) && PRIVATE_KEY_HEX_PATTERN.test(value))
+      );
+    })
+    .map((field) => field.label);
+}
+
 function parseStringList(input: string) {
   return input
     .split(/[\n,]/)
@@ -1628,6 +1680,7 @@ function App() {
   const jqDraft = React.useMemo(() => buildJqDraft(fieldState.jq), [fieldState.jq]);
   const agentDraft = React.useMemo(() => buildAgentDraft(fieldState.agent), [fieldState.agent]);
   const scheduleDraft = React.useMemo(() => buildScheduleDraft(fieldState.scheduler), [fieldState.scheduler]);
+  const sensitiveFieldLabels = React.useMemo(() => detectSensitiveFields(selectedFields), [selectedFields]);
   const liveAbiDraft =
     selectedRecipe.id === "http"
       ? httpDraft
@@ -1849,6 +1902,15 @@ function App() {
               : "Fix fields before copying ABI input."
             : "Preview recipes are planning shells for now.",
       },
+      {
+        ok: sensitiveFieldLabels.length === 0,
+        label: sensitiveFieldLabels.length ? "Review secret-looking fields" : "No sharing secrets detected",
+        help: sensitiveFieldLabels.length
+          ? `${formatNameList(sensitiveFieldLabels.slice(0, 3))}${
+              sensitiveFieldLabels.length > 3 ? ` and ${sensitiveFieldLabels.length - 3} more` : ""
+            } may contain credentials before copying or sharing.`
+          : "Request previews and presets look safe to share.",
+      },
     ];
 
     return checks;
@@ -1859,6 +1921,7 @@ function App() {
     liveRecipeLabel,
     rpcState.error,
     rpcState.status,
+    sensitiveFieldLabels,
     selectedRecipe.name,
     selectedRecipe.status,
     wallet.address,
