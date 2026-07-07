@@ -1653,6 +1653,7 @@ function App() {
   const [copied, setCopied] = React.useState(false);
   const [copiedEncoded, setCopiedEncoded] = React.useState(false);
   const [copiedCallRequest, setCopiedCallRequest] = React.useState(false);
+  const [copiedCastCommand, setCopiedCastCommand] = React.useState(false);
   const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback | undefined>();
   const copyFeedbackTimer = React.useRef<number | undefined>(undefined);
 
@@ -1727,6 +1728,13 @@ function App() {
           }
         : undefined,
     [liveAbiDraft?.callTarget, liveAbiDraft?.encodedInput, selectedRecipe.id, selectedRecipe.name],
+  );
+  const castCommand = React.useMemo(
+    () =>
+      callRequest
+        ? `cast send --rpc-url ${RITUAL.rpc} ${callRequest.to} --data ${callRequest.data} --value ${callRequest.value}`
+        : undefined,
+    [callRequest],
   );
   const cleanHttpExecutorAddress = fieldValue(fieldState.http, "executor").trim();
   const httpExecutorAddressOk = isAddress(cleanHttpExecutorAddress) && cleanHttpExecutorAddress.toLowerCase() !== zeroAddress;
@@ -2378,6 +2386,7 @@ function App() {
       },
       request: values,
       callRequest,
+      castCommand,
       httpDraft: selectedRecipe.id === "http" ? httpDraft : undefined,
       llmDraft: selectedRecipe.id === "llm" ? llmDraft : undefined,
       jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
@@ -2407,6 +2416,7 @@ function App() {
     cleanRunnerAddress,
     agentDraft,
     callRequest,
+    castCommand,
     httpDraft,
     isRightChain,
     jqDraft,
@@ -2458,6 +2468,14 @@ function App() {
     setCopiedCallRequest(true);
     window.setTimeout(() => setCopiedCallRequest(false), 1400);
   }, [callRequest, copyText, selectedRecipe.name]);
+
+  const copyCastCommand = React.useCallback(async () => {
+    if (!castCommand) return;
+    const copiedToClipboard = await copyText(castCommand, `${selectedRecipe.name} cast command copied.`);
+    if (!copiedToClipboard) return;
+    setCopiedCastCommand(true);
+    window.setTimeout(() => setCopiedCastCommand(false), 1400);
+  }, [castCommand, copyText, selectedRecipe.name]);
 
   const copyEncodedInput = React.useCallback(async () => {
     if (!liveAbiDraft?.encodedInput) return;
@@ -3196,6 +3214,12 @@ function App() {
                   <button className="secondary-action" onClick={copyCallRequest} disabled={!callRequest}>
                     {copiedCallRequest ? <Check size={16} /> : <Code2 size={16} />}
                     {copiedCallRequest ? "Copied call" : "Copy call JSON"}
+                  </button>
+                ) : null}
+                {selectedRecipe.status === "live" ? (
+                  <button className="secondary-action" onClick={copyCastCommand} disabled={!castCommand}>
+                    {copiedCastCommand ? <Check size={16} /> : <TerminalSquare size={16} />}
+                    {copiedCastCommand ? "Copied cast" : "Copy cast"}
                   </button>
                 ) : null}
                 {selectedRecipe.status === "live" ? (

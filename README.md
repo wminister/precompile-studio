@@ -30,6 +30,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Live HTTP, LLM, JQ, Sovereign Agent, and Scheduler calldata composers
 - Request preview with copy action
 - Copyable normalized call JSON for encoded live recipes
+- Copyable Foundry `cast send` commands for encoded live recipes
 - Guardrail inspector for common pre-submit blockers
 - Local secret-looking field warnings before copying or sharing drafts
 - Responsive app layout for desktop and mobile
