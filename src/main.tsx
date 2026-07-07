@@ -3113,6 +3113,7 @@ function App() {
                 <label className="preset-label">
                   <span>Preset label</span>
                   <input
+                    name={`preset-label-${selectedRecipe.id}`}
                     value={presetLabel}
                     onChange={(event) => setPresetLabel(event.target.value)}
                     placeholder={`Save current ${selectedRecipe.name} fields`}
@@ -3124,7 +3125,11 @@ function App() {
                 </button>
                 <label className="preset-select">
                   <span>Saved preset</span>
-                  <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
+                  <select
+                    name={`saved-preset-${selectedRecipe.id}`}
+                    value={selectedPresetId}
+                    onChange={(event) => setSelectedPresetId(event.target.value)}
+                  >
                     <option value="">Select preset</option>
                     {visibleRecipePresets.map((preset) => (
                       <option value={preset.id} key={preset.id}>
@@ -3174,6 +3179,7 @@ function App() {
                     </button>
                   </div>
                   <textarea
+                    name={`preset-json-${selectedRecipe.id}`}
                     value={presetImportValue}
                     onChange={(event) => setPresetImportValue(event.target.value)}
                     placeholder="Paste a Precompile Studio preset JSON"
@@ -3190,15 +3196,27 @@ function App() {
                     <label className={isWideField ? "field wide" : "field"} key={field.key}>
                       <span>{field.label}</span>
                       {field.type === "textarea" ? (
-                        <textarea value={field.value} onChange={(event) => updateField(field.key, event.target.value)} />
+                        <textarea
+                          name={`${selectedRecipe.id}-${field.key}`}
+                          value={field.value}
+                          onChange={(event) => updateField(field.key, event.target.value)}
+                        />
                       ) : field.type === "select" ? (
-                        <select value={field.value} onChange={(event) => updateField(field.key, event.target.value)}>
+                        <select
+                          name={`${selectedRecipe.id}-${field.key}`}
+                          value={field.value}
+                          onChange={(event) => updateField(field.key, event.target.value)}
+                        >
                           {field.options?.map((option) => (
                             <option key={option}>{option}</option>
                           ))}
                         </select>
                       ) : (
-                        <input value={field.value} onChange={(event) => updateField(field.key, event.target.value)} />
+                        <input
+                          name={`${selectedRecipe.id}-${field.key}`}
+                          value={field.value}
+                          onChange={(event) => updateField(field.key, event.target.value)}
+                        />
                       )}
                     </label>
                   );
@@ -3295,6 +3313,7 @@ function App() {
                   <label>
                     <span>Executor label</span>
                     <input
+                      name="executor-label"
                       value={executorLabel}
                       onChange={(event) => setExecutorLabel(event.target.value)}
                       placeholder={
@@ -3351,6 +3370,7 @@ function App() {
                 <label className="runner-address">
                   <span>Runner contract</span>
                   <input
+                    name="runner-contract"
                     value={runnerAddress}
                     onChange={(event) => setRunnerAddress(event.target.value)}
                     placeholder="0x..."
@@ -3361,6 +3381,7 @@ function App() {
                   <label>
                     <span>Runner label</span>
                     <input
+                      name="runner-label"
                       value={runnerLabel}
                       onChange={(event) => setRunnerLabel(event.target.value)}
                       placeholder={runnerAddressOk ? activeSavedRunner?.label ?? defaultRunnerLabel(cleanRunnerAddress) : "HTTP runner"}
@@ -3479,6 +3500,7 @@ function App() {
                     <label>
                       <span>Import tx hash</span>
                       <input
+                        name="runner-import-transaction-hash"
                         value={importTxHash}
                         onChange={(event) => {
                           setImportTxHash(event.target.value);
@@ -3518,6 +3540,7 @@ function App() {
                         </button>
                       </div>
                       <textarea
+                        name="runner-history-json"
                         value={runnerHistoryImportValue}
                         onChange={(event) => setRunnerHistoryImportValue(event.target.value)}
                         placeholder="Paste Precompile Studio runner history JSON"
@@ -3670,6 +3693,7 @@ function App() {
                     <label>
                       <span>Deposit amount</span>
                       <input
+                        name="ritual-wallet-deposit-amount"
                         inputMode="decimal"
                         value={depositAmount}
                         onChange={(event) => setDepositAmount(event.target.value)}
@@ -3678,6 +3702,7 @@ function App() {
                     <label>
                       <span>Lock blocks</span>
                       <input
+                        name="ritual-wallet-lock-blocks"
                         inputMode="numeric"
                         value={depositLockBlocks}
                         onChange={(event) => setDepositLockBlocks(event.target.value)}
