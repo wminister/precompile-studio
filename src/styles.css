@@ -152,8 +152,20 @@ a {
 }
 
 .header-nav a[aria-current="page"] {
+  position: relative;
   color: var(--accent-ink);
-  background: rgba(52, 211, 153, 0.08);
+  background: transparent;
+}
+
+.header-nav a[aria-current="page"]::after {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  left: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  content: "";
 }
 
 .workspace {
@@ -168,7 +180,7 @@ a {
 
 .faq-page {
   display: grid;
-  max-width: 1180px;
+  max-width: 1344px;
   min-width: 0;
   gap: 18px;
   margin: 0 auto;
@@ -216,7 +228,7 @@ a {
 
 .faq-page-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 0.38fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -252,6 +264,7 @@ a {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   gap: 10px;
+  align-items: start;
   counter-increment: faq-step;
 }
 
@@ -267,12 +280,18 @@ a {
   content: counter(faq-step);
   font-family: var(--mono);
   font-size: 0.7rem;
+  grid-row: 1 / span 2;
 }
 
 .faq-aside strong,
 .recipe-guide-list strong {
   color: var(--ink);
   font-weight: 600;
+}
+
+.faq-aside li > strong,
+.faq-aside li > p {
+  grid-column: 2;
 }
 
 .faq-aside p,
