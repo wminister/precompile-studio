@@ -207,6 +207,14 @@ const RITUAL = {
   docs: "https://docs.ritualfoundation.org",
 };
 
+const RITUAL_CHAIN_PARAMS = {
+  chainId: RITUAL.chainHex,
+  chainName: "Ritual Testnet",
+  nativeCurrency: { name: "RITUAL", symbol: "RITUAL", decimals: 18 },
+  rpcUrls: [RITUAL.rpc],
+  blockExplorerUrls: [RITUAL.explorer],
+};
+
 const SYSTEM_CONTRACTS = {
   RitualWallet: "0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948",
   AsyncJobTracker: "0xC069FFCa0389f44eCA2C626e55491b0ab045AEF5",
@@ -1261,6 +1269,18 @@ function hasZeroExecutionIndexPlaceholder(calldata: string) {
   return /^0{64}$/i.test(hex.slice(8, 72));
 }
 
+function walletErrorCode(error: unknown): number | string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  if ("code" in error) return (error as { code?: number | string }).code;
+  if ("data" in error) {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "originalError" in data) {
+      return walletErrorCode((data as { originalError?: unknown }).originalError);
+    }
+  }
+  return undefined;
+}
+
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
   return [
     fieldValue(fields, `${prefix}Platform`).trim(),
@@ -2302,37 +2322,43 @@ function App() {
   const switchToRitual = React.useCallback(async () => {
     const provider = window.ethereum;
     if (!provider) return;
+    const currentAddress = wallet.address;
     try {
       await provider.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: RITUAL.chainHex }],
       });
-      await refreshWallet(provider);
+      await refreshWallet(provider, currentAddress);
     } catch (switchError) {
-      const code = typeof switchError === "object" && switchError && "code" in switchError ? switchError.code : undefined;
-      if (code === 4902) {
-        await provider.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: RITUAL.chainHex,
-              chainName: "Ritual Testnet",
-              nativeCurrency: { name: "RITUAL", symbol: "RITUAL", decimals: 18 },
-              rpcUrls: [RITUAL.rpc],
-              blockExplorerUrls: [RITUAL.explorer],
-            },
-          ],
-        });
-        await refreshWallet(provider);
-      } else {
+      const code = walletErrorCode(switchError);
+      if (code !== 4902 && code !== "4902") {
         setWallet((current) => ({
           ...current,
           status: "error",
           error: switchError instanceof Error ? switchError.message : "Could not switch to Ritual.",
         }));
+        return;
+      }
+
+      try {
+        await provider.request({
+          method: "wallet_addEthereumChain",
+          params: [RITUAL_CHAIN_PARAMS],
+        });
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: RITUAL.chainHex }],
+        });
+        await refreshWallet(provider, currentAddress);
+      } catch (addError) {
+        setWallet((current) => ({
+          ...current,
+          status: "error",
+          error: addError instanceof Error ? addError.message : "Could not add Ritual testnet to wallet.",
+        }));
       }
     }
-  }, [refreshWallet]);
+  }, [refreshWallet, wallet.address]);
 
   React.useEffect(() => {
     refreshRpc();
@@ -3113,7 +3139,10 @@ function App() {
             tone={wallet.status !== "connected" ? "wait" : isRightChain ? "ok" : "bad"}
             action={
               wallet.status === "connected" && !isRightChain ? (
-                <button onClick={switchToRitual}>Switch</button>
+                <button className="chain-switch-action" type="button" onClick={switchToRitual}>
+                  <Link2 size={13} />
+                  Ritual
+                </button>
               ) : undefined
             }
           />

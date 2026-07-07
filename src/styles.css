@@ -628,6 +628,29 @@ select:focus-visible {
   font-weight: 720;
 }
 
+.status-action .chain-switch-action {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  border-color: rgba(247, 198, 111, 0.32);
+  color: #f4d18a;
+  background: rgba(247, 198, 111, 0.1);
+  padding: 0 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.status-action .chain-switch-action:hover {
+  border-color: rgba(247, 198, 111, 0.5);
+  background: rgba(247, 198, 111, 0.15);
+  color: #ffe0a3;
+}
+
+.status-action .chain-switch-action svg {
+  flex: 0 0 auto;
+}
+
 .studio-grid {
   display: grid;
   min-height: 0;
