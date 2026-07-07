@@ -1189,6 +1189,12 @@ function parseHexBytesField(value: string, label: string, errors: string[], opti
   return normalized;
 }
 
+function hasZeroExecutionIndexPlaceholder(calldata: string) {
+  const hex = calldata.slice(2);
+  if (hex.length < 72) return false;
+  return /^0{64}$/i.test(hex.slice(8, 72));
+}
+
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
   return [
     fieldValue(fields, `${prefix}Platform`).trim(),
@@ -1548,6 +1554,8 @@ function buildScheduleDraft(fields: ComposerField[]) {
 
   if ((callbackData.length - 2) / 2 < 36) {
     errors.push("Callback calldata should include a 4-byte selector and uint256 executionIndex placeholder.");
+  } else if (!hasZeroExecutionIndexPlaceholder(callbackData)) {
+    errors.push("Callback calldata bytes 4-35 must be a zero executionIndex placeholder.");
   }
   if (!isAddress(payer) || payer.toLowerCase() === zeroAddress) {
     errors.push("Set the contract address paying from RitualWallet.");

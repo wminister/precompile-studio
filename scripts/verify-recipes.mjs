@@ -269,6 +269,12 @@ function parseHexBytes(value, label, byteLength) {
   return normalized;
 }
 
+function hasZeroExecutionIndexPlaceholder(calldata) {
+  const hex = calldata.slice(2);
+  if (hex.length < 72) return false;
+  return /^0{64}$/i.test(hex.slice(8, 72));
+}
+
 function storageRef(fields, prefix) {
   return [fields[`${prefix}Platform`], fields[`${prefix}Path`], fields[`${prefix}KeyRef`]];
 }
@@ -333,6 +339,9 @@ function encodeScheduler(fields) {
   const callbackData = parseHexBytes(fields.callbackData, "Scheduler callbackData");
   if ((callbackData.length - 2) / 2 < 36) {
     throw new Error("Scheduler callbackData must include selector and executionIndex placeholder");
+  }
+  if (!hasZeroExecutionIndexPlaceholder(callbackData)) {
+    throw new Error("Scheduler callbackData bytes 4-35 must be a zero executionIndex placeholder");
   }
   return encodeFunctionData({
     abi: schedulerAbi,

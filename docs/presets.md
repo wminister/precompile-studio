@@ -46,7 +46,7 @@ The importer accepts either:
 - [`examples/llm-preset.json`](../examples/llm-preset.json) stores a GLM-4.7 chat-completion draft for LLM precompile `0x0802`. Replace the zero executor with a registered TEE executor before encoding.
 - [`examples/jq-preset.json`](../examples/jq-preset.json) stores a synchronous JSON price extraction for JQ precompile `0x0803`.
 - [`examples/agent-preset.json`](../examples/agent-preset.json) stores a Sovereign Agent CLI run draft for precompile `0x080C`. Replace the zero executor and callback address before encoding.
-- [`examples/scheduler-preset.json`](../examples/scheduler-preset.json) stores Scheduler `schedule(...)` calldata for recurring contract execution. Replace the zero payer with the approved contract address before encoding.
+- [`examples/scheduler-preset.json`](../examples/scheduler-preset.json) stores Scheduler `schedule(...)` calldata for recurring contract execution. Replace the zero payer with the approved contract address before encoding, and keep callback calldata bytes 4-35 as a zero `executionIndex` placeholder.
 
 ## Safety
 
