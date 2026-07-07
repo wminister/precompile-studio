@@ -1269,17 +1269,36 @@ function hasZeroExecutionIndexPlaceholder(calldata: string) {
   return /^0{64}$/i.test(hex.slice(8, 72));
 }
 
-function walletErrorCode(error: unknown): number | string | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  if ("code" in error) return (error as { code?: number | string }).code;
-  if ("data" in error) {
-    const data = (error as { data?: unknown }).data;
-    if (data && typeof data === "object") {
-      if ("code" in data) return (data as { code?: number | string }).code;
-      if ("originalError" in data) return walletErrorCode((data as { originalError?: unknown }).originalError);
-    }
-  }
-  return undefined;
+function walletErrorCodes(error: unknown, seen = new Set<unknown>()): Array<number | string> {
+  if (!error || typeof error !== "object" || seen.has(error)) return [];
+  seen.add(error);
+
+  const codes: Array<number | string> = [];
+  const candidate = error as {
+    cause?: unknown;
+    code?: number | string;
+    data?: unknown;
+    error?: unknown;
+    originalError?: unknown;
+  };
+
+  if (candidate.code !== undefined) codes.push(candidate.code);
+  codes.push(...walletErrorCodes(candidate.data, seen));
+  codes.push(...walletErrorCodes(candidate.error, seen));
+  codes.push(...walletErrorCodes(candidate.originalError, seen));
+  codes.push(...walletErrorCodes(candidate.cause, seen));
+  return codes;
+}
+
+function isUnknownChainError(error: unknown) {
+  const codes = walletErrorCodes(error).map((code) => String(code));
+  if (codes.includes("4902")) return true;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return /unrecognized chain|unknown chain|chain.*not.*added/i.test(message);
+}
+
+function walletErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
@@ -2330,6 +2349,7 @@ function App() {
     chainSwitchingRef.current = true;
     chainSwitchAccountRef.current = currentAddress;
     setIsSwitchingChain(true);
+    setWallet((current) => ({ ...current, error: undefined }));
     try {
       await provider.request({
         method: "wallet_switchEthereumChain",
@@ -2337,11 +2357,10 @@ function App() {
       });
       await refreshWallet(provider, currentAddress);
     } catch (switchError) {
-      const code = walletErrorCode(switchError);
-      if (code !== 4902 && code !== "4902") {
+      if (!isUnknownChainError(switchError)) {
         setWallet((current) => ({
           ...current,
-          error: switchError instanceof Error ? switchError.message : "Could not switch to Ritual.",
+          error: walletErrorMessage(switchError, "Could not switch to Ritual."),
         }));
         return;
       }
@@ -2359,7 +2378,7 @@ function App() {
       } catch (addError) {
         setWallet((current) => ({
           ...current,
-          error: addError instanceof Error ? addError.message : "Could not add Ritual testnet to wallet.",
+          error: walletErrorMessage(addError, "Could not add Ritual testnet to wallet."),
         }));
       }
     } finally {
@@ -3180,6 +3199,12 @@ function App() {
             tone={wallet.status === "connected" && isRitualWalletFunded ? "ok" : "wait"}
           />
         </section>
+
+        {wallet.status === "connected" && wallet.error ? (
+          <p className="wallet-status-note" role="alert" aria-live="polite">
+            {wallet.error}
+          </p>
+        ) : null}
 
         <section className="studio-grid">
           <section className="main-stage" aria-label="Composer">
