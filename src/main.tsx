@@ -67,6 +67,14 @@ type WalletTransactionRequest = {
   maxPriorityFeePerGas?: string;
 };
 
+type SendWalletTransactionOptions = {
+  signFirst?: boolean;
+};
+
+function isRabbyProvider(provider: Eip1193Provider | undefined) {
+  return Boolean(provider?.isRabby);
+}
+
 type RpcState = {
   status: "checking" | "online" | "offline";
   chainId?: number;
@@ -1362,6 +1370,34 @@ function walletErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function isUserRejectedWalletError(error: unknown) {
+  const codes = walletErrorCodes(error).map((code) => String(code));
+  if (codes.includes("4001")) return true;
+  const message = walletErrorMessage(error, "").toLowerCase();
+  return message.includes("user rejected") || message.includes("user denied") || message.includes("rejected by user");
+}
+
+function shouldUseSignedRawFallback(error: unknown, provider: Eip1193Provider | undefined) {
+  if (isUserRejectedWalletError(error)) return false;
+  const message = walletErrorMessage(error, "").toLowerCase();
+  return (
+    message.includes("transaction type not supported") ||
+    (isRabbyProvider(provider) && message.includes("fail to create")) ||
+    (isRabbyProvider(provider) && message.includes("simulation not supported"))
+  );
+}
+
+function extractSignedTransaction(result: unknown) {
+  if (typeof result === "string" && result.startsWith("0x")) return result;
+  if (result && typeof result === "object") {
+    const candidate = result as { raw?: unknown; rawTransaction?: unknown; signedTransaction?: unknown };
+    for (const value of [candidate.raw, candidate.rawTransaction, candidate.signedTransaction]) {
+      if (typeof value === "string" && value.startsWith("0x")) return value;
+    }
+  }
+  throw new Error("Wallet did not return a signed transaction.");
+}
+
 function assertEvenHexData(value: string | undefined, label: string) {
   if (value === undefined) return;
   if (!/^0x(?:[a-fA-F0-9]{2})*$/.test(value)) {
@@ -1369,12 +1405,54 @@ function assertEvenHexData(value: string | undefined, label: string) {
   }
 }
 
-async function sendWalletTransaction(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+async function signTransactionWithWallet(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+  try {
+    return extractSignedTransaction(await provider.request({ method: "eth_signTransaction", params: [tx] }));
+  } catch (firstError) {
+    try {
+      return extractSignedTransaction(await provider.request({ method: "wallet_signTransaction", params: [tx] }));
+    } catch (secondError) {
+      throw new Error(
+        walletErrorMessage(
+          secondError,
+          walletErrorMessage(firstError, "Wallet cannot sign this transaction without broadcasting it."),
+        ),
+      );
+    }
+  }
+}
+
+async function sendSignedRawTransaction(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+  const signedTransaction = await signTransactionWithWallet(provider, tx);
+  try {
+    return await rpc<string>("eth_sendRawTransaction", [signedTransaction]);
+  } catch (broadcastError) {
+    throw new Error(
+      `Wallet signed the transaction, but Ritual RPC could not broadcast it: ${walletErrorMessage(
+        broadcastError,
+        "broadcast failed",
+      )}`,
+    );
+  }
+}
+
+async function sendWalletTransaction(
+  provider: Eip1193Provider,
+  tx: WalletTransactionRequest,
+  options: SendWalletTransactionOptions = {},
+) {
   assertEvenHexData(tx.data, "Transaction data");
-  return await provider.request<string>({
-    method: "eth_sendTransaction",
-    params: [tx],
-  });
+  if (options.signFirst) return sendSignedRawTransaction(provider, tx);
+
+  try {
+    return await provider.request<string>({
+      method: "eth_sendTransaction",
+      params: [tx],
+    });
+  } catch (sendError) {
+    if (!shouldUseSignedRawFallback(sendError, provider)) throw sendError;
+    return sendSignedRawTransaction(provider, tx);
+  }
 }
 
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
@@ -1834,18 +1912,29 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 }
 
 async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const walletTx: WalletTransactionRequest = {
-    from: tx.from,
-    to: tx.to,
+  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
+    rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
+    rpc<string>("eth_gasPrice"),
+    rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
+  ]);
+  const priorityFee = maxPriorityFeePerGas ?? gasPrice;
+  const feeCap = `0x${(BigInt(gasPrice) + BigInt(priorityFee) + 20_000_000_000n).toString(16)}`;
+  const feeTx: WalletTransactionRequest = {
+    ...tx,
+    chainId: RITUAL.chainHex,
+    type: "0x2",
     value: tx.value ?? "0x0",
-    data: tx.data,
+    nonce,
+    maxFeePerGas: feeCap,
+    maxPriorityFeePerGas: priorityFee,
   };
+  delete feeTx.gasPrice;
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [walletTx]);
-    return { ...walletTx, gas };
+    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
+    return { ...feeTx, gas };
   } catch {
-    return { ...walletTx, gas: fallbackGas };
+    return { ...feeTx, gas: fallbackGas };
   }
 }
 
