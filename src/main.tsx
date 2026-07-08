@@ -1912,26 +1912,29 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 }
 
 async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const [gasPrice, nonce] = await Promise.all([
+  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
+    rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
     rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
   ]);
-  const legacyTx: WalletTransactionRequest = {
+  const priorityFee = maxPriorityFeePerGas ?? gasPrice;
+  const feeCap = `0x${(BigInt(gasPrice) + BigInt(priorityFee) + 20_000_000_000n).toString(16)}`;
+  const feeTx: WalletTransactionRequest = {
     ...tx,
     chainId: RITUAL.chainHex,
+    type: "0x2",
     value: tx.value ?? "0x0",
     nonce,
-    gasPrice,
+    maxFeePerGas: feeCap,
+    maxPriorityFeePerGas: priorityFee,
   };
-  delete legacyTx.type;
-  delete legacyTx.maxFeePerGas;
-  delete legacyTx.maxPriorityFeePerGas;
+  delete feeTx.gasPrice;
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [legacyTx]);
-    return { ...legacyTx, gas };
+    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
+    return { ...feeTx, gas };
   } catch {
-    return { ...legacyTx, gas: fallbackGas };
+    return { ...feeTx, gas: fallbackGas };
   }
 }
 
