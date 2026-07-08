@@ -50,6 +50,7 @@ type Eip1193Provider = {
   request: <T = unknown>(args: { method: string; params?: unknown[] }) => Promise<T>;
   on?: (event: string, handler: (...args: unknown[]) => void) => void;
   removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+  isRabby?: boolean;
 };
 
 type WalletTransactionRequest = {
@@ -63,6 +64,10 @@ type WalletTransactionRequest = {
   maxFeePerGas?: string;
   maxPriorityFeePerGas?: string;
 };
+
+function isRabbyProvider(provider: Eip1193Provider | undefined) {
+  return Boolean(provider?.isRabby);
+}
 
 type RpcState = {
   status: "checking" | "online" | "offline";
@@ -1872,6 +1877,7 @@ function App() {
   );
   const runnerHistoryHydrated = React.useRef(true);
   const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
+  const [copiedRunnerCastCommand, setCopiedRunnerCastCommand] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
       (acc, recipe) => ({ ...acc, [recipe.id]: recipe.fields }),
@@ -1925,6 +1931,7 @@ function App() {
               ? scheduleDraft
               : undefined;
   const isRightChain = wallet.chainId === RITUAL.chainId;
+  const isRabbyWallet = wallet.status === "connected" && isRabbyProvider(window.ethereum);
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
   const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
@@ -1993,6 +2000,13 @@ function App() {
           args: [httpDraft.encodedInput as `0x${string}`],
         })
       : undefined;
+  const runnerCastCommand = React.useMemo(
+    () =>
+      runnerCalldata && runnerAddressOk
+        ? `cast send --interactive --rpc-url ${RITUAL.rpc} --chain ${RITUAL.chainId} --gas-limit 2000000 --gas-price 1200000008 --priority-gas-price 1000000000 ${cleanRunnerAddress} --data ${runnerCalldata}`
+        : undefined,
+    [cleanRunnerAddress, runnerAddressOk, runnerCalldata],
+  );
   const canSendRunner =
     Boolean(runnerCalldata) &&
     runnerAddressOk &&
@@ -2000,6 +2014,7 @@ function App() {
     wallet.status === "connected" &&
     isRightChain &&
     isRitualWalletFunded &&
+    !isRabbyWallet &&
     runnerTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
     () => [
@@ -2722,6 +2737,14 @@ function App() {
     setCopiedCastCommand(true);
     window.setTimeout(() => setCopiedCastCommand(false), 1400);
   }, [castCommand, copyText, selectedRecipe.name]);
+
+  const copyRunnerCastCommand = React.useCallback(async () => {
+    if (!runnerCastCommand) return;
+    const copiedToClipboard = await copyText(runnerCastCommand, "Runner cast command copied.");
+    if (!copiedToClipboard) return;
+    setCopiedRunnerCastCommand(true);
+    window.setTimeout(() => setCopiedRunnerCastCommand(false), 1400);
+  }, [copyText, runnerCastCommand]);
 
   const copyEncodedInput = React.useCallback(async () => {
     if (!liveAbiDraft?.encodedInput) return;
@@ -3867,11 +3890,21 @@ function App() {
                     {copiedRunnerCalldata ? <Check size={16} /> : <Clipboard size={16} />}
                     {copiedRunnerCalldata ? "Copied calldata" : "Copy calldata"}
                   </button>
+                  <button className="secondary-action" type="button" onClick={copyRunnerCastCommand} disabled={!runnerCastCommand}>
+                    {copiedRunnerCastCommand ? <Check size={16} /> : <TerminalSquare size={16} />}
+                    {copiedRunnerCastCommand ? "Copied cast" : "Copy runner cast"}
+                  </button>
                   <button className="primary-action" type="button" onClick={sendRunnerTransaction} disabled={!canSendRunner}>
                     {runnerTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
-                    {runnerTxState.status === "submitting" ? "Confirming" : "Send runner tx"}
+                    {runnerTxState.status === "submitting" ? "Confirming" : isRabbyWallet ? "Rabby blocked" : "Send runner tx"}
                   </button>
                 </div>
+                {isRabbyWallet ? (
+                  <p className="runner-wallet-warning">
+                    Rabby rewrites Ritual runner transactions before signing and the Ritual RPC rejects that transaction type.
+                    Use another injected wallet for browser send, or copy the runner Cast command and sign locally.
+                  </p>
+                ) : null}
                 {!runnerAddressOk && cleanRunnerAddress ? <p>Runner address must be a valid contract address.</p> : null}
                 {runnerTxState.status === "submitted" ? <p>Submitted {formatHash(runnerTxState.hash)}</p> : null}
                 {runnerTxState.status === "error" ? <p>{runnerTxState.error}</p> : null}
