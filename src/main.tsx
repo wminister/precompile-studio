@@ -1402,7 +1402,20 @@ function isUnknownChainError(error: unknown) {
 }
 
 function walletErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
+  if (error instanceof Error && error.message) return error.message;
+  // EIP-1193 providers throw plain { code, message } objects, not Error
+  // instances, so pull the message out of those (and nested data/cause) too.
+  if (error && typeof error === "object") {
+    const candidate = error as { message?: unknown; data?: unknown; cause?: unknown };
+    if (typeof candidate.message === "string" && candidate.message) return candidate.message;
+    for (const nested of [candidate.data, candidate.cause]) {
+      if (nested && typeof nested === "object") {
+        const message = (nested as { message?: unknown }).message;
+        if (typeof message === "string" && message) return message;
+      }
+    }
+  }
+  return fallback;
 }
 
 function isUserRejectedWalletError(error: unknown) {
@@ -2577,10 +2590,16 @@ function App() {
     const accounts = address ? [address] : await provider.request<string[]>({ method: "eth_accounts" });
     const account = accounts[0];
     if (!account) return;
-    const [chainHex, balanceHex] = await Promise.all([
-      provider.request<string>({ method: "eth_chainId" }),
-      provider.request<string>({ method: "eth_getBalance", params: [account, "latest"] }),
-    ]);
+    // Fetch these sequentially (not batched) and treat the balance read as
+    // non-fatal: some wallet RPCs 4xx on eth_getBalance/batched calls, and a
+    // flaky balance must not abort an otherwise successful connection.
+    const chainHex = await provider.request<string>({ method: "eth_chainId" });
+    let balanceHex = "0x0";
+    try {
+      balanceHex = await provider.request<string>({ method: "eth_getBalance", params: [account, "latest"] });
+    } catch {
+      balanceHex = "0x0";
+    }
 
     let ritualWalletBalance: string | undefined;
     let ritualLockUntil: number | undefined;
@@ -2640,7 +2659,7 @@ function App() {
         const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
         await refreshWallet(provider, accounts[0]);
       } catch (error) {
-        setWallet({ status: "error", error: error instanceof Error ? error.message : "Wallet connection failed." });
+        setWallet({ status: "error", error: walletErrorMessage(error, "Wallet connection failed.") });
       }
     },
     [refreshWallet],
