@@ -1811,6 +1811,7 @@ async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGa
   ]);
   const feeTx: WalletTransactionRequest = {
     ...tx,
+    type: "0x2",
     maxFeePerGas: gasPrice,
     maxPriorityFeePerGas: maxPriorityFeePerGas ?? gasPrice,
   };
