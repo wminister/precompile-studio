@@ -1451,6 +1451,11 @@ async function sendWalletTransaction(
     });
   } catch (sendError) {
     if (!shouldUseSignedRawFallback(sendError, provider)) throw sendError;
+    if (isRabbyProvider(provider)) {
+      throw new Error(
+        "Rabby downgrades Ritual transactions to a legacy type the RPC rejects, and won't sign them for manual broadcast. Send with MetaMask (it uses EIP-1559 on Ritual) or run the copied `cast send` command.",
+      );
+    }
     return sendSignedRawTransaction(provider, tx);
   }
 }
@@ -3231,7 +3236,7 @@ function App() {
           args: [lockDuration],
         }),
       }, "0x249f0");
-      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
+      const hash = await sendWalletTransaction(provider, tx);
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
         refreshWallet(provider, wallet.address).catch(() => undefined);
@@ -3258,7 +3263,7 @@ function App() {
         to: cleanRunnerAddress,
         data: runnerCalldata,
       }, "0x1e8480");
-      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
+      const hash = await sendWalletTransaction(provider, tx);
       setRunnerTxState({ status: "submitted", hash });
       const nextRun: RunnerRun = {
         hash,
