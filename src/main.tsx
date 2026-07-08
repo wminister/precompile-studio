@@ -60,6 +60,8 @@ type WalletTransactionRequest = {
   type?: string;
   gas?: string;
   gasPrice?: string;
+  maxFeePerGas?: string;
+  maxPriorityFeePerGas?: string;
 };
 
 type RpcState = {
@@ -1802,19 +1804,22 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
   return { executors, total };
 }
 
-async function prepareLegacyTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const gasPrice = await rpc<string>("eth_gasPrice");
-  const legacyTx: WalletTransactionRequest = {
+async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
+  const [maxPriorityFeePerGas, gasPrice] = await Promise.all([
+    rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
+    rpc<string>("eth_gasPrice"),
+  ]);
+  const feeTx: WalletTransactionRequest = {
     ...tx,
-    type: "0x0",
-    gasPrice,
+    maxFeePerGas: gasPrice,
+    maxPriorityFeePerGas: maxPriorityFeePerGas ?? gasPrice,
   };
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [legacyTx]);
-    return { ...legacyTx, gas };
+    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
+    return { ...feeTx, gas };
   } catch {
-    return { ...legacyTx, gas: fallbackGas };
+    return { ...feeTx, gas: fallbackGas };
   }
 }
 
@@ -3101,7 +3106,7 @@ function App() {
 
     setDepositState({ status: "submitting" });
     try {
-      const tx = await prepareLegacyTransaction({
+      const tx = await prepareWalletTransaction({
         from: wallet.address,
         to: SYSTEM_CONTRACTS.RitualWallet,
         value: `0x${value.toString(16)}`,
@@ -3136,7 +3141,7 @@ function App() {
 
     setRunnerTxState({ status: "submitting" });
     try {
-      const tx = await prepareLegacyTransaction({
+      const tx = await prepareWalletTransaction({
         from: wallet.address,
         to: cleanRunnerAddress,
         data: runnerCalldata,
