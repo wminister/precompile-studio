@@ -1912,29 +1912,26 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 }
 
 async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
-    rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
+  const [gasPrice, nonce] = await Promise.all([
     rpc<string>("eth_gasPrice"),
     rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
   ]);
-  const priorityFee = maxPriorityFeePerGas ?? gasPrice;
-  const feeCap = `0x${(BigInt(gasPrice) + BigInt(priorityFee) + 20_000_000_000n).toString(16)}`;
-  const feeTx: WalletTransactionRequest = {
+  const legacyTx: WalletTransactionRequest = {
     ...tx,
     chainId: RITUAL.chainHex,
-    type: "0x2",
     value: tx.value ?? "0x0",
     nonce,
-    maxFeePerGas: feeCap,
-    maxPriorityFeePerGas: priorityFee,
+    gasPrice,
   };
-  delete feeTx.gasPrice;
+  delete legacyTx.type;
+  delete legacyTx.maxFeePerGas;
+  delete legacyTx.maxPriorityFeePerGas;
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
-    return { ...feeTx, gas };
+    const gas = await rpc<string>("eth_estimateGas", [legacyTx]);
+    return { ...legacyTx, gas };
   } catch {
-    return { ...feeTx, gas: fallbackGas };
+    return { ...legacyTx, gas: fallbackGas };
   }
 }
 
@@ -3231,7 +3228,7 @@ function App() {
           args: [lockDuration],
         }),
       }, "0x249f0");
-      const hash = await sendWalletTransaction(provider, tx);
+      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
         refreshWallet(provider, wallet.address).catch(() => undefined);
@@ -3258,7 +3255,7 @@ function App() {
         to: cleanRunnerAddress,
         data: runnerCalldata,
       }, "0x1e8480");
-      const hash = await sendWalletTransaction(provider, tx);
+      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
       setRunnerTxState({ status: "submitted", hash });
       const nextRun: RunnerRun = {
         hash,
