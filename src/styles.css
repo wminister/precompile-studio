@@ -452,6 +452,12 @@ h2 {
   justify-content: flex-end;
 }
 
+.wallet-select {
+  width: auto;
+  max-width: 160px;
+  min-height: 36px;
+}
+
 .ghost-link,
 .primary-action,
 .secondary-action {

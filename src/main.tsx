@@ -51,6 +51,21 @@ type Eip1193Provider = {
   on?: (event: string, handler: (...args: unknown[]) => void) => void;
   removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
   isRabby?: boolean;
+  isMetaMask?: boolean;
+};
+
+// EIP-6963: wallets announce themselves so a dapp can pick a specific one even
+// when several extensions fight over window.ethereum.
+type EIP6963ProviderInfo = {
+  uuid: string;
+  name: string;
+  icon: string;
+  rdns: string;
+};
+
+type EIP6963ProviderDetail = {
+  info: EIP6963ProviderInfo;
+  provider: Eip1193Provider;
 };
 
 type WalletTransactionRequest = {
@@ -73,6 +88,26 @@ type SendWalletTransactionOptions = {
 
 function isRabbyProvider(provider: Eip1193Provider | undefined) {
   return Boolean(provider?.isRabby);
+}
+
+// Prefer an explicitly chosen wallet, otherwise MetaMask, otherwise the first
+// announced provider, and only fall back to window.ethereum when EIP-6963 found
+// nothing. This keeps the app working when another extension has locked
+// window.ethereum and MetaMask could not install itself there.
+function pickInjectedProvider(
+  wallets: EIP6963ProviderDetail[],
+  selectedRdns: string | undefined,
+): Eip1193Provider | undefined {
+  if (selectedRdns) {
+    const chosen = wallets.find((wallet) => wallet.info.rdns === selectedRdns);
+    if (chosen) return chosen.provider;
+  }
+  const metaMask = wallets.find(
+    (wallet) => wallet.info.rdns === "io.metamask" || wallet.provider.isMetaMask,
+  );
+  if (metaMask) return metaMask.provider;
+  if (wallets.length) return wallets[0].provider;
+  return window.ethereum;
 }
 
 type RpcState = {
@@ -2005,6 +2040,40 @@ function App() {
   const copyFeedbackTimer = React.useRef<number | undefined>(undefined);
   const chainSwitchingRef = React.useRef(false);
   const chainSwitchAccountRef = React.useRef<string | undefined>(undefined);
+  const [injectedWallets, setInjectedWallets] = React.useState<EIP6963ProviderDetail[]>([]);
+  const [selectedWalletRdns, setSelectedWalletRdns] = React.useState<string | undefined>(undefined);
+  const providerRef = React.useRef<Eip1193Provider | undefined>(window.ethereum);
+
+  const getProvider = React.useCallback(
+    () => pickInjectedProvider(injectedWallets, selectedWalletRdns),
+    [injectedWallets, selectedWalletRdns],
+  );
+
+  const preferredWalletRdns = React.useMemo(() => {
+    if (selectedWalletRdns) return selectedWalletRdns;
+    const metaMask = injectedWallets.find(
+      (wallet) => wallet.info.rdns === "io.metamask" || wallet.provider.isMetaMask,
+    );
+    return metaMask?.info.rdns ?? injectedWallets[0]?.info.rdns;
+  }, [injectedWallets, selectedWalletRdns]);
+
+  React.useEffect(() => {
+    providerRef.current = getProvider();
+  }, [getProvider]);
+
+  React.useEffect(() => {
+    const handleAnnounce = (event: Event) => {
+      const detail = (event as CustomEvent<EIP6963ProviderDetail>).detail;
+      if (!detail?.info?.rdns || !detail.provider) return;
+      setInjectedWallets((current) => {
+        if (current.some((wallet) => wallet.info.rdns === detail.info.rdns)) return current;
+        return [...current, detail];
+      });
+    };
+    window.addEventListener("eip6963:announceProvider", handleAnnounce as EventListener);
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    return () => window.removeEventListener("eip6963:announceProvider", handleAnnounce as EventListener);
+  }, []);
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === activeRecipe) ?? recipes[0];
   const liveRecipeLabel = React.useMemo(
@@ -2558,23 +2627,32 @@ function App() {
     });
   }, []);
 
-  const connectWallet = React.useCallback(async () => {
-    const provider = window.ethereum;
-    if (!provider) {
-      setWallet({ status: "error", error: "No browser wallet found." });
-      return;
-    }
-    setWallet((current) => ({ ...current, status: "connecting", error: undefined }));
-    try {
-      const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
-      await refreshWallet(provider, accounts[0]);
-    } catch (error) {
-      setWallet({ status: "error", error: error instanceof Error ? error.message : "Wallet connection failed." });
-    }
-  }, [refreshWallet]);
+  const connectWithProvider = React.useCallback(
+    async (provider: Eip1193Provider | undefined, rdns?: string) => {
+      if (!provider) {
+        setWallet({ status: "error", error: "No browser wallet found." });
+        return;
+      }
+      if (rdns) setSelectedWalletRdns(rdns);
+      providerRef.current = provider;
+      setWallet((current) => ({ ...current, status: "connecting", error: undefined }));
+      try {
+        const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
+        await refreshWallet(provider, accounts[0]);
+      } catch (error) {
+        setWallet({ status: "error", error: error instanceof Error ? error.message : "Wallet connection failed." });
+      }
+    },
+    [refreshWallet],
+  );
+
+  const connectWallet = React.useCallback(
+    () => connectWithProvider(getProvider()),
+    [connectWithProvider, getProvider],
+  );
 
   const switchToRitual = React.useCallback(async () => {
-    const provider = window.ethereum;
+    const provider = providerRef.current;
     if (!provider) return;
     const currentAddress = wallet.address;
     chainSwitchingRef.current = true;
@@ -2702,8 +2780,9 @@ function App() {
   }, [selectedPresetId, visibleRecipePresets]);
 
   React.useEffect(() => {
-    const provider = window.ethereum;
+    const provider = getProvider();
     if (!provider) return;
+    providerRef.current = provider;
     refreshWallet(provider).catch(() => undefined);
 
     const handleAccounts = (...args: unknown[]) => {
@@ -2720,7 +2799,7 @@ function App() {
       provider.removeListener?.("accountsChanged", handleAccounts);
       provider.removeListener?.("chainChanged", handleChain);
     };
-  }, [refreshWallet, wallet.address]);
+  }, [getProvider, refreshWallet, wallet.address]);
 
   const previewNextStep =
     selectedRecipe.id === "http"
@@ -3203,7 +3282,7 @@ function App() {
   );
 
   const depositToRitualWallet = React.useCallback(async () => {
-    const provider = window.ethereum;
+    const provider = providerRef.current;
     if (!provider || !wallet.address) {
       setDepositState({ status: "error", error: "Connect a wallet before funding RitualWallet." });
       return;
@@ -3250,7 +3329,7 @@ function App() {
   }, [depositAmount, depositLock, refreshWallet, wallet.address]);
 
   const sendRunnerTransaction = React.useCallback(async () => {
-    const provider = window.ethereum;
+    const provider = providerRef.current;
     if (!provider || !wallet.address || !runnerCalldata || !runnerAddressOk) {
       setRunnerTxState({ status: "error", error: "Connect wallet, encode HTTP input, and set a runner address." });
       return;
@@ -3396,6 +3475,20 @@ function App() {
             </a>
           </nav>
           <div className="topbar-actions">
+            {wallet.status !== "connected" && injectedWallets.length > 1 ? (
+              <select
+                className="wallet-select"
+                aria-label="Choose wallet"
+                value={preferredWalletRdns ?? ""}
+                onChange={(event) => setSelectedWalletRdns(event.target.value)}
+              >
+                {injectedWallets.map((detail) => (
+                  <option key={detail.info.rdns} value={detail.info.rdns}>
+                    {detail.info.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <button className="primary-action" onClick={connectWallet} disabled={wallet.status === "connecting"}>
               {wallet.status === "connecting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
               {wallet.status === "connected" ? formatAddress(wallet.address) : "Connect"}
