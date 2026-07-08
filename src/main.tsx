@@ -307,7 +307,8 @@ const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 const RUNNER_BUILD_COMMAND = "npm run runner:build";
 const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
 const RUNNER_GUIDE_URL = "https://github.com/wminister/precompile-studio/blob/main/contracts/README.md";
-const DEFAULT_HTTP_RUNNER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileRunner.address;
+const HTTP_PRECOMPILE_CONSUMER_ADDRESS = "0xcc5495df16633c0d0c189a71ed3a723c2687dae1";
+const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 
 const FAQ_ITEMS = [
@@ -475,6 +476,16 @@ const httpRunnerAbi = [
         ],
       },
     ],
+  },
+] as const;
+
+const httpConsumerAbi = [
+  {
+    type: "function",
+    name: "callHTTPCallRaw",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "input", type: "bytes" }],
+    outputs: [],
   },
 ] as const;
 
@@ -1901,26 +1912,29 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 }
 
 async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const [gasPrice, nonce] = await Promise.all([
+  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
+    rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
     rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
   ]);
-  const legacyTx: WalletTransactionRequest = {
+  const priorityFee = maxPriorityFeePerGas ?? gasPrice;
+  const feeCap = `0x${(BigInt(gasPrice) + BigInt(priorityFee) + 20_000_000_000n).toString(16)}`;
+  const feeTx: WalletTransactionRequest = {
     ...tx,
     chainId: RITUAL.chainHex,
+    type: "0x2",
     value: tx.value ?? "0x0",
     nonce,
-    gasPrice,
+    maxFeePerGas: feeCap,
+    maxPriorityFeePerGas: priorityFee,
   };
-  delete legacyTx.type;
-  delete legacyTx.maxFeePerGas;
-  delete legacyTx.maxPriorityFeePerGas;
+  delete feeTx.gasPrice;
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [legacyTx]);
-    return { ...legacyTx, gas };
+    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
+    return { ...feeTx, gas };
   } catch {
-    return { ...legacyTx, gas: fallbackGas };
+    return { ...feeTx, gas: fallbackGas };
   }
 }
 
@@ -2088,8 +2102,8 @@ function App() {
   const runnerCalldata =
     selectedRecipe.id === "http" && httpDraft.encodedInput
       ? encodeFunctionData({
-          abi: httpRunnerAbi,
-          functionName: "fetchHttp",
+          abi: httpConsumerAbi,
+          functionName: "callHTTPCallRaw",
           args: [httpDraft.encodedInput as `0x${string}`],
         })
       : undefined;
@@ -3217,7 +3231,7 @@ function App() {
           args: [lockDuration],
         }),
       }, "0x249f0");
-      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
+      const hash = await sendWalletTransaction(provider, tx);
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
         refreshWallet(provider, wallet.address).catch(() => undefined);
@@ -3244,7 +3258,7 @@ function App() {
         to: cleanRunnerAddress,
         data: runnerCalldata,
       }, "0x1e8480");
-      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
+      const hash = await sendWalletTransaction(provider, tx);
       setRunnerTxState({ status: "submitted", hash });
       const nextRun: RunnerRun = {
         hash,
