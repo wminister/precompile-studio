@@ -52,6 +52,16 @@ type Eip1193Provider = {
   removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 };
 
+type WalletTransactionRequest = {
+  from: string;
+  to: string;
+  data?: string;
+  value?: string;
+  type?: string;
+  gas?: string;
+  gasPrice?: string;
+};
+
 type RpcState = {
   status: "checking" | "online" | "offline";
   chainId?: number;
@@ -1792,6 +1802,22 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
   return { executors, total };
 }
 
+async function prepareLegacyTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
+  const gasPrice = await rpc<string>("eth_gasPrice");
+  const legacyTx: WalletTransactionRequest = {
+    ...tx,
+    type: "0x0",
+    gasPrice,
+  };
+
+  try {
+    const gas = await rpc<string>("eth_estimateGas", [legacyTx]);
+    return { ...legacyTx, gas };
+  } catch {
+    return { ...legacyTx, gas: fallbackGas };
+  }
+}
+
 function App() {
   const [route, setRoute] = React.useState(() => (window.location.pathname === "/faq" ? "faq" : "studio"));
   const [rpcState, setRpcState] = React.useState<RpcState>({ status: "checking" });
@@ -3075,20 +3101,19 @@ function App() {
 
     setDepositState({ status: "submitting" });
     try {
+      const tx = await prepareLegacyTransaction({
+        from: wallet.address,
+        to: SYSTEM_CONTRACTS.RitualWallet,
+        value: `0x${value.toString(16)}`,
+        data: encodeFunctionData({
+          abi: ritualWalletAbi,
+          functionName: "deposit",
+          args: [lockDuration],
+        }),
+      }, "0x249f0");
       const hash = await provider.request<string>({
         method: "eth_sendTransaction",
-        params: [
-          {
-            from: wallet.address,
-            to: SYSTEM_CONTRACTS.RitualWallet,
-            value: `0x${value.toString(16)}`,
-            data: encodeFunctionData({
-              abi: ritualWalletAbi,
-              functionName: "deposit",
-              args: [lockDuration],
-            }),
-          },
-        ],
+        params: [tx],
       });
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
@@ -3111,15 +3136,14 @@ function App() {
 
     setRunnerTxState({ status: "submitting" });
     try {
+      const tx = await prepareLegacyTransaction({
+        from: wallet.address,
+        to: cleanRunnerAddress,
+        data: runnerCalldata,
+      }, "0x1e8480");
       const hash = await provider.request<string>({
         method: "eth_sendTransaction",
-        params: [
-          {
-            from: wallet.address,
-            to: cleanRunnerAddress,
-            data: runnerCalldata,
-          },
-        ],
+        params: [tx],
       });
       setRunnerTxState({ status: "submitted", hash });
       const nextRun: RunnerRun = {
