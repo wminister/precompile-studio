@@ -67,6 +67,10 @@ type WalletTransactionRequest = {
   maxPriorityFeePerGas?: string;
 };
 
+type SendWalletTransactionOptions = {
+  signFirst?: boolean;
+};
+
 function isRabbyProvider(provider: Eip1193Provider | undefined) {
   return Boolean(provider?.isRabby);
 }
@@ -1383,6 +1387,13 @@ function extractSignedTransaction(result: unknown) {
   throw new Error("Wallet did not return a signed transaction.");
 }
 
+function assertEvenHexData(value: string | undefined, label: string) {
+  if (value === undefined) return;
+  if (!/^0x(?:[a-fA-F0-9]{2})*$/.test(value)) {
+    throw new Error(`${label} must be an even-length 0x hex string before it can be sent.`);
+  }
+}
+
 async function signTransactionWithWallet(provider: Eip1193Provider, tx: WalletTransactionRequest) {
   try {
     return extractSignedTransaction(await provider.request({ method: "eth_signTransaction", params: [tx] }));
@@ -1400,7 +1411,28 @@ async function signTransactionWithWallet(provider: Eip1193Provider, tx: WalletTr
   }
 }
 
-async function sendWalletTransaction(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+async function sendSignedRawTransaction(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+  const signedTransaction = await signTransactionWithWallet(provider, tx);
+  try {
+    return await rpc<string>("eth_sendRawTransaction", [signedTransaction]);
+  } catch (broadcastError) {
+    throw new Error(
+      `Wallet signed the transaction, but Ritual RPC could not broadcast it: ${walletErrorMessage(
+        broadcastError,
+        "broadcast failed",
+      )}`,
+    );
+  }
+}
+
+async function sendWalletTransaction(
+  provider: Eip1193Provider,
+  tx: WalletTransactionRequest,
+  options: SendWalletTransactionOptions = {},
+) {
+  assertEvenHexData(tx.data, "Transaction data");
+  if (options.signFirst) return sendSignedRawTransaction(provider, tx);
+
   try {
     return await provider.request<string>({
       method: "eth_sendTransaction",
@@ -1408,18 +1440,7 @@ async function sendWalletTransaction(provider: Eip1193Provider, tx: WalletTransa
     });
   } catch (sendError) {
     if (!shouldUseSignedRawFallback(sendError, provider)) throw sendError;
-
-    const signedTransaction = await signTransactionWithWallet(provider, tx);
-    try {
-      return await rpc<string>("eth_sendRawTransaction", [signedTransaction]);
-    } catch (broadcastError) {
-      throw new Error(
-        `Wallet signed the transaction, but Ritual RPC could not broadcast it: ${walletErrorMessage(
-          broadcastError,
-          "broadcast failed",
-        )}`,
-      );
-    }
+    return sendSignedRawTransaction(provider, tx);
   }
 }
 
@@ -1880,26 +1901,26 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 }
 
 async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
-    rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
+  const [gasPrice, nonce] = await Promise.all([
     rpc<string>("eth_gasPrice"),
     rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
   ]);
-  const feeTx: WalletTransactionRequest = {
+  const legacyTx: WalletTransactionRequest = {
     ...tx,
     chainId: RITUAL.chainHex,
-    type: "0x2",
     value: tx.value ?? "0x0",
     nonce,
-    maxFeePerGas: gasPrice,
-    maxPriorityFeePerGas: maxPriorityFeePerGas ?? gasPrice,
+    gasPrice,
   };
+  delete legacyTx.type;
+  delete legacyTx.maxFeePerGas;
+  delete legacyTx.maxPriorityFeePerGas;
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
-    return { ...feeTx, gas };
+    const gas = await rpc<string>("eth_estimateGas", [legacyTx]);
+    return { ...legacyTx, gas };
   } catch {
-    return { ...feeTx, gas: fallbackGas };
+    return { ...legacyTx, gas: fallbackGas };
   }
 }
 
@@ -3196,7 +3217,7 @@ function App() {
           args: [lockDuration],
         }),
       }, "0x249f0");
-      const hash = await sendWalletTransaction(provider, tx);
+      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
         refreshWallet(provider, wallet.address).catch(() => undefined);
@@ -3223,7 +3244,7 @@ function App() {
         to: cleanRunnerAddress,
         data: runnerCalldata,
       }, "0x1e8480");
-      const hash = await sendWalletTransaction(provider, tx);
+      const hash = await sendWalletTransaction(provider, tx, { signFirst: isRabbyProvider(provider) });
       setRunnerTxState({ status: "submitted", hash });
       const nextRun: RunnerRun = {
         hash,
