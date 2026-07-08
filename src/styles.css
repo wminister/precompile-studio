@@ -1469,15 +1469,6 @@ select:focus {
   line-height: 1.35;
 }
 
-.runner-wallet-warning {
-  border: 1px solid rgba(247, 198, 111, 0.22);
-  border-radius: 9px;
-  background: var(--amber-soft);
-  color: var(--amber);
-  padding: 9px 10px;
-  font-size: 0.78rem;
-}
-
 .runner-history {
   display: grid;
   gap: 8px;

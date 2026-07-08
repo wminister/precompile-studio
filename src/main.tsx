@@ -56,11 +56,13 @@ type Eip1193Provider = {
 type WalletTransactionRequest = {
   from: string;
   to: string;
+  chainId?: string;
   data?: string;
   value?: string;
   type?: string;
   gas?: string;
   gasPrice?: string;
+  nonce?: string;
   maxFeePerGas?: string;
   maxPriorityFeePerGas?: string;
 };
@@ -1353,6 +1355,74 @@ function walletErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function isUserRejectedWalletError(error: unknown) {
+  const codes = walletErrorCodes(error).map((code) => String(code));
+  if (codes.includes("4001")) return true;
+  const message = walletErrorMessage(error, "").toLowerCase();
+  return message.includes("user rejected") || message.includes("user denied") || message.includes("rejected by user");
+}
+
+function shouldUseSignedRawFallback(error: unknown, provider: Eip1193Provider | undefined) {
+  if (isUserRejectedWalletError(error)) return false;
+  const message = walletErrorMessage(error, "").toLowerCase();
+  return (
+    message.includes("transaction type not supported") ||
+    (isRabbyProvider(provider) && message.includes("fail to create")) ||
+    (isRabbyProvider(provider) && message.includes("simulation not supported"))
+  );
+}
+
+function extractSignedTransaction(result: unknown) {
+  if (typeof result === "string" && result.startsWith("0x")) return result;
+  if (result && typeof result === "object") {
+    const candidate = result as { raw?: unknown; rawTransaction?: unknown; signedTransaction?: unknown };
+    for (const value of [candidate.raw, candidate.rawTransaction, candidate.signedTransaction]) {
+      if (typeof value === "string" && value.startsWith("0x")) return value;
+    }
+  }
+  throw new Error("Wallet did not return a signed transaction.");
+}
+
+async function signTransactionWithWallet(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+  try {
+    return extractSignedTransaction(await provider.request({ method: "eth_signTransaction", params: [tx] }));
+  } catch (firstError) {
+    try {
+      return extractSignedTransaction(await provider.request({ method: "wallet_signTransaction", params: [tx] }));
+    } catch (secondError) {
+      throw new Error(
+        walletErrorMessage(
+          secondError,
+          walletErrorMessage(firstError, "Wallet cannot sign this transaction without broadcasting it."),
+        ),
+      );
+    }
+  }
+}
+
+async function sendWalletTransaction(provider: Eip1193Provider, tx: WalletTransactionRequest) {
+  try {
+    return await provider.request<string>({
+      method: "eth_sendTransaction",
+      params: [tx],
+    });
+  } catch (sendError) {
+    if (!shouldUseSignedRawFallback(sendError, provider)) throw sendError;
+
+    const signedTransaction = await signTransactionWithWallet(provider, tx);
+    try {
+      return await rpc<string>("eth_sendRawTransaction", [signedTransaction]);
+    } catch (broadcastError) {
+      throw new Error(
+        `Wallet signed the transaction, but Ritual RPC could not broadcast it: ${walletErrorMessage(
+          broadcastError,
+          "broadcast failed",
+        )}`,
+      );
+    }
+  }
+}
+
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
   return [
     fieldValue(fields, `${prefix}Platform`).trim(),
@@ -1810,13 +1880,17 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 }
 
 async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
-  const [maxPriorityFeePerGas, gasPrice] = await Promise.all([
+  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
     rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
+    rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
   ]);
   const feeTx: WalletTransactionRequest = {
     ...tx,
+    chainId: RITUAL.chainHex,
     type: "0x2",
+    value: tx.value ?? "0x0",
+    nonce,
     maxFeePerGas: gasPrice,
     maxPriorityFeePerGas: maxPriorityFeePerGas ?? gasPrice,
   };
@@ -1877,7 +1951,6 @@ function App() {
   );
   const runnerHistoryHydrated = React.useRef(true);
   const [copiedRunnerCalldata, setCopiedRunnerCalldata] = React.useState(false);
-  const [copiedRunnerCastCommand, setCopiedRunnerCastCommand] = React.useState(false);
   const [fieldState, setFieldState] = React.useState<Record<RecipeId, ComposerField[]>>(() =>
     recipes.reduce(
       (acc, recipe) => ({ ...acc, [recipe.id]: recipe.fields }),
@@ -1931,7 +2004,6 @@ function App() {
               ? scheduleDraft
               : undefined;
   const isRightChain = wallet.chainId === RITUAL.chainId;
-  const isRabbyWallet = wallet.status === "connected" && isRabbyProvider(window.ethereum);
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
   const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
@@ -2000,13 +2072,6 @@ function App() {
           args: [httpDraft.encodedInput as `0x${string}`],
         })
       : undefined;
-  const runnerCastCommand = React.useMemo(
-    () =>
-      runnerCalldata && runnerAddressOk
-        ? `cast send --interactive --rpc-url ${RITUAL.rpc} --chain ${RITUAL.chainId} --gas-limit 2000000 --gas-price 1200000008 --priority-gas-price 1000000000 ${cleanRunnerAddress} --data ${runnerCalldata}`
-        : undefined,
-    [cleanRunnerAddress, runnerAddressOk, runnerCalldata],
-  );
   const canSendRunner =
     Boolean(runnerCalldata) &&
     runnerAddressOk &&
@@ -2014,7 +2079,6 @@ function App() {
     wallet.status === "connected" &&
     isRightChain &&
     isRitualWalletFunded &&
-    !isRabbyWallet &&
     runnerTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
     () => [
@@ -2738,14 +2802,6 @@ function App() {
     window.setTimeout(() => setCopiedCastCommand(false), 1400);
   }, [castCommand, copyText, selectedRecipe.name]);
 
-  const copyRunnerCastCommand = React.useCallback(async () => {
-    if (!runnerCastCommand) return;
-    const copiedToClipboard = await copyText(runnerCastCommand, "Runner cast command copied.");
-    if (!copiedToClipboard) return;
-    setCopiedRunnerCastCommand(true);
-    window.setTimeout(() => setCopiedRunnerCastCommand(false), 1400);
-  }, [copyText, runnerCastCommand]);
-
   const copyEncodedInput = React.useCallback(async () => {
     if (!liveAbiDraft?.encodedInput) return;
     const copiedToClipboard = await copyText(
@@ -3140,10 +3196,7 @@ function App() {
           args: [lockDuration],
         }),
       }, "0x249f0");
-      const hash = await provider.request<string>({
-        method: "eth_sendTransaction",
-        params: [tx],
-      });
+      const hash = await sendWalletTransaction(provider, tx);
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
         refreshWallet(provider, wallet.address).catch(() => undefined);
@@ -3170,10 +3223,7 @@ function App() {
         to: cleanRunnerAddress,
         data: runnerCalldata,
       }, "0x1e8480");
-      const hash = await provider.request<string>({
-        method: "eth_sendTransaction",
-        params: [tx],
-      });
+      const hash = await sendWalletTransaction(provider, tx);
       setRunnerTxState({ status: "submitted", hash });
       const nextRun: RunnerRun = {
         hash,
@@ -3890,21 +3940,11 @@ function App() {
                     {copiedRunnerCalldata ? <Check size={16} /> : <Clipboard size={16} />}
                     {copiedRunnerCalldata ? "Copied calldata" : "Copy calldata"}
                   </button>
-                  <button className="secondary-action" type="button" onClick={copyRunnerCastCommand} disabled={!runnerCastCommand}>
-                    {copiedRunnerCastCommand ? <Check size={16} /> : <TerminalSquare size={16} />}
-                    {copiedRunnerCastCommand ? "Copied cast" : "Copy runner cast"}
-                  </button>
                   <button className="primary-action" type="button" onClick={sendRunnerTransaction} disabled={!canSendRunner}>
                     {runnerTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
-                    {runnerTxState.status === "submitting" ? "Confirming" : isRabbyWallet ? "Rabby blocked" : "Send runner tx"}
+                    {runnerTxState.status === "submitting" ? "Confirming" : "Send runner tx"}
                   </button>
                 </div>
-                {isRabbyWallet ? (
-                  <p className="runner-wallet-warning">
-                    Rabby rewrites Ritual runner transactions before signing and the Ritual RPC rejects that transaction type.
-                    Use another injected wallet for browser send, or copy the runner Cast command and sign locally.
-                  </p>
-                ) : null}
                 {!runnerAddressOk && cleanRunnerAddress ? <p>Runner address must be a valid contract address.</p> : null}
                 {runnerTxState.status === "submitted" ? <p>Submitted {formatHash(runnerTxState.hash)}</p> : null}
                 {runnerTxState.status === "error" ? <p>{runnerTxState.error}</p> : null}
