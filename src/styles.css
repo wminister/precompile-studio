@@ -1147,6 +1147,103 @@ select:focus {
   white-space: nowrap;
 }
 
+.executor-discovery {
+  display: grid;
+  gap: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 10px;
+}
+
+.executor-discovery .runner-history-head small {
+  display: block;
+  overflow: hidden;
+  max-width: 28ch;
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executor-discovery-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.executor-discovery-controls label {
+  display: grid;
+  gap: 5px;
+}
+
+.executor-discovery-controls p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.executor-discovery-list {
+  display: grid;
+  overflow: auto;
+  max-height: 238px;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.discovered-executor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}
+
+.discovered-executor button {
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--ink);
+}
+
+.discovered-executor button:first-child {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 2px;
+  padding: 6px 9px;
+  text-align: left;
+}
+
+.discovered-executor button:last-child {
+  padding: 0 10px;
+  color: var(--accent-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.discovered-executor button:hover {
+  border-color: rgba(143, 240, 196, 0.18);
+  background: rgba(52, 211, 153, 0.055);
+}
+
+.discovered-executor span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.discovered-executor code {
+  overflow: hidden;
+  max-width: 100%;
+  color: rgba(248, 247, 242, 0.88);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+}
+
 .runner-address input,
 .runner-save-row input {
   font-family: var(--mono);
@@ -2371,6 +2468,15 @@ pre {
 
   .funding-panel {
     grid-template-columns: 1fr;
+  }
+
+  .executor-discovery-controls,
+  .discovered-executor {
+    grid-template-columns: 1fr;
+  }
+
+  .discovered-executor button:last-child {
+    justify-content: center;
   }
 
 }

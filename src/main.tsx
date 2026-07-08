@@ -169,6 +169,19 @@ type SavedExecutor = {
   updatedAt: number;
 };
 
+type DiscoveredExecutor = {
+  address: string;
+  capabilityId: number;
+};
+
+type ExecutorDiscoveryState = {
+  status: "idle" | "loading" | "ready" | "error";
+  capabilityId: number;
+  executors: DiscoveredExecutor[];
+  total?: number;
+  error?: string;
+};
+
 type RecipePreset = {
   id: string;
   recipeId: RecipeId;
@@ -222,6 +235,28 @@ const SYSTEM_CONTRACTS = {
   Scheduler: "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B",
   AsyncDelivery: "0x5A16214fF555848411544b005f7Ac063742f39F6",
 } as const;
+
+const EXECUTOR_CAPABILITIES = [
+  { id: 0, label: "HTTP candidates", recipeIds: ["http"] as RecipeId[] },
+  { id: 1, label: "JQ candidates", recipeIds: ["jq"] as RecipeId[] },
+  { id: 3, label: "LLM candidates", recipeIds: ["llm"] as RecipeId[] },
+  { id: 4, label: "Agent candidates", recipeIds: ["agent"] as RecipeId[] },
+  { id: 5, label: "Capability 5", recipeIds: [] as RecipeId[] },
+  { id: 6, label: "Capability 6", recipeIds: [] as RecipeId[] },
+  { id: 7, label: "Capability 7", recipeIds: [] as RecipeId[] },
+  { id: 8, label: "Capability 8", recipeIds: [] as RecipeId[] },
+  { id: 9, label: "Capability 9", recipeIds: [] as RecipeId[] },
+  { id: 10, label: "Capability 10", recipeIds: [] as RecipeId[] },
+  { id: 12, label: "Capability 12", recipeIds: [] as RecipeId[] },
+];
+
+function defaultCapabilityForRecipe(recipeId: RecipeId) {
+  return EXECUTOR_CAPABILITIES.find((capability) => capability.recipeIds.includes(recipeId))?.id ?? 0;
+}
+
+function capabilityLabel(capabilityId: number) {
+  return EXECUTOR_CAPABILITIES.find((capability) => capability.id === capabilityId)?.label ?? `Capability ${capabilityId}`;
+}
 
 const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const LLM_INFERENCE_PRECOMPILE = "0x0000000000000000000000000000000000000802";
@@ -1717,6 +1752,46 @@ async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
   return payload.result as T;
 }
 
+function encodeUint256(value: number | bigint) {
+  return BigInt(value).toString(16).padStart(64, "0");
+}
+
+function decodeUintResult(result: string) {
+  return Number(decodeUintHex(result));
+}
+
+function decodeAddressResult(result: string) {
+  return `0x${result.slice(-40)}`;
+}
+
+async function discoverExecutors(capabilityId: number): Promise<{ executors: DiscoveredExecutor[]; total: number }> {
+  const countResult = await rpc<string>("eth_call", [
+    {
+      to: SYSTEM_CONTRACTS.TEEServiceRegistry,
+      data: `0x80aa7ed0${encodeUint256(capabilityId)}`,
+    },
+    "latest",
+  ]);
+  const total = decodeUintResult(countResult);
+  const limit = Math.min(total, 12);
+  const executors = await Promise.all(
+    Array.from({ length: limit }, async (_, index) => {
+      const addressResult = await rpc<string>("eth_call", [
+        {
+          to: SYSTEM_CONTRACTS.TEEServiceRegistry,
+          data: `0x6d94e70c${encodeUint256(capabilityId)}${encodeUint256(index)}`,
+        },
+        "latest",
+      ]);
+      return {
+        address: decodeAddressResult(addressResult),
+        capabilityId,
+      };
+    }),
+  );
+  return { executors, total };
+}
+
 function App() {
   const [route, setRoute] = React.useState(() => (window.location.pathname === "/faq" ? "faq" : "studio"));
   const [rpcState, setRpcState] = React.useState<RpcState>({ status: "checking" });
@@ -1740,6 +1815,11 @@ function App() {
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
   const [executorLabel, setExecutorLabel] = React.useState("");
   const [savedExecutors, setSavedExecutors] = React.useState<SavedExecutor[]>([]);
+  const [executorDiscovery, setExecutorDiscovery] = React.useState<ExecutorDiscoveryState>({
+    status: "idle",
+    capabilityId: defaultCapabilityForRecipe("http"),
+    executors: [],
+  });
   const [runnerAddress, setRunnerAddress] = React.useState(DEFAULT_HTTP_RUNNER_ADDRESS);
   const [runnerLabel, setRunnerLabel] = React.useState("");
   const [savedRunners, setSavedRunners] = React.useState<SavedRunner[]>([]);
@@ -2869,6 +2949,62 @@ function App() {
     [selectedRecipe.id],
   );
 
+  const refreshExecutorDiscovery = React.useCallback(
+    async (capabilityId = executorDiscovery.capabilityId) => {
+      setExecutorDiscovery((current) => ({
+        ...current,
+        capabilityId,
+        status: "loading",
+        error: undefined,
+      }));
+      try {
+        const result = await discoverExecutors(capabilityId);
+        setExecutorDiscovery({
+          status: "ready",
+          capabilityId,
+          executors: result.executors,
+          total: result.total,
+        });
+      } catch (error) {
+        setExecutorDiscovery((current) => ({
+          ...current,
+          capabilityId,
+          status: "error",
+          executors: [],
+          total: undefined,
+          error: error instanceof Error ? error.message : "Could not read TEEServiceRegistry.",
+        }));
+      }
+    },
+    [executorDiscovery.capabilityId],
+  );
+
+  const selectExecutorCapability = React.useCallback(
+    (capabilityId: number) => {
+      refreshExecutorDiscovery(capabilityId).catch(() => undefined);
+    },
+    [refreshExecutorDiscovery],
+  );
+
+  const useDiscoveredExecutor = React.useCallback(
+    (executor: DiscoveredExecutor) => {
+      setFieldState((current) => ({
+        ...current,
+        [selectedRecipe.id]: current[selectedRecipe.id].map((field) =>
+          field.key === "executor" ? { ...field, value: executor.address } : field,
+        ),
+      }));
+      setExecutorLabel(`${capabilityLabel(executor.capabilityId)} ${formatAddress(executor.address)}`);
+    },
+    [selectedRecipe.id],
+  );
+
+  React.useEffect(() => {
+    if (!hasExecutorField) return;
+    const capabilityId = defaultCapabilityForRecipe(selectedRecipe.id);
+    refreshExecutorDiscovery(capabilityId).catch(() => undefined);
+  }, [hasExecutorField, selectedRecipe.id]);
+
   const forgetSavedExecutor = React.useCallback(
     (address: string) => {
       setSavedExecutors((current) => {
@@ -3486,6 +3622,64 @@ function App() {
                     {selectedExecutorAddressOk ? formatAddress(cleanSelectedExecutorAddress) : "No registered executor selected"}
                   </span>
                   <small>from {selectedRecipe.name} field</small>
+                </div>
+                <div className="executor-discovery">
+                  <div className="runner-history-head">
+                    <div>
+                      <span>Registry discovery</span>
+                      <small>{SYSTEM_CONTRACTS.TEEServiceRegistry}</small>
+                    </div>
+                    <button
+                      className="section-toggle"
+                      type="button"
+                      onClick={() => refreshExecutorDiscovery().catch(() => undefined)}
+                      disabled={executorDiscovery.status === "loading"}
+                    >
+                      {executorDiscovery.status === "loading" ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="executor-discovery-controls">
+                    <label>
+                      <span>Capability</span>
+                      <select
+                        id="executor-capability"
+                        name="executor-capability"
+                        value={executorDiscovery.capabilityId}
+                        onChange={(event) => selectExecutorCapability(Number(event.target.value))}
+                      >
+                        {EXECUTOR_CAPABILITIES.map((capability) => (
+                          <option key={capability.id} value={capability.id}>
+                            {capability.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p>
+                      {executorDiscovery.status === "ready"
+                        ? `${executorDiscovery.total ?? executorDiscovery.executors.length} registered; showing ${executorDiscovery.executors.length}.`
+                        : executorDiscovery.status === "loading"
+                          ? "Reading TEEServiceRegistry..."
+                          : executorDiscovery.status === "error"
+                            ? executorDiscovery.error
+                            : "Choose a capability to load registered executors."}
+                    </p>
+                  </div>
+                  {executorDiscovery.executors.length ? (
+                    <div className="executor-discovery-list">
+                      {executorDiscovery.executors.map((executor, index) => (
+                        <div className="discovered-executor" key={`${executor.capabilityId}-${executor.address}`}>
+                          <button type="button" onClick={() => useDiscoveredExecutor(executor)}>
+                            <span>{capabilityLabel(executor.capabilityId)} #{index + 1}</span>
+                            <code>{formatAddress(executor.address)}</code>
+                          </button>
+                          <button type="button" onClick={() => useDiscoveredExecutor(executor)}>
+                            Use
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="runner-save-row">
                   <label>
