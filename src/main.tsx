@@ -23,6 +23,7 @@ import {
   Upload,
   Wallet,
   Wand2,
+  X,
   Zap,
 } from "lucide-react";
 import {
@@ -2052,9 +2053,16 @@ function App() {
   const chainSwitchingRef = React.useRef(false);
   const chainSwitchAccountRef = React.useRef<string | undefined>(undefined);
   const [injectedWallets, setInjectedWallets] = React.useState<EIP6963ProviderDetail[]>([]);
+  const [showWalletPicker, setShowWalletPicker] = React.useState(false);
+  const [pickedProvider, setPickedProvider] = React.useState<Eip1193Provider | undefined>(undefined);
   const providerRef = React.useRef<Eip1193Provider | undefined>(window.ethereum);
 
-  const getProvider = React.useCallback(() => pickInjectedProvider(injectedWallets), [injectedWallets]);
+  // Once the user connects a specific wallet, keep using it. Only fall back to
+  // the auto-pick (Rabby, then MetaMask) before an explicit choice.
+  const getProvider = React.useCallback(
+    () => pickedProvider ?? pickInjectedProvider(injectedWallets),
+    [pickedProvider, injectedWallets],
+  );
 
   React.useEffect(() => {
     providerRef.current = getProvider();
@@ -2669,6 +2677,7 @@ function App() {
         setWallet({ status: "error", error: "No browser wallet found." });
         return;
       }
+      setPickedProvider(provider);
       providerRef.current = provider;
       setWallet((current) => ({ ...current, status: "connecting", error: undefined }));
       try {
@@ -2681,9 +2690,22 @@ function App() {
     [refreshWallet],
   );
 
-  const connectWallet = React.useCallback(
-    () => connectWithProvider(getProvider()),
-    [connectWithProvider, getProvider],
+  const connectWallet = React.useCallback(() => {
+    // Let the user choose when several wallets are present; otherwise connect
+    // straight to the only one available.
+    if (injectedWallets.length > 1) {
+      setShowWalletPicker(true);
+      return;
+    }
+    connectWithProvider(getProvider());
+  }, [connectWithProvider, getProvider, injectedWallets.length]);
+
+  const connectChosenWallet = React.useCallback(
+    (detail: EIP6963ProviderDetail) => {
+      setShowWalletPicker(false);
+      connectWithProvider(detail.provider);
+    },
+    [connectWithProvider],
   );
 
   const switchToRitual = React.useCallback(async () => {
@@ -3517,6 +3539,47 @@ function App() {
           </div>
         </div>
       </header>
+
+      {showWalletPicker ? (
+        <div
+          className="wallet-picker-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose a wallet"
+          onClick={() => setShowWalletPicker(false)}
+        >
+          <div className="wallet-picker" onClick={(event) => event.stopPropagation()}>
+            <div className="wallet-picker-head">
+              <span>Choose a wallet</span>
+              <button
+                type="button"
+                className="wallet-picker-close"
+                aria-label="Close"
+                onClick={() => setShowWalletPicker(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="wallet-picker-list">
+              {injectedWallets.map((detail) => (
+                <button
+                  key={detail.info.rdns}
+                  type="button"
+                  className="wallet-option"
+                  onClick={() => connectChosenWallet(detail)}
+                >
+                  {detail.info.icon ? (
+                    <img src={detail.info.icon} alt="" width={24} height={24} />
+                  ) : (
+                    <Wallet size={20} />
+                  )}
+                  <span>{detail.info.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {route === "faq" ? (
         <FaqPage onStart={() => navigate("/")} />
