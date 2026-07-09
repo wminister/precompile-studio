@@ -1963,7 +1963,12 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
   return { executors, total };
 }
 
-async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGas: string): Promise<WalletTransactionRequest> {
+// `gasFloor` is a *minimum* gas limit, not just a fallback. eth_estimateGas
+// cannot run Ritual's async precompiles (the TEE HTTP/LLM round-trip never
+// happens during estimation), so it badly under-reports — a real HTTP call
+// needs ~157k+ but estimates ~97k. Trusting the estimate makes the tx die
+// out-of-gas, so we always take the larger of the estimate and the floor.
+async function prepareWalletTransaction(tx: WalletTransactionRequest, gasFloor: string): Promise<WalletTransactionRequest> {
   const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
     rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
@@ -1983,10 +1988,11 @@ async function prepareWalletTransaction(tx: WalletTransactionRequest, fallbackGa
   delete feeTx.gasPrice;
 
   try {
-    const gas = await rpc<string>("eth_estimateGas", [feeTx]);
+    const estimate = await rpc<string>("eth_estimateGas", [feeTx]);
+    const gas = BigInt(estimate) > BigInt(gasFloor) ? estimate : gasFloor;
     return { ...feeTx, gas };
   } catch {
-    return { ...feeTx, gas: fallbackGas };
+    return { ...feeTx, gas: gasFloor };
   }
 }
 
