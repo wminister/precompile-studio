@@ -331,6 +331,10 @@ const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
 const RUNNER_HISTORY_LIMIT = 5;
+// The node rejects async precompile payloads whose escrow lock does not extend
+// far enough ahead ("insufficient lock duration"). Observed requirement is
+// ~2.3k blocks; guard with headroom so users lock comfortably past it.
+const RITUAL_ASYNC_LOCK_MARGIN = 5000;
 const CALLBACK_BODY_PREVIEW_LIMIT = 140;
 const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }> = [
   { key: "all", label: "All" },
@@ -2010,7 +2014,7 @@ function App() {
   const [selectedPresetId, setSelectedPresetId] = React.useState("");
   const [recipePresets, setRecipePresets] = React.useState<RecipePreset[]>([]);
   const [depositAmount, setDepositAmount] = React.useState("0.01");
-  const [depositLockBlocks, setDepositLockBlocks] = React.useState("100");
+  const [depositLockBlocks, setDepositLockBlocks] = React.useState("100000");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
   const [executorLabel, setExecutorLabel] = React.useState("");
   const [savedExecutors, setSavedExecutors] = React.useState<SavedExecutor[]>([]);
@@ -2128,7 +2132,18 @@ function App() {
   const isRightChain = wallet.chainId === RITUAL.chainId;
   const isReady = rpcState.status === "online" && wallet.status === "connected" && isRightChain;
   const isPreviewRecipe = selectedRecipe.status === "preview";
-  const isRitualWalletFunded = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
+  // Async precompile payloads (HTTP/LLM/agent) require the RitualWallet escrow
+  // to stay locked into the future to cover the callback. A funded-but-expired
+  // lock still gets rejected by the node with "insufficient lock duration", so
+  // the readiness gate has to check the lock, not just the balance.
+  const hasRitualBalance = Number.parseFloat(wallet.ritualWalletBalance ?? "0") > 0;
+  const ritualLockRemaining =
+    wallet.ritualLockUntil !== undefined && rpcState.block !== undefined
+      ? wallet.ritualLockUntil - rpcState.block
+      : undefined;
+  const isRitualLockSufficient =
+    ritualLockRemaining === undefined ? true : ritualLockRemaining >= RITUAL_ASYNC_LOCK_MARGIN;
+  const isRitualWalletFunded = hasRitualBalance && isRitualLockSufficient;
   const hasExecutorField = selectedFields.some((field) => field.key === "executor");
   const depositLock = Number.parseInt(depositLockBlocks, 10);
   const depositAmountValid = (() => {
@@ -2241,11 +2256,15 @@ function App() {
       },
       {
         ok: wallet.status === "connected" && isRitualWalletFunded,
-        label: "RitualWallet funded",
+        label: hasRitualBalance && !isRitualLockSufficient ? "RitualWallet lock expired" : "RitualWallet funded",
         detail:
-          wallet.status === "connected"
-            ? `${wallet.ritualWalletBalance ?? "0"} RITUAL escrow`
-            : "Escrow is checked after wallet connect.",
+          wallet.status !== "connected"
+            ? "Escrow is checked after wallet connect."
+            : hasRitualBalance && !isRitualLockSufficient
+              ? `${wallet.ritualWalletBalance ?? "0"} RITUAL escrow, lock ${
+                  ritualLockRemaining !== undefined && ritualLockRemaining < 0 ? "expired" : "too short"
+                }`
+              : `${wallet.ritualWalletBalance ?? "0"} RITUAL escrow`,
       },
     ],
     [
@@ -2255,6 +2274,9 @@ function App() {
       httpExecutorAddressOk,
       isRightChain,
       isRitualWalletFunded,
+      hasRitualBalance,
+      isRitualLockSufficient,
+      ritualLockRemaining,
       runnerAddressOk,
       runnerCalldata,
       runnerCodeState,
@@ -2326,11 +2348,21 @@ function App() {
       },
       {
         ok: wallet.status === "connected" && isRitualWalletFunded,
-        label: isRitualWalletFunded ? "RitualWallet funded" : "Fund RitualWallet",
+        label: !hasRitualBalance
+          ? "Fund RitualWallet"
+          : !isRitualLockSufficient
+            ? "Extend RitualWallet lock"
+            : "RitualWallet funded & locked",
         help:
-          wallet.status === "connected"
-            ? wallet.ritualWalletError ?? `${wallet.ritualWalletBalance ?? "0"} RITUAL available`
-            : "Escrow balance appears after connect.",
+          wallet.status !== "connected"
+            ? "Escrow balance appears after connect."
+            : !hasRitualBalance
+              ? wallet.ritualWalletError ?? "Deposit RITUAL escrow before sending async calls."
+              : !isRitualLockSufficient
+                ? `Escrow lock ${
+                    ritualLockRemaining !== undefined && ritualLockRemaining < 0 ? "expired" : "too short"
+                  } — deposit again with a longer lock (async calls need the escrow locked ~${RITUAL_ASYNC_LOCK_MARGIN}+ blocks ahead).`
+                : `${wallet.ritualWalletBalance ?? "0"} RITUAL, locked ${ritualLockRemaining ?? "?"} blocks ahead`,
       },
       {
         ok: Boolean(liveAbiDraft?.encodedInput) && (liveAbiDraft?.errors.length ?? 1) === 0,
@@ -2360,6 +2392,9 @@ function App() {
   }, [
     isRightChain,
     isRitualWalletFunded,
+    hasRitualBalance,
+    isRitualLockSufficient,
+    ritualLockRemaining,
     liveAbiDraft,
     liveRecipeLabel,
     rpcState.error,
