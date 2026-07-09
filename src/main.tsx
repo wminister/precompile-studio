@@ -90,18 +90,12 @@ function isRabbyProvider(provider: Eip1193Provider | undefined) {
   return Boolean(provider?.isRabby);
 }
 
-// Prefer an explicitly chosen wallet, otherwise MetaMask, otherwise the first
-// announced provider, and only fall back to window.ethereum when EIP-6963 found
-// nothing. This keeps the app working when another extension has locked
-// window.ethereum and MetaMask could not install itself there.
-function pickInjectedProvider(
-  wallets: EIP6963ProviderDetail[],
-  selectedRdns: string | undefined,
-): Eip1193Provider | undefined {
-  if (selectedRdns) {
-    const chosen = wallets.find((wallet) => wallet.info.rdns === selectedRdns);
-    if (chosen) return chosen.provider;
-  }
+// Prefer Rabby, then MetaMask, then the first announced provider, and only fall
+// back to window.ethereum when EIP-6963 found nothing. Using EIP-6963 lets us
+// reach the chosen wallet even when another extension has locked window.ethereum.
+function pickInjectedProvider(wallets: EIP6963ProviderDetail[]): Eip1193Provider | undefined {
+  const rabby = wallets.find((wallet) => wallet.info.rdns === "io.rabby" || wallet.provider.isRabby);
+  if (rabby) return rabby.provider;
   const metaMask = wallets.find(
     (wallet) => wallet.info.rdns === "io.metamask" || wallet.provider.isMetaMask,
   );
@@ -2058,21 +2052,9 @@ function App() {
   const chainSwitchingRef = React.useRef(false);
   const chainSwitchAccountRef = React.useRef<string | undefined>(undefined);
   const [injectedWallets, setInjectedWallets] = React.useState<EIP6963ProviderDetail[]>([]);
-  const [selectedWalletRdns, setSelectedWalletRdns] = React.useState<string | undefined>(undefined);
   const providerRef = React.useRef<Eip1193Provider | undefined>(window.ethereum);
 
-  const getProvider = React.useCallback(
-    () => pickInjectedProvider(injectedWallets, selectedWalletRdns),
-    [injectedWallets, selectedWalletRdns],
-  );
-
-  const preferredWalletRdns = React.useMemo(() => {
-    if (selectedWalletRdns) return selectedWalletRdns;
-    const metaMask = injectedWallets.find(
-      (wallet) => wallet.info.rdns === "io.metamask" || wallet.provider.isMetaMask,
-    );
-    return metaMask?.info.rdns ?? injectedWallets[0]?.info.rdns;
-  }, [injectedWallets, selectedWalletRdns]);
+  const getProvider = React.useCallback(() => pickInjectedProvider(injectedWallets), [injectedWallets]);
 
   React.useEffect(() => {
     providerRef.current = getProvider();
@@ -2682,12 +2664,11 @@ function App() {
   }, []);
 
   const connectWithProvider = React.useCallback(
-    async (provider: Eip1193Provider | undefined, rdns?: string) => {
+    async (provider: Eip1193Provider | undefined) => {
       if (!provider) {
         setWallet({ status: "error", error: "No browser wallet found." });
         return;
       }
-      if (rdns) setSelectedWalletRdns(rdns);
       providerRef.current = provider;
       setWallet((current) => ({ ...current, status: "connecting", error: undefined }));
       try {
@@ -3529,20 +3510,6 @@ function App() {
             </a>
           </nav>
           <div className="topbar-actions">
-            {wallet.status !== "connected" && injectedWallets.length > 1 ? (
-              <select
-                className="wallet-select"
-                aria-label="Choose wallet"
-                value={preferredWalletRdns ?? ""}
-                onChange={(event) => setSelectedWalletRdns(event.target.value)}
-              >
-                {injectedWallets.map((detail) => (
-                  <option key={detail.info.rdns} value={detail.info.rdns}>
-                    {detail.info.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
             <button className="primary-action" onClick={connectWallet} disabled={wallet.status === "connecting"}>
               {wallet.status === "connecting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
               {wallet.status === "connected" ? formatAddress(wallet.address) : "Connect"}
