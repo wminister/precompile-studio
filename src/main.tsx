@@ -27,6 +27,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  decodeAbiParameters,
   decodeEventLog,
   encodeAbiParameters,
   encodeFunctionData,
@@ -163,6 +164,14 @@ type RpcReceipt = {
   gasUsed?: string;
   logs?: unknown[];
   spcCalls?: unknown;
+};
+
+type SpcCall = {
+  address?: string;
+  input?: string;
+  output?: string;
+  proof?: string;
+  blockNumber?: number;
 };
 
 type RunnerRun = {
@@ -872,6 +881,16 @@ function isRpcLog(value: unknown): value is RpcLog {
   );
 }
 
+function isSpcCall(value: unknown): value is SpcCall {
+  if (!value || typeof value !== "object") return false;
+  const spcCall = value as SpcCall;
+  return (
+    (spcCall.address === undefined || typeof spcCall.address === "string") &&
+    (spcCall.input === undefined || typeof spcCall.input === "string") &&
+    (spcCall.output === undefined || typeof spcCall.output === "string")
+  );
+}
+
 function hexByteLength(value?: string) {
   if (!value || !/^0x[a-fA-F0-9]*$/.test(value)) return undefined;
   return Math.max(0, Math.floor((value.length - 2) / 2));
@@ -910,6 +929,42 @@ function decodeHexTextPreview(value?: string) {
   };
 }
 
+function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvidence | undefined {
+  if (!output || !/^0x(?:[a-fA-F0-9]{2})*$/.test(output)) return undefined;
+
+  try {
+    const [statusCodeValue, headerKeys, headerValues, body] = decodeAbiParameters(
+      parseAbiParameters("uint16, string[], string[], bytes"),
+      output as `0x${string}`,
+    );
+    const statusCode = Number(statusCodeValue);
+    const bodyBytes = hexByteLength(body);
+    const bodyPreview = decodeHexTextPreview(body);
+    const contentTypeIndex = headerKeys.findIndex((key) => key.toLowerCase() === "content-type");
+    const contentType = contentTypeIndex >= 0 ? headerValues[contentTypeIndex] : undefined;
+    const status = statusCode >= 400 ? "failed" : "complete";
+    const detailParts = [
+      `HTTP ${statusCode}`,
+      bodyBytes ? `${bodyBytes.toLocaleString()} bytes` : undefined,
+      contentType,
+      bodyPreview ? `"${bodyPreview.text}"` : undefined,
+    ].filter(Boolean);
+
+    return {
+      status,
+      detail: detailParts.join(" · "),
+      result: {
+        statusCode,
+        bodyBytes,
+        bodyPreview: bodyPreview?.text,
+        bodyPreviewTruncated: bodyPreview?.truncated || undefined,
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
   if (!run.receipt) {
     return {
@@ -925,11 +980,18 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
     };
   }
 
+  const spcCalls = Array.isArray(run.receipt.spcCalls) ? run.receipt.spcCalls.filter(isSpcCall) : [];
+  for (const spcCall of spcCalls) {
+    if (spcCall.address?.toLowerCase() !== HTTP_CALL_PRECOMPILE.toLowerCase()) continue;
+    const evidence = describeHttpPrecompileOutput(spcCall.output);
+    if (evidence) return evidence;
+  }
+
   const logs = Array.isArray(run.receipt.logs) ? run.receipt.logs.filter(isRpcLog) : [];
   if (!logs.length) {
     return {
       status: "missing",
-      detail: "Receipt has no logs",
+      detail: spcCalls.length ? "No HTTP output found" : "Receipt has no logs",
     };
   }
 
