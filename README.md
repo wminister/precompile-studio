@@ -89,6 +89,12 @@ HTTP history can be copied or imported as JSON, allowing trace evidence to move 
 
 HTTP consumer addresses can be saved locally and reused from the consumer panel. Saved consumers are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
+## LLM Consumer
+
+[`contracts/LlmPrecompileConsumer.sol`](./contracts/LlmPrecompileConsumer.sol) applies the same Ritual envelope-unwrapping pattern to LLM inference. It stores compact hashes and lengths for completion and model metadata plus error and conversation-history evidence. Full model output remains in `receipt.spcCalls` for the studio to decode without duplicating large response bytes in contract storage.
+
+The contract and frontend decoder are tested locally. Deployment and wallet submission remain intentionally disabled until an active LLM executor and a live consumer smoke transaction are verified on Ritual testnet.
+
 TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP, LLM, and Sovereign Agent. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.

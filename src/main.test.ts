@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decodeAbiParameters,
   decodeFunctionData,
+  encodeAbiParameters,
   parseAbiParameters,
+  stringToHex,
   zeroAddress,
 } from "viem";
 import {
   RITUAL,
   RITUAL_CHAIN_PARAMS,
+  JQ_PRECOMPILE,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
   buildHttpDraft,
@@ -15,7 +18,9 @@ import {
   buildLlmDraft,
   buildScheduleDraft,
   createRitualDepositTransaction,
+  decodeJqOutput,
   describeHttpPrecompileOutput,
+  describeLlmPrecompileOutput,
   describeRunnerCallback,
   ensureRitualChain,
   parseRunnerRuns,
@@ -23,6 +28,7 @@ import {
   receiptStatus,
   recipes,
   requestWalletAccounts,
+  runJqCall,
   runnerTraceStages,
   sendWalletTransaction,
   type ComposerField,
@@ -115,6 +121,53 @@ describe("recipe encoders", () => {
   });
 });
 
+describe("Ritual JQ output decoding", () => {
+  const offsetWord = "0".repeat(62) + "20";
+  const encodeOutput = (type: string, value: unknown, dynamic = false) => {
+    const standard = encodeAbiParameters(parseAbiParameters(type), [value] as never);
+    return dynamic ? `0x${offsetWord}${standard.slice(2)}` : standard;
+  };
+
+  it.each([
+    ["int256", -3n, "-3", false],
+    ["uint256", 1979n, "1979", false],
+    ["string", "ritual", "ritual", true],
+    ["bool", true, true, false],
+    ["address", TEST_ADDRESS, TEST_ADDRESS, false],
+    ["int256[]", [-3n, 7n], ["-3", "7"], true],
+    ["uint256[]", [1979n, 42n], ["1979", "42"], true],
+    ["string[]", ["ritual", "jq"], ["ritual", "jq"], true],
+    ["bool[]", [true, false], [true, false], true],
+    ["address[]", [TEST_ADDRESS], [TEST_ADDRESS], true],
+  ])("decodes %s output observed from 0x0803", (type, encodedValue, expected, dynamic) => {
+    expect(decodeJqOutput(encodeOutput(String(type), encodedValue, Boolean(dynamic)), String(type)).value).toEqual(expected);
+  });
+
+  it("distinguishes valid empty dynamic values from no output", async () => {
+    const emptyString = decodeJqOutput(encodeOutput("string", "", true), "string");
+    expect(emptyString).toMatchObject({ value: "", isEmpty: true });
+
+    const requester = async <T,>() => "0x" as T;
+    await expect(runJqCall("0x12", "uint256", requester)).resolves.toEqual({ status: "empty", raw: "0x" });
+  });
+
+  it("rejects malformed or missing dynamic envelopes", () => {
+    expect(() => decodeJqOutput("0x12", "uint256")).toThrow("could not be decoded");
+    expect(() => decodeJqOutput(encodeOutput("string", "ritual"), "string")).toThrow("dynamic output envelope");
+  });
+
+  it("runs JQ as an eth_call against the synchronous precompile", async () => {
+    const raw = encodeOutput("uint256", 1979n);
+    const requester = vi.fn(async () => raw);
+    const result = await runJqCall("0x1234", "uint256", requester as never);
+    expect(result.status).toBe("success");
+    expect(requester).toHaveBeenCalledWith("eth_call", [
+      { to: JQ_PRECOMPILE, data: "0x1234" },
+      "latest",
+    ]);
+  });
+});
+
 describe("Ritual HTTP receipt evidence", () => {
   it("decodes HTTP success", () => {
     const evidence = describeHttpPrecompileOutput(encodeHttpFixture(200, '{"ok":true}'));
@@ -162,6 +215,44 @@ describe("Ritual HTTP receipt evidence", () => {
   it("drops malformed persisted history", () => {
     expect(parseRunnerRuns('[{"hash":"not-a-hash"}]')).toEqual([]);
     expect(parseRunnerRuns("not json")).toEqual([]);
+  });
+});
+
+describe("Ritual LLM receipt evidence", () => {
+  const encodeLlmOutput = (hasError = false, errorMessage = "") =>
+    encodeAbiParameters(
+      parseAbiParameters("bool, bytes, bytes, string, (string,string,string)"),
+      [
+        hasError,
+        stringToHex('{"choices":[{"message":{"content":"Ritual"}}]}'),
+        stringToHex('{"model":"zai-org/GLM-4.7-FP8"}'),
+        errorMessage,
+        ["gcs", "convos/session.jsonl", "GCS_CREDS"],
+      ],
+    );
+
+  it("decodes completion, metadata, and updated conversation history", () => {
+    const evidence = describeLlmPrecompileOutput(encodeLlmOutput());
+    expect(evidence).toMatchObject({
+      status: "complete",
+      result: {
+        hasError: false,
+        completionText: '{"choices":[{"message":{"content":"Ritual"}}]}',
+        metadataText: '{"model":"zai-org/GLM-4.7-FP8"}',
+        updatedConvoHistory: ["gcs", "convos/session.jsonl", "GCS_CREDS"],
+      },
+    });
+  });
+
+  it("keeps model errors distinct from transaction failures", () => {
+    expect(describeLlmPrecompileOutput(encodeLlmOutput(true, "model unavailable"))).toMatchObject({
+      status: "precompile-error",
+      result: { hasError: true, errorMessage: "model unavailable" },
+    });
+  });
+
+  it("rejects malformed LLM output", () => {
+    expect(describeLlmPrecompileOutput("0x12")).toBeUndefined();
   });
 });
 

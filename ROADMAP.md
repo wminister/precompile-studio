@@ -28,9 +28,9 @@ This roadmap records the remaining work required to turn every advertised recipe
 
 ## Phase 4: Complete JQ
 
-- [ ] Run synchronous JQ calls in-app with `eth_call`.
-- [ ] Decode every supported output type, including Ritual's string indirection.
-- [ ] Present empty and invalid outputs clearly without requiring wallet gas.
+- [x] Run synchronous JQ calls in-app with `eth_call`.
+- [x] Decode every supported output type, including Ritual's string indirection.
+- [x] Present empty and invalid outputs clearly without requiring wallet gas.
 
 ## Phase 5: Complete LLM
 

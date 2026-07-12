@@ -142,6 +142,21 @@ type ImportState = {
   error?: string;
 };
 
+export type JqDecodedOutput = {
+  outputType: string;
+  value: string | boolean | Array<string | boolean>;
+  display: string;
+  isEmpty: boolean;
+  raw: string;
+};
+
+type JqCallState =
+  | { status: "idle" }
+  | { status: "running" }
+  | { status: "success"; result: JqDecodedOutput }
+  | { status: "empty"; raw: string }
+  | { status: "error"; error: string; raw?: string };
+
 type CopyFeedback = {
   tone: "ok" | "bad";
   message: string;
@@ -205,6 +220,20 @@ export type RunnerCallbackEvidence = {
     bodyPreview?: string;
     bodyPreviewTruncated?: boolean;
     errorMessage?: string;
+  };
+};
+
+export type LlmPrecompileEvidence = {
+  status: "complete" | "precompile-error";
+  detail: string;
+  result: {
+    hasError: boolean;
+    completionBytes: number;
+    completionText?: string;
+    metadataBytes: number;
+    metadataText?: string;
+    errorMessage?: string;
+    updatedConvoHistory: StorageRefTuple;
   };
 };
 
@@ -325,7 +354,7 @@ function capabilityLabel(capabilityId: number) {
 
 export const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const LLM_INFERENCE_PRECOMPILE = "0x0000000000000000000000000000000000000802";
-const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
+export const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
 const SOVEREIGN_AGENT_PRECOMPILE = "0x000000000000000000000000000000000000080c";
 const HTTP_ABI_SIGNATURE =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
@@ -363,7 +392,7 @@ const FAQ_ITEMS = [
   {
     question: "How do I use it from start to finish?",
     answer:
-      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, inspect the request preview, then use the available action: copy calldata, copy a direct call export, or send the HTTP consumer transaction from your connected wallet.",
+      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, then use the recipe action. JQ runs immediately through Ritual RPC without a wallet. HTTP sends through the verified consumer after you confirm the transaction in MetaMask.",
   },
   {
     question: "What is the simplest example?",
@@ -378,7 +407,7 @@ const FAQ_ITEMS = [
   {
     question: "Who pays gas?",
     answer:
-      "The connected user pays their own Ritual testnet gas. The studio does not sponsor or relay transactions. For flows that use RitualWallet escrow, the UI shows whether the connected account has escrowed funds available.",
+      "JQ uses a read-only eth_call, so it needs no wallet or gas. For transaction-based recipes, the connected user pays their own Ritual testnet gas. The studio does not sponsor or relay transactions, and async flows also use the connected account's RitualWallet escrow.",
   },
   {
     question: "Why do some buttons say Contract only?",
@@ -412,7 +441,7 @@ const FAQ_WORKFLOW_STEPS = [
   },
   {
     title: "Copy or submit",
-    body: "Copy calldata or call JSON when the flow supports direct exports. For HTTP calls, connect a wallet and send through the consumer panel.",
+    body: "Run JQ directly through RPC, copy exports when useful, or connect a wallet and send HTTP through the consumer panel.",
   },
   {
     title: "Trace the result",
@@ -430,7 +459,7 @@ const HTTP_METHOD_IDS: Record<string, number> = {
   OPTIONS: 7,
 };
 
-const JQ_OUTPUT_TYPES: Record<string, number> = {
+export const JQ_OUTPUT_TYPES: Record<string, number> = {
   int256: 0,
   uint256: 1,
   string: 2,
@@ -442,6 +471,8 @@ const JQ_OUTPUT_TYPES: Record<string, number> = {
   "bool[]": 8,
   "address[]": 9,
 };
+
+const JQ_DYNAMIC_OUTPUT_TYPES = new Set(["string", "int256[]", "uint256[]", "string[]", "bool[]", "address[]"]);
 
 const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
 
@@ -995,6 +1026,46 @@ export function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvi
         bodyPreview: bodyPreview?.text,
         bodyPreviewTruncated: bodyPreview?.truncated || undefined,
         errorMessage: errorMessage || undefined,
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function describeLlmPrecompileOutput(output?: string): LlmPrecompileEvidence | undefined {
+  if (!output || !/^0x(?:[a-fA-F0-9]{2})*$/.test(output)) return undefined;
+
+  try {
+    const [hasError, completionData, modelMetadata, errorMessage, updatedConvoHistory] = decodeAbiParameters(
+      parseAbiParameters("bool, bytes, bytes, string, (string,string,string)"),
+      output as `0x${string}`,
+    );
+    const completionBytes = hexByteLength(completionData) ?? 0;
+    const metadataBytes = hexByteLength(modelMetadata) ?? 0;
+    const completionText = decodeHexText(completionData);
+    const metadataText = decodeHexText(modelMetadata);
+    const status = hasError || errorMessage ? "precompile-error" : "complete";
+    const detail = [
+      status === "complete" ? "LLM completion" : "LLM error",
+      completionBytes ? `${completionBytes.toLocaleString()} completion bytes` : undefined,
+      metadataBytes ? `${metadataBytes.toLocaleString()} metadata bytes` : undefined,
+      errorMessage || undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    return {
+      status,
+      detail,
+      result: {
+        hasError,
+        completionBytes,
+        completionText,
+        metadataBytes,
+        metadataText,
+        errorMessage: errorMessage || undefined,
+        updatedConvoHistory: [...updatedConvoHistory] as StorageRefTuple,
       },
     };
   } catch {
@@ -1949,6 +2020,57 @@ export function buildJqDraft(fields: ComposerField[]) {
   };
 }
 
+export function decodeJqOutput(raw: string, outputTypeKey: string): JqDecodedOutput {
+  if (JQ_OUTPUT_TYPES[outputTypeKey] === undefined) {
+    throw new Error(`Unsupported JQ output type: ${outputTypeKey}`);
+  }
+  if (!/^0x(?:[a-fA-F0-9]{2})*$/.test(raw)) throw new Error("JQ returned malformed hex output.");
+  if (raw === "0x") throw new Error("JQ returned no output.");
+
+  let encoded = raw as `0x${string}`;
+  if (JQ_DYNAMIC_OUTPUT_TYPES.has(outputTypeKey)) {
+    const outerOffset = raw.slice(2, 66);
+    const innerOffset = raw.slice(66, 130);
+    const offsetWord = "0".repeat(62) + "20";
+    if (outerOffset !== offsetWord || innerOffset !== offsetWord) {
+      throw new Error("JQ returned an invalid dynamic output envelope.");
+    }
+    encoded = `0x${raw.slice(66)}`;
+  }
+
+  let decoded: unknown;
+  try {
+    [decoded] = decodeAbiParameters(parseAbiParameters(outputTypeKey), encoded);
+  } catch {
+    throw new Error(`JQ output could not be decoded as ${outputTypeKey}.`);
+  }
+
+  const value = Array.isArray(decoded)
+    ? decoded.map((item) => (typeof item === "bigint" ? item.toString() : item))
+    : typeof decoded === "bigint"
+      ? decoded.toString()
+      : decoded;
+  if (typeof value !== "string" && typeof value !== "boolean" && !Array.isArray(value)) {
+    throw new Error(`JQ returned an unsupported ${outputTypeKey} value.`);
+  }
+  const isEmpty = value === "" || (Array.isArray(value) && value.length === 0);
+  const display = Array.isArray(value) ? JSON.stringify(value, null, 2) : String(value);
+  return { outputType: outputTypeKey, value, display, isEmpty, raw };
+}
+
+export async function runJqCall(
+  encodedInput: `0x${string}`,
+  outputTypeKey: string,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+) {
+  const raw = await requester<string>("eth_call", [
+    { to: JQ_PRECOMPILE, data: encodedInput },
+    "latest",
+  ]);
+  if (raw === "0x") return { status: "empty" as const, raw };
+  return { status: "success" as const, result: decodeJqOutput(raw, outputTypeKey) };
+}
+
 export function buildAgentDraft(fields: ComposerField[]) {
   const executor = fieldValue(fields, "executor").trim();
   const errors: string[] = [];
@@ -2255,6 +2377,7 @@ function App() {
   const [copiedEncoded, setCopiedEncoded] = React.useState(false);
   const [copiedCallRequest, setCopiedCallRequest] = React.useState(false);
   const [copiedCastCommand, setCopiedCastCommand] = React.useState(false);
+  const [jqCallState, setJqCallState] = React.useState<JqCallState>({ status: "idle" });
   const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback | undefined>();
   const copyFeedbackTimer = React.useRef<number | undefined>(undefined);
   const chainSwitchingRef = React.useRef(false);
@@ -2595,7 +2718,7 @@ function App() {
       },
     ];
 
-    return checks;
+    return selectedRecipe.id === "jq" ? checks.filter((_, index) => ![1, 2, 3].includes(index)) : checks;
   }, [
     isRightChain,
     isRitualWalletFunded,
@@ -2608,6 +2731,7 @@ function App() {
     rpcState.status,
     sensitiveFieldLabels,
     selectedRecipe.name,
+    selectedRecipe.id,
     selectedRecipe.status,
     wallet.address,
     wallet.chainId,
@@ -2619,7 +2743,9 @@ function App() {
   const openBlockers = blockingChecks.filter((check) => !check.ok);
   const blockerSummary = openBlockers.length
     ? `${openBlockers.length} ${openBlockers.length === 1 ? "blocker" : "blockers"}`
-    : "Ready to copy";
+    : selectedRecipe.id === "jq"
+      ? "Ready to run"
+      : "Ready to copy";
   const contextLabel =
     selectedRecipe.id === "http"
       ? "HTTP precompile"
@@ -3057,6 +3183,10 @@ function App() {
       ? isReady
         ? "Ready for an HTTP consumer call."
         : "Resolve readiness checks before sending."
+      : selectedRecipe.id === "jq"
+        ? jqDraft.encodedInput
+          ? "Run the synchronous JQ call through Ritual RPC. No wallet or gas is required."
+          : "Resolve JQ field errors before running the query."
       : selectedRecipe.id === "scheduler"
         ? scheduleDraft.encodedInput
           ? "Copy Scheduler calldata and call the system Scheduler from an approved contract."
@@ -3182,6 +3312,24 @@ function App() {
     setCopiedEncoded(true);
     window.setTimeout(() => setCopiedEncoded(false), 1400);
   }, [copyText, liveAbiDraft, selectedRecipe.id, selectedRecipe.name]);
+
+  const executeJq = React.useCallback(async () => {
+    if (!jqDraft.encodedInput) return;
+    setJqCallState({ status: "running" });
+    try {
+      const outcome = await runJqCall(jqDraft.encodedInput, jqDraft.outputTypeKey);
+      setJqCallState(outcome);
+    } catch (error) {
+      setJqCallState({
+        status: "error",
+        error: error instanceof Error ? error.message : "JQ call failed.",
+      });
+    }
+  }, [jqDraft.encodedInput, jqDraft.outputTypeKey]);
+
+  React.useEffect(() => {
+    setJqCallState({ status: "idle" });
+  }, [jqDraft.encodedInput, jqDraft.outputTypeKey]);
 
   const copyRunnerCalldata = React.useCallback(async () => {
     if (!runnerCalldata) return;
@@ -4047,7 +4195,7 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy draft"}
                 </button>
-                {selectedRecipe.status === "live" ? (
+                {selectedRecipe.status === "live" && selectedRecipe.id !== "jq" ? (
                   <button
                     className="secondary-action"
                     onClick={copyCallRequest}
@@ -4058,7 +4206,7 @@ function App() {
                     {copiedCallRequest ? "Copied call" : directCallUnavailableReason ? "Contract only" : "Copy call JSON"}
                   </button>
                 ) : null}
-                {selectedRecipe.status === "live" ? (
+                {selectedRecipe.status === "live" && selectedRecipe.id !== "jq" ? (
                   <button
                     className="secondary-action"
                     onClick={copyCastCommand}
@@ -4070,12 +4218,58 @@ function App() {
                   </button>
                 ) : null}
                 {selectedRecipe.status === "live" ? (
-                  <button className="primary-action large" onClick={copyEncodedInput} disabled={!canCopyEncoded}>
+                  <button
+                    className={selectedRecipe.id === "jq" ? "secondary-action" : "primary-action large"}
+                    onClick={copyEncodedInput}
+                    disabled={!canCopyEncoded}
+                  >
                     {copiedEncoded ? <Check size={16} /> : <Clipboard size={16} />}
                     {encodedActionLabel}
                   </button>
                 ) : null}
+                {selectedRecipe.id === "jq" ? (
+                  <button
+                    className="primary-action large"
+                    type="button"
+                    onClick={executeJq}
+                    disabled={!jqDraft.encodedInput || jqCallState.status === "running"}
+                  >
+                    {jqCallState.status === "running" ? <Loader2 className="spin" size={16} /> : <Zap size={16} />}
+                    {jqCallState.status === "running" ? "Running" : "Run JQ"}
+                  </button>
+                ) : null}
               </div>
+              {selectedRecipe.id === "jq" && jqCallState.status !== "idle" ? (
+                <div
+                  className={`jq-result ${jqCallState.status}`}
+                  aria-live="polite"
+                  data-testid="jq-result"
+                >
+                  <div className="jq-result-head">
+                    <span>JQ result</span>
+                    <strong>
+                      {jqCallState.status === "running"
+                        ? "Calling 0x0803"
+                        : jqCallState.status === "empty"
+                          ? "No output"
+                          : jqCallState.status === "error"
+                            ? "Call failed"
+                            : jqCallState.result.isEmpty
+                              ? `Valid empty ${jqCallState.result.outputType}`
+                              : jqCallState.result.outputType}
+                    </strong>
+                  </div>
+                  {jqCallState.status === "running" ? (
+                    <p>The synchronous precompile is evaluating this query. No wallet or gas is required.</p>
+                  ) : jqCallState.status === "empty" ? (
+                    <p>The query returned no bytes. Check that the JSON path exists and matches the selected output type.</p>
+                  ) : jqCallState.status === "error" ? (
+                    <p>{jqCallState.error}</p>
+                  ) : (
+                    <pre>{jqCallState.result.isEmpty ? jqCallState.result.display || '""' : jqCallState.result.display}</pre>
+                  )}
+                </div>
+              ) : null}
               {copyFeedback ? (
                 <p className={`copy-feedback ${copyFeedback.tone}`} aria-live="polite">
                   {copyFeedback.message}
@@ -4768,7 +4962,7 @@ function FaqPage({ onStart }: { onStart: () => void }) {
               </div>
               <div>
                 <strong>JQ</strong>
-                <p>Prepare a synchronous JSON query payload for Ritual&apos;s JQ precompile.</p>
+                <p>Run a synchronous JSON query through precompile 0x0803 and decode its typed result without a wallet or gas.</p>
               </div>
               <div>
                 <strong>LLM</strong>
