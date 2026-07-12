@@ -12,18 +12,18 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Ritual chain switch/add flow for chain ID `1979`
 - Wallet balance readout
 - RitualWallet deposit flow for funding precompile escrow
-- Minimal HTTP runner contract source
-- Verified Ritual testnet HTTP runner deployment metadata
-- Runner transaction calldata generation and wallet submit flow
-- Runner contract bytecode verification before wallet submit
-- Runner deployment checklist with copyable build/deploy commands
-- Persisted runner transaction history scoped by wallet or local browser, with receipt polling
-- Explorer-linked runner transactions using Ritual's `/tx/{hash}` route
-- Transaction hash import for externally submitted runner calls
-- Runner history JSON copy/import for moving traces between browsers
-- Runner history status filters for pending, confirmed, and failed calls
-- Compact transaction trace rows for receipt, `spcCalls`, and decoded `HttpResult` callback completion with small UTF-8 body previews
-- Local saved runner contracts scoped by wallet
+- Owned HTTP consumer using Ritual's async-envelope unwrapping pattern
+- Foundry coverage for successful, HTTP-error, and reverted precompile calls
+- HTTP consumer calldata generation and wallet submit flow
+- HTTP consumer bytecode verification before wallet submit
+- Persisted HTTP transaction history scoped by wallet or local browser, with receipt polling
+- Explorer-linked HTTP transactions using Ritual's `/tx/{hash}` route
+- Transaction hash import for externally submitted HTTP calls
+- HTTP history JSON copy/import for moving traces between browsers
+- HTTP history status filters for pending, confirmed, and failed transactions
+- Distinct transaction, precompile, and HTTP response states decoded from `receipt.spcCalls`
+- Expandable HTTP response headers and formatted JSON or text bodies
+- Local saved HTTP consumer contracts scoped by wallet
 - Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduler recipe examples
@@ -63,32 +63,27 @@ npm run build
 
 The build verifies recipe example JSON and ABI smoke encoding before writing production output to `dist/`.
 
-## HTTP Runner
+## HTTP Consumer
 
-The minimal Solidity runner lives at [`contracts/HttpPrecompileRunner.sol`](./contracts/HttpPrecompileRunner.sol).
+The studio defaults to its owned HTTP consumer at `0x30a2132b7f47A30E2D55A191F6723161C232263C`, which exposes `callHTTPCallRaw(bytes)` on Ritual testnet.
 
-The current Ritual testnet deployment is tracked in [`deployments/ritual-testnet.json`](./deployments/ritual-testnet.json) and prefilled in the runner panel.
+The source lives at [`contracts/HttpPrecompileConsumer.sol`](./contracts/HttpPrecompileConsumer.sol), with envelope handling in [`contracts/utils/PrecompileConsumer.sol`](./contracts/utils/PrecompileConsumer.sol). Deployment and smoke-transaction evidence are tracked in [`deployments/ritual-testnet.json`](./deployments/ritual-testnet.json).
 
-Deploy it to Ritual testnet, paste the deployed address into Precompile Studio, then use the HTTP composer to generate and submit `fetchHttp(bytes)` calldata. The studio checks that bytecode exists at the runner address before enabling wallet submission. Users still pay their own gas and confirm the transaction in their wallet.
+Use the HTTP composer to encode a request, select a registered TEE executor, and submit `callHTTPCallRaw(bytes)` through the configured consumer. The studio checks that bytecode exists at the consumer address before enabling wallet submission. Users still pay their own gas and confirm the transaction in their wallet.
 
-Submitted runner transactions are stored locally, scoped to the connected wallet when available, and polled through the Ritual RPC until a receipt is available. When the receipt includes Ritual-specific `spcCalls`, the studio surfaces that evidence beside the transaction hash. If the runner emits `HttpResult`, the trace decodes the callback status code, response byte count, and error message.
+Submitted HTTP transactions are stored locally, scoped to the connected wallet when available, and polled through the Ritual RPC until a receipt is available. The trace decodes Ritual's five-field HTTP output from `receipt.spcCalls`, keeping transaction confirmation, precompile errors, and target-server HTTP status separate.
 
-External transaction hashes can also be imported into the runner history, which is useful when a call was submitted from a wallet, terminal, or explorer outside the current browser session.
+External transaction hashes can also be imported into HTTP history, which is useful when a call was submitted from a wallet, terminal, or explorer outside the current browser session.
 
-Runner history can be copied or imported as JSON from the runner panel, allowing trace evidence to move between local browsers without connecting a backend account.
+HTTP history can be copied or imported as JSON, allowing trace evidence to move between local browsers without connecting a backend account.
 
-Runner contract addresses can be saved locally and reused from the runner panel. Saved runners are scoped to the connected wallet when available, with a local fallback before wallet connection.
+HTTP consumer addresses can be saved locally and reused from the consumer panel. Saved consumers are scoped to the connected wallet when available, with a local fallback before wallet connection.
 
 TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP, LLM, and Sovereign Agent. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.
 
-See [`contracts/README.md`](./contracts/README.md) for runner build and deployment steps.
-
-```bash
-npm run runner:build
-RITUAL_PRIVATE_KEY=0x... npm run runner:deploy
-```
+See [`contracts/README.md`](./contracts/README.md) for build, test, and deployment details, and [`ROADMAP.md`](./ROADMAP.md) for the remaining milestones.
 
 ## Vercel
 
@@ -115,5 +110,4 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 
 ## Next Milestones
 
-1. Add more live recipe templates beyond HTTP, LLM, JQ, Sovereign Agent, and Scheduler.
-2. Add registry-backed executor discovery once Ritual exposes a stable executor lookup surface.
+The ordered milestones and their completion state live in [`ROADMAP.md`](./ROADMAP.md).

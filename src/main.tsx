@@ -193,12 +193,15 @@ type RpcLog = {
 };
 
 type RunnerCallbackEvidence = {
-  status: "pending" | "complete" | "failed" | "missing";
+  status: "pending" | "complete" | "http-error" | "precompile-error" | "missing";
   detail: string;
   result?: {
     caller?: string;
     statusCode?: number;
+    headers?: Array<{ name: string; value: string }>;
+    contentType?: string;
     bodyBytes?: number;
+    bodyText?: string;
     bodyPreview?: string;
     bodyPreviewTruncated?: boolean;
     errorMessage?: string;
@@ -347,10 +350,7 @@ const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }>
   { key: "failed", label: "Failed" },
 ];
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
-const RUNNER_BUILD_COMMAND = "npm run runner:build";
-const RUNNER_DEPLOY_COMMAND = "RITUAL_PRIVATE_KEY=0x... npm run runner:deploy";
-const RUNNER_GUIDE_URL = "https://github.com/wminister/precompile-studio/blob/main/contracts/README.md";
-const HTTP_PRECOMPILE_CONSUMER_ADDRESS = "0xcc5495df16633c0d0c189a71ed3a723c2687dae1";
+const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileConsumer.address;
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 
@@ -363,12 +363,12 @@ const FAQ_ITEMS = [
   {
     question: "How do I use it from start to finish?",
     answer:
-      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, inspect the request preview, then use the available action: copy calldata, copy a direct call export, or send the HTTP runner transaction from your connected wallet.",
+      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, inspect the request preview, then use the available action: copy calldata, copy a direct call export, or send the HTTP consumer transaction from your connected wallet.",
   },
   {
     question: "What is the simplest example?",
     answer:
-      "Use the HTTP recipe with method GET and a public URL. The studio encodes that HTTP request for Ritual's HTTP precompile. If a runner contract is set and verified, your wallet can submit the runner transaction and later inspect the receipt, spcCalls, and decoded callback evidence.",
+      "Use the HTTP 200 echo preset, choose a registered executor, and connect MetaMask on Ritual. The studio encodes the request, sends it through the verified HTTP consumer, and separates the confirmed transaction from the HTTP response returned in receipt.spcCalls.",
   },
   {
     question: "Does the app send transactions automatically?",
@@ -388,12 +388,12 @@ const FAQ_ITEMS = [
   {
     question: "What is stored by the app?",
     answer:
-      "Drafts, saved presets, runner addresses, and runner history stay in the browser's local storage. The app warns about secret-looking fields before copying or sharing previews.",
+      "Drafts, saved presets, consumer addresses, and HTTP transaction history stay in the browser's local storage. The app warns about secret-looking fields before copying or sharing previews.",
   },
   {
     question: "Do I need a private key?",
     answer:
-      "Not for normal browser use. Connect your wallet for signing. A private key is only needed if you deploy the optional HTTP runner contract from your terminal, and that should be a testnet-only deployer key.",
+      "Not for normal browser use. Connect your wallet for signing. A private key is only needed when deploying a consumer contract from your terminal, and that should be a testnet-only deployer key.",
   },
 ] as const;
 
@@ -412,11 +412,11 @@ const FAQ_WORKFLOW_STEPS = [
   },
   {
     title: "Copy or submit",
-    body: "Copy calldata or call JSON when the flow supports direct exports. For HTTP runner calls, connect a wallet and send through the runner panel.",
+    body: "Copy calldata or call JSON when the flow supports direct exports. For HTTP calls, connect a wallet and send through the consumer panel.",
   },
   {
     title: "Trace the result",
-    body: "Runner history stores submitted hashes locally, polls receipts, and surfaces spcCalls plus decoded callback evidence when available.",
+    body: "HTTP history stores submitted hashes locally, polls receipts, and separates on-chain confirmation, precompile execution, and the target server's HTTP response.",
   },
 ] as const;
 
@@ -490,7 +490,7 @@ const ritualWalletAbi = [
   },
 ] as const;
 
-const httpRunnerAbi = [
+const legacyHttpRunnerAbi = [
   {
     type: "event",
     name: "HttpResult",
@@ -524,6 +524,17 @@ const httpRunnerAbi = [
 
 const httpConsumerAbi = [
   {
+    type: "event",
+    name: "HttpResult",
+    inputs: [
+      { name: "caller", type: "address", indexed: true },
+      { name: "statusCode", type: "uint16", indexed: false },
+      { name: "bodyLength", type: "uint256", indexed: false },
+      { name: "bodyHash", type: "bytes32", indexed: false },
+      { name: "errorMessage", type: "string", indexed: false },
+    ],
+  },
+  {
     type: "function",
     name: "callHTTPCallRaw",
     stateMutability: "nonpayable",
@@ -544,7 +555,7 @@ const recipes: Recipe[] = [
       { key: "executor", label: "Executor", value: zeroAddress },
       { key: "method", label: "Method", value: "GET", type: "select", options: Object.keys(HTTP_METHOD_IDS) },
       { key: "ttl", label: "TTL blocks", value: "30" },
-      { key: "url", label: "URL", value: "https://api.github.com/repos/ritual-net/infernet-ml" },
+      { key: "url", label: "URL", value: "https://httpbin.org/get" },
       { key: "headers", label: "Headers", value: "accept: application/json", type: "textarea" },
       { key: "body", label: "Body", value: "", type: "textarea" },
     ],
@@ -653,16 +664,16 @@ const recipes: Recipe[] = [
 
 const builtInRecipePresets: RecipePreset[] = [
   {
-    id: "example-http-github-repo",
+    id: "example-http-echo",
     recipeId: "http",
-    label: "Example: GitHub repo metadata",
+    label: "Example: HTTP 200 echo",
     updatedAt: 0,
     source: "example",
     fields: normalizePresetFields("http", [
       { key: "executor", value: zeroAddress },
       { key: "method", value: "GET" },
       { key: "ttl", value: "30" },
-      { key: "url", value: "https://api.github.com/repos/ritual-net/infernet-ml" },
+      { key: "url", value: "https://httpbin.org/get" },
       { key: "headers", value: "accept: application/json" },
       { key: "body", value: "" },
     ]),
@@ -820,7 +831,7 @@ function runnerHistoryStorageKey(walletAddress?: string) {
 }
 
 function defaultRunnerLabel(address: string) {
-  return `HTTP runner ${formatAddress(address)}`;
+  return `HTTP consumer ${formatAddress(address)}`;
 }
 
 function defaultExecutorLabel(address: string) {
@@ -832,7 +843,7 @@ function describeRunnerCodeState(state: RunnerCodeState) {
   if (state.status === "empty") return "No bytecode at this address.";
   if (state.status === "checking") return "Checking bytecode...";
   if (state.status === "error") return state.error ?? "Could not verify bytecode.";
-  return "Set a runner address to check bytecode.";
+  return "Set a consumer address to check bytecode.";
 }
 
 function formatBalance(hex?: string) {
@@ -896,7 +907,7 @@ function hexByteLength(value?: string) {
   return Math.max(0, Math.floor((value.length - 2) / 2));
 }
 
-function decodeHexTextPreview(value?: string) {
+function decodeHexText(value?: string) {
   if (!value || !/^0x[a-fA-F0-9]*$/.test(value) || value.length % 2 !== 0) return undefined;
   const hex = value.slice(2);
   if (!hex) return undefined;
@@ -922,6 +933,13 @@ function decodeHexTextPreview(value?: string) {
   });
   if (printable.length / Array.from(normalized).length < 0.9) return undefined;
 
+  return normalized;
+}
+
+function decodeHexTextPreview(value?: string) {
+  const normalized = decodeHexText(value);
+  if (!normalized) return undefined;
+
   const truncated = normalized.length > CALLBACK_BODY_PREVIEW_LIMIT;
   return {
     text: truncated ? `${normalized.slice(0, CALLBACK_BODY_PREVIEW_LIMIT).trimEnd()}...` : normalized,
@@ -929,25 +947,40 @@ function decodeHexTextPreview(value?: string) {
   };
 }
 
+function formatHttpBody(bodyText?: string, contentType?: string) {
+  if (!bodyText) return undefined;
+  if (contentType?.toLowerCase().includes("json") || /^[\[{]/.test(bodyText)) {
+    try {
+      return JSON.stringify(JSON.parse(bodyText), null, 2);
+    } catch {
+      // A server may label invalid JSON as JSON. Preserve the original body.
+    }
+  }
+  return bodyText;
+}
+
 function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvidence | undefined {
   if (!output || !/^0x(?:[a-fA-F0-9]{2})*$/.test(output)) return undefined;
 
   try {
-    const [statusCodeValue, headerKeys, headerValues, body] = decodeAbiParameters(
-      parseAbiParameters("uint16, string[], string[], bytes"),
+    const [statusCodeValue, headerKeys, headerValues, body, errorMessage] = decodeAbiParameters(
+      parseAbiParameters("uint16, string[], string[], bytes, string"),
       output as `0x${string}`,
     );
     const statusCode = Number(statusCodeValue);
     const bodyBytes = hexByteLength(body);
+    const bodyText = decodeHexText(body);
     const bodyPreview = decodeHexTextPreview(body);
+    const headers = headerKeys.map((name, index) => ({ name, value: headerValues[index] ?? "" }));
     const contentTypeIndex = headerKeys.findIndex((key) => key.toLowerCase() === "content-type");
     const contentType = contentTypeIndex >= 0 ? headerValues[contentTypeIndex] : undefined;
-    const status = statusCode >= 400 ? "failed" : "complete";
+    const status = errorMessage ? "precompile-error" : statusCode >= 400 ? "http-error" : "complete";
     const detailParts = [
+      errorMessage ? "Precompile error" : undefined,
       `HTTP ${statusCode}`,
+      headers.length ? `${headers.length} headers` : undefined,
       bodyBytes ? `${bodyBytes.toLocaleString()} bytes` : undefined,
-      contentType,
-      bodyPreview ? `"${bodyPreview.text}"` : undefined,
+      errorMessage || undefined,
     ].filter(Boolean);
 
     return {
@@ -955,9 +988,13 @@ function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvidence |
       detail: detailParts.join(" · "),
       result: {
         statusCode,
+        headers,
+        contentType,
         bodyBytes,
+        bodyText,
         bodyPreview: bodyPreview?.text,
         bodyPreviewTruncated: bodyPreview?.truncated || undefined,
+        errorMessage: errorMessage || undefined,
       },
     };
   } catch {
@@ -975,7 +1012,7 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
 
   if (run.status === "failed") {
     return {
-      status: "failed",
+      status: "precompile-error",
       detail: "Transaction failed before callback",
     };
   }
@@ -1003,7 +1040,7 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
   if (runnerAddress !== zeroAddress && !scopedLogs.length) {
     return {
       status: "missing",
-      detail: "No runner logs found",
+      detail: "No consumer logs found",
     };
   }
   const candidateLogs = runnerAddress === zeroAddress ? logs : scopedLogs;
@@ -1012,7 +1049,60 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
     if (!log.data || !log.topics?.length) continue;
     try {
       const decoded = decodeEventLog({
-        abi: httpRunnerAbi,
+        abi: httpConsumerAbi,
+        data: log.data as `0x${string}`,
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+      });
+      if (decoded.eventName !== "HttpResult") continue;
+
+      const args = decoded.args as {
+        caller?: string;
+        statusCode?: number | bigint;
+        bodyLength?: number | bigint;
+        bodyHash?: string;
+        errorMessage?: string;
+      };
+      const statusCode =
+        typeof args.statusCode === "bigint"
+          ? Number(args.statusCode)
+          : typeof args.statusCode === "number"
+            ? args.statusCode
+            : undefined;
+      const bodyBytes =
+        typeof args.bodyLength === "bigint"
+          ? Number(args.bodyLength)
+          : typeof args.bodyLength === "number"
+            ? args.bodyLength
+            : undefined;
+      const errorMessage = typeof args.errorMessage === "string" ? args.errorMessage : "";
+      const status = errorMessage
+        ? "precompile-error"
+        : statusCode !== undefined && statusCode >= 400
+          ? "http-error"
+          : "complete";
+      const detailParts = [
+        statusCode === undefined ? "Consumer evidence emitted" : `HTTP ${statusCode}`,
+        bodyBytes ? `${bodyBytes.toLocaleString()} bytes` : undefined,
+        errorMessage || undefined,
+      ].filter(Boolean);
+
+      return {
+        status,
+        detail: detailParts.join(" · "),
+        result: {
+          caller: args.caller,
+          statusCode,
+          bodyBytes,
+          errorMessage: errorMessage || undefined,
+        },
+      };
+    } catch {
+      // Fall through to the legacy event parser for imported older transactions.
+    }
+
+    try {
+      const decoded = decodeEventLog({
+        abi: legacyHttpRunnerAbi,
         data: log.data as `0x${string}`,
         topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
       });
@@ -1032,8 +1122,13 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
             : undefined;
       const bodyBytes = hexByteLength(args.body);
       const errorMessage = typeof args.errorMessage === "string" ? args.errorMessage : "";
+      const bodyText = decodeHexText(args.body);
       const bodyPreview = decodeHexTextPreview(args.body);
-      const status = errorMessage ? "failed" : "complete";
+      const status = errorMessage
+        ? "precompile-error"
+        : statusCode !== undefined && statusCode >= 400
+          ? "http-error"
+          : "complete";
       const detailParts = [
         statusCode === undefined ? "Callback emitted" : `HTTP ${statusCode}`,
         bodyBytes ? `${bodyBytes.toLocaleString()} bytes` : undefined,
@@ -1048,6 +1143,7 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
           caller: args.caller,
           statusCode,
           bodyBytes,
+          bodyText,
           bodyPreview: bodyPreview?.text,
           bodyPreviewTruncated: bodyPreview?.truncated || undefined,
           errorMessage: errorMessage || undefined,
@@ -1060,7 +1156,7 @@ function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
 
   return {
     status: "missing",
-    detail: "No HttpResult event found",
+    detail: "No HTTP response evidence found",
   };
 }
 
@@ -1101,11 +1197,11 @@ function runnerTraceStages(run: RunnerRun) {
       detail: spcDetail,
     },
     {
-      label: "Callback",
+      label: callback.status === "precompile-error" ? "Precompile" : "HTTP response",
       tone:
         callback.status === "complete"
           ? ("ok" as const)
-          : callback.status === "failed"
+          : callback.status === "precompile-error"
             ? ("bad" as const)
             : ("wait" as const),
       detail: callback.detail,
@@ -2267,6 +2363,7 @@ function App() {
           args: [httpDraft.encodedInput as `0x${string}`],
         })
       : undefined;
+  const hasPendingHttpTransaction = runnerRuns.some((run) => run.status === "pending");
   const canSendRunner =
     Boolean(runnerCalldata) &&
     runnerAddressOk &&
@@ -2274,6 +2371,7 @@ function App() {
     wallet.status === "connected" &&
     isRightChain &&
     isRitualWalletFunded &&
+    !hasPendingHttpTransaction &&
     runnerTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
     () => [
@@ -2289,18 +2387,25 @@ function App() {
       },
       {
         ok: runnerAddressOk,
-        label: "Runner contract address set",
-        detail: runnerAddressOk ? formatAddress(cleanRunnerAddress) : "Deploy runner, then paste its address.",
+        label: "HTTP consumer address set",
+        detail: runnerAddressOk ? formatAddress(cleanRunnerAddress) : "Set a verified HTTP consumer address.",
       },
       {
         ok: runnerCodeState.status === "contract",
-        label: "Runner bytecode verified",
+        label: "Consumer bytecode verified",
         detail: describeRunnerCodeState(runnerCodeState),
       },
       {
         ok: Boolean(activeSavedRunner),
-        label: "Runner saved locally",
+        label: "Consumer saved locally",
         detail: activeSavedRunner?.label ?? "Save the deployed address for reuse.",
+      },
+      {
+        ok: !hasPendingHttpTransaction,
+        label: "No HTTP transaction pending",
+        detail: hasPendingHttpTransaction
+          ? "Wait for the current async transaction to settle before sending another."
+          : "This browser has no unsettled HTTP transaction for the current history scope.",
       },
       {
         ok: wallet.status === "connected" && isRightChain,
@@ -2333,6 +2438,7 @@ function App() {
       isRightChain,
       isRitualWalletFunded,
       hasRitualBalance,
+      hasPendingHttpTransaction,
       isRitualLockSufficient,
       ritualLockRemaining,
       runnerAddressOk,
@@ -2856,7 +2962,7 @@ function App() {
         setRunnerCodeState({
           status: "error",
           address,
-          error: error instanceof Error ? error.message : "Could not verify runner bytecode.",
+          error: error instanceof Error ? error.message : "Could not verify consumer bytecode.",
         });
       });
 
@@ -2929,7 +3035,7 @@ function App() {
   const previewNextStep =
     selectedRecipe.id === "http"
       ? isReady
-        ? "Ready for a contract runner call."
+        ? "Ready for an HTTP consumer call."
         : "Resolve readiness checks before sending."
       : selectedRecipe.id === "scheduler"
         ? scheduleDraft.encodedInput
@@ -2961,7 +3067,7 @@ function App() {
       jqDraft: selectedRecipe.id === "jq" ? jqDraft : undefined,
       agentDraft: selectedRecipe.id === "agent" ? agentDraft : undefined,
       scheduleDraft: selectedRecipe.id === "scheduler" ? scheduleDraft : undefined,
-      runner:
+      httpConsumer:
         selectedRecipe.id === "http"
           ? {
               address: cleanRunnerAddress || "unset",
@@ -3059,7 +3165,7 @@ function App() {
 
   const copyRunnerCalldata = React.useCallback(async () => {
     if (!runnerCalldata) return;
-    const copiedToClipboard = await copyText(runnerCalldata, "Runner calldata copied.");
+    const copiedToClipboard = await copyText(runnerCalldata, "HTTP consumer calldata copied.");
     if (!copiedToClipboard) return;
     setCopiedRunnerCalldata(true);
     window.setTimeout(() => setCopiedRunnerCalldata(false), 1400);
@@ -3143,7 +3249,7 @@ function App() {
   const clearRunnerHistory = React.useCallback(() => {
     setRunnerRuns([]);
     window.localStorage.removeItem(runnerHistoryScope);
-    setRunnerHistoryMessage("Runner history cleared.");
+    setRunnerHistoryMessage("HTTP history cleared.");
   }, [runnerHistoryScope]);
 
   const copyRunnerHistoryJson = React.useCallback(async () => {
@@ -3159,21 +3265,21 @@ function App() {
         null,
         2,
       ),
-      "Runner history JSON copied.",
+      "HTTP history JSON copied.",
     );
     if (!copiedToClipboard) {
       setRunnerHistoryMessage("Copy failed. Check browser clipboard permissions.");
       return;
     }
     setCopiedRunnerHistory(true);
-    setRunnerHistoryMessage("Runner history JSON copied.");
+    setRunnerHistoryMessage("HTTP history JSON copied.");
     window.setTimeout(() => setCopiedRunnerHistory(false), 1400);
   }, [copyText, runnerHistoryScopeLabel, runnerRuns]);
 
   const importRunnerHistoryJson = React.useCallback(() => {
     const imported = parseRunnerHistoryImport(runnerHistoryImportValue);
     if (!imported.length) {
-      setRunnerHistoryMessage("Paste valid Precompile Studio runner history JSON.");
+      setRunnerHistoryMessage("Paste valid Precompile Studio HTTP history JSON.");
       return;
     }
 
@@ -3456,7 +3562,14 @@ function App() {
   const sendRunnerTransaction = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address || !runnerCalldata || !runnerAddressOk) {
-      setRunnerTxState({ status: "error", error: "Connect wallet, encode HTTP input, and set a runner address." });
+      setRunnerTxState({ status: "error", error: "Connect wallet, encode HTTP input, and set a consumer address." });
+      return;
+    }
+    if (hasPendingHttpTransaction) {
+      setRunnerTxState({
+        status: "error",
+        error: "An HTTP transaction is still pending in this browser. Wait for it to settle or refresh its receipt before sending another.",
+      });
       return;
     }
 
@@ -3489,10 +3602,10 @@ function App() {
     } catch (error) {
       setRunnerTxState({
         status: "error",
-        error: error instanceof Error ? error.message : "Runner transaction was rejected.",
+        error: error instanceof Error ? error.message : "HTTP consumer transaction was rejected.",
       });
     }
-  }, [cleanRunnerAddress, fieldState.http, refreshRunnerReceipt, runnerAddressOk, runnerCalldata, wallet.address]);
+  }, [cleanRunnerAddress, fieldState.http, hasPendingHttpTransaction, refreshRunnerReceipt, runnerAddressOk, runnerCalldata, wallet.address]);
 
   React.useEffect(() => {
     const pendingHashes = pendingRunnerKey ? pendingRunnerKey.split(",") : [];
@@ -4123,12 +4236,12 @@ function App() {
               <div className="runner-panel utility-panel">
                 <div className="section-head">
                   <div>
-                    <span>Runner transaction</span>
+                    <span>HTTP transaction</span>
                     <strong>{runnerCalldata ? "Calldata prepared" : "Resolve ABI input first"}</strong>
                   </div>
                 </div>
                 <label className="runner-address">
-                  <span>Runner contract</span>
+                  <span>HTTP consumer</span>
                   <input
                     name="runner-contract"
                     value={runnerAddress}
@@ -4139,12 +4252,12 @@ function App() {
                 </label>
                 <div className="runner-save-row">
                   <label>
-                    <span>Runner label</span>
+                    <span>Consumer label</span>
                     <input
                       name="runner-label"
                       value={runnerLabel}
                       onChange={(event) => setRunnerLabel(event.target.value)}
-                      placeholder={runnerAddressOk ? activeSavedRunner?.label ?? defaultRunnerLabel(cleanRunnerAddress) : "HTTP runner"}
+                      placeholder={runnerAddressOk ? activeSavedRunner?.label ?? defaultRunnerLabel(cleanRunnerAddress) : "HTTP consumer"}
                     />
                   </label>
                   <button className="secondary-action" type="button" onClick={saveRunnerContract} disabled={!runnerAddressOk}>
@@ -4154,7 +4267,7 @@ function App() {
                 </div>
                 <div className="runner-saved">
                   <div className="runner-history-head">
-                    <span>Saved runners</span>
+                    <span>Saved consumers</span>
                     <strong>{runnerStorageScope === "local" ? "local" : formatAddress(wallet.address)}</strong>
                   </div>
                   {savedRunners.length ? (
@@ -4177,7 +4290,7 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    <p>No saved runner contracts yet.</p>
+                    <p>No saved HTTP consumers yet.</p>
                   )}
                 </div>
                 <div className="runner-setup">
@@ -4188,23 +4301,11 @@ function App() {
                     aria-expanded={showRunnerSetup}
                   >
                     <ChevronDown size={15} />
-                    Deployment checklist
+                    Submission checklist
                     <span>{runnerSetupOpenCount ? `${runnerSetupOpenCount} open` : "ready"}</span>
                   </button>
                   {showRunnerSetup ? (
                     <div className="runner-setup-body">
-                      <div className="runner-command-list">
-                        <button type="button" onClick={() => copyValue(RUNNER_BUILD_COMMAND)}>
-                          <TerminalSquare size={14} />
-                          <span>Build</span>
-                          <code>{RUNNER_BUILD_COMMAND}</code>
-                        </button>
-                        <button type="button" onClick={() => copyValue(RUNNER_DEPLOY_COMMAND)}>
-                          <TerminalSquare size={14} />
-                          <span>Deploy</span>
-                          <code>{RUNNER_DEPLOY_COMMAND}</code>
-                        </button>
-                      </div>
                       <div className="runner-check-list">
                         {runnerSetupChecks.map((check) => (
                           <div className={check.ok ? "runner-check ok" : "runner-check pending"} key={check.label}>
@@ -4214,9 +4315,6 @@ function App() {
                           </div>
                         ))}
                       </div>
-                      <a href={RUNNER_GUIDE_URL} target="_blank" rel="noreferrer">
-                        Runner deployment guide <ArrowUpRight size={13} />
-                      </a>
                     </div>
                   ) : null}
                 </div>
@@ -4227,16 +4325,16 @@ function App() {
                   </button>
                   <button className="primary-action" type="button" onClick={sendRunnerTransaction} disabled={!canSendRunner}>
                     {runnerTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
-                    {runnerTxState.status === "submitting" ? "Confirming" : "Send runner tx"}
+                    {runnerTxState.status === "submitting" ? "Confirming" : "Send HTTP tx"}
                   </button>
                 </div>
-                {!runnerAddressOk && cleanRunnerAddress ? <p>Runner address must be a valid contract address.</p> : null}
+                {!runnerAddressOk && cleanRunnerAddress ? <p>Consumer address must be a valid contract address.</p> : null}
                 {runnerTxState.status === "submitted" ? <p>Submitted {formatHash(runnerTxState.hash)}</p> : null}
                 {runnerTxState.status === "error" ? <p>{runnerTxState.error}</p> : null}
                 <div className="runner-history" aria-live="polite">
                   <div className="runner-history-head">
                     <div>
-                      <span>Recent runner txs</span>
+                      <span>Recent HTTP txs</span>
                       <small>{runnerHistoryScopeLabel}</small>
                     </div>
                     <div className="runner-history-tools">
@@ -4303,7 +4401,7 @@ function App() {
                         name="runner-history-json"
                         value={runnerHistoryImportValue}
                         onChange={(event) => setRunnerHistoryImportValue(event.target.value)}
-                        placeholder="Paste Precompile Studio runner history JSON"
+                        placeholder="Paste Precompile Studio HTTP history JSON"
                         spellCheck={false}
                       />
                       {runnerHistoryMessage ? <p>{runnerHistoryMessage}</p> : null}
@@ -4312,7 +4410,7 @@ function App() {
                     <p>{runnerHistoryMessage}</p>
                   ) : null}
                   {runnerRuns.length ? (
-                    <div className="runner-history-filter" aria-label="Filter runner transactions by status">
+                    <div className="runner-history-filter" aria-label="Filter HTTP transactions by status">
                       {RUNNER_HISTORY_FILTERS.map((filter) => (
                         <button
                           className={runnerHistoryFilter === filter.key ? "active" : ""}
@@ -4333,6 +4431,9 @@ function App() {
                         const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
                         const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
                         const traceStages = runnerTraceStages(run);
+                        const responseEvidence = describeRunnerCallback(run);
+                        const response = responseEvidence.result;
+                        const responseBody = formatHttpBody(response?.bodyText, response?.contentType);
                         return (
                           <article className={`runner-run ${run.status}`} key={run.hash}>
                             <div className="runner-run-main">
@@ -4358,6 +4459,57 @@ function App() {
                                 </div>
                               ))}
                             </div>
+                            {response ? (
+                              <details className={`http-response ${responseEvidence.status}`}>
+                                <summary>
+                                  <span>Response details</span>
+                                  <code>
+                                    {response.errorMessage
+                                      ? "precompile error"
+                                      : response.statusCode !== undefined
+                                        ? `HTTP ${response.statusCode}`
+                                        : "HTTP output"}
+                                  </code>
+                                </summary>
+                                <div className="http-response-body">
+                                  <div className="http-response-facts">
+                                    {response.statusCode !== undefined ? (
+                                      <span>
+                                        <small>Status</small>
+                                        <code>{response.statusCode}</code>
+                                      </span>
+                                    ) : null}
+                                    {response.contentType ? (
+                                      <span>
+                                        <small>Content type</small>
+                                        <code>{response.contentType}</code>
+                                      </span>
+                                    ) : null}
+                                    {response.bodyBytes !== undefined ? (
+                                      <span>
+                                        <small>Body</small>
+                                        <code>{response.bodyBytes.toLocaleString()} bytes</code>
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {response.errorMessage ? <p className="http-response-error">{response.errorMessage}</p> : null}
+                                  {response.headers?.length ? (
+                                    <details className="http-response-headers">
+                                      <summary>{response.headers.length} response headers</summary>
+                                      <dl>
+                                        {response.headers.map((header, index) => (
+                                          <React.Fragment key={`${header.name}-${index}`}>
+                                            <dt>{header.name}</dt>
+                                            <dd>{header.value}</dd>
+                                          </React.Fragment>
+                                        ))}
+                                      </dl>
+                                    </details>
+                                  ) : null}
+                                  {responseBody ? <pre>{responseBody}</pre> : <p>No readable response body.</p>}
+                                </div>
+                              </details>
+                            ) : null}
                             {run.error ? <p>{run.error}</p> : null}
                             <div className="runner-run-actions">
                               <a href={explorerTransactionUrl(run.hash)} target="_blank" rel="noreferrer">
@@ -4384,9 +4536,9 @@ function App() {
                       })}
                     </div>
                   ) : runnerRuns.length ? (
-                    <p>No {runnerHistoryFilter} runner transactions in this local history.</p>
+                    <p>No {runnerHistoryFilter} HTTP transactions in this local history.</p>
                   ) : (
-                    <p>Submitted runner transactions will appear here.</p>
+                    <p>Submitted HTTP transactions will appear here.</p>
                   )}
                 </div>
               </div>
@@ -4582,14 +4734,14 @@ function FaqPage({ onStart }: { onStart: () => void }) {
             <p>
               Precompile Studio is not another explorer and not a custodial wallet. It is a browser-based
               composer for Ritual testnet precompile calls. The main job is to make a technical transaction
-              understandable before you sign it: inputs, encoded calldata, readiness checks, runner details,
+              understandable before you sign it: inputs, encoded calldata, readiness checks, consumer details,
               and trace evidence all stay visible in one place.
             </p>
             <p>
-              Simple example: choose the HTTP recipe, keep method as GET, and enter a public API URL. The
-              studio encodes that request for Ritual&apos;s HTTP precompile. If the HTTP runner contract is
-              configured, you can ask your wallet to submit the runner transaction, then watch the local
-              runner history for receipt, spcCalls, and callback output.
+              Simple example: load the HTTP 200 echo preset, choose a registered executor, and connect MetaMask
+              on Ritual. The studio sends the request through a verified HTTP consumer. The history then shows
+              the confirmed transaction separately from the HTTP status, headers, and response body returned in
+              receipt.spcCalls.
             </p>
           </section>
 
@@ -4598,7 +4750,7 @@ function FaqPage({ onStart }: { onStart: () => void }) {
             <div className="recipe-guide-list">
               <div>
                 <strong>HTTP</strong>
-                <p>Encode an HTTP request and submit it through the runner contract when checks pass.</p>
+                <p>Encode an HTTP request, submit it through a verified consumer, and inspect the returned response.</p>
               </div>
               <div>
                 <strong>JQ</strong>
@@ -4635,12 +4787,12 @@ function FaqPage({ onStart }: { onStart: () => void }) {
             <h2>Costs and safety</h2>
             <p>
               Users pay their own Ritual testnet gas from the connected wallet. The studio does not sponsor
-              gas and does not send transactions without a wallet confirmation. Local presets, runner addresses,
-              and runner history are saved in browser storage, so they are convenient but not a backend account.
+              gas and does not send transactions without a wallet confirmation. Local presets, consumer addresses,
+              and HTTP history are saved in browser storage, so they are convenient but not a backend account.
             </p>
             <p>
               Do not paste private keys, seed phrases, or real API secrets into recipe fields. For terminal
-              runner deployment, use a testnet-only private key and keep it outside the repo.
+              consumer deployment, use a testnet-only private key and keep it outside the repo.
             </p>
           </section>
         </div>

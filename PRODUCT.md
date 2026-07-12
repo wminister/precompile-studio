@@ -10,7 +10,7 @@ Precompile Studio is for developers and onchain builders experimenting with Ritu
 
 ## Product Purpose
 
-The product helps users compose, inspect, and prepare Ritual precompile calls with visible readiness checks. Success means a builder can understand whether their wallet, chain, balance, ABI input, and guardrails are ready before moving to a signed transaction or runner flow.
+The product helps users compose, inspect, and prepare Ritual precompile calls with visible readiness checks. Success means a builder can understand whether their wallet, chain, balance, ABI input, and guardrails are ready before moving to a signed transaction or consumer flow.
 
 ## Brand Personality
 

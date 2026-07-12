@@ -2,11 +2,12 @@
   "chainId": 1979,
   "rpc": "https://rpc.ritualfoundation.org",
   "contracts": {
-    "HttpPrecompileRunner": {
-      "address": "0x2Edc9b5AE9F95D4FC36cE47f08406EbBaa3CA499",
-      "deploymentTransaction": "0x7192d20957f43afb2b6e8109a335a6228d942a5978a6d9c1e0b7492bd75274d7",
+    "HttpPrecompileConsumer": {
+      "address": "0x30a2132b7f47A30E2D55A191F6723161C232263C",
+      "deploymentTransaction": "0xc01f20748a5db45415689251e5e2480564d59325770a30c4bf368be9ca430797",
       "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
-      "blockNumber": 41427296
+      "blockNumber": 44077736,
+      "smokeTransaction": "0xef5120f0ef6c5310ad2dba1ed849fb4aae5b55dfbe91cff56b55b93775f21845"
     }
   }
 }

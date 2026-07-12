@@ -15,15 +15,15 @@ The importer accepts either:
 {
   "version": 1,
   "preset": {
-    "id": "http-github-example",
+    "id": "http-200-echo",
     "recipeId": "http",
-    "label": "GitHub repo metadata",
+    "label": "HTTP 200 echo",
     "updatedAt": 1783110000000,
     "fields": [
       { "key": "executor", "value": "0x0000000000000000000000000000000000000000" },
       { "key": "method", "value": "GET" },
       { "key": "ttl", "value": "30" },
-      { "key": "url", "value": "https://api.github.com/repos/ritual-net/infernet-ml" },
+      { "key": "url", "value": "https://httpbin.org/get" },
       { "key": "headers", "value": "accept: application/json" },
       { "key": "body", "value": "" }
     ]

@@ -1,6 +1,8 @@
-# HTTP Precompile Runner
+# HTTP Precompile Consumer
 
-`HttpPrecompileRunner.sol` is a minimal helper contract for calling Ritual's HTTP precompile from a normal wallet transaction.
+`HttpPrecompileConsumer.sol` is Precompile Studio's owned consumer for Ritual's short-running HTTP precompile. It uses `PrecompileConsumer` to unwrap Ritual's `(simmedInput, actualOutput)` envelope before decoding the five-field HTTP response.
+
+Full headers and body data remain available in `receipt.spcCalls`. The contract stores compact evidence only: caller, HTTP status, body length, body hash, and error hash.
 
 ## Current Ritual Testnet Deployment
 
@@ -9,13 +11,8 @@ The latest public deployment is recorded in [`../deployments/ritual-testnet.json
 ## Build
 
 ```bash
-forge build
-```
-
-Or through npm:
-
-```bash
-npm run runner:build
+npm run consumer:build
+npm run consumer:test
 ```
 
 ## Deploy To Ritual Testnet
@@ -28,23 +25,23 @@ forge create \
   --broadcast \
   --rpc-url https://rpc.ritualfoundation.org \
   --private-key "$RITUAL_PRIVATE_KEY" \
-  contracts/HttpPrecompileRunner.sol:HttpPrecompileRunner
+  contracts/HttpPrecompileConsumer.sol:HttpPrecompileConsumer
 ```
 
 Or through npm:
 
 ```bash
-RITUAL_PRIVATE_KEY=0x... npm run runner:deploy
+RITUAL_PRIVATE_KEY=0x... npm run consumer:deploy
 ```
 
-After deployment, copy the deployed contract address into Precompile Studio's runner panel and save it as a runner contract.
+After deployment, update `deployments/ritual-testnet.json`; the frontend reads its default consumer address from that file.
 
 ## Runtime Flow
 
 1. Compose an HTTP precompile payload in Precompile Studio.
 2. Fund `RitualWallet` from the inspector if escrow is empty.
-3. Paste or load the deployed runner address.
-4. Send `fetchHttp(bytes)` from the runner panel.
-5. Watch the submitted transaction history for the receipt, `spcCalls`, and decoded `HttpResult` callback evidence.
+3. Confirm the configured HTTP consumer has bytecode.
+4. Send `callHTTPCallRaw(bytes)` from the consumer panel.
+5. Watch HTTP history for the receipt, `spcCalls`, decoded response, and compact `HttpResult` evidence.
 
 The connected wallet still pays its own Ritual testnet gas and precompile fees.

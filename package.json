@@ -8,8 +8,9 @@
     "build": "npm run verify:recipes && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "verify:recipes": "node scripts/verify-recipes.mjs",
-    "runner:build": "forge build",
-    "runner:deploy": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/HttpPrecompileRunner.sol:HttpPrecompileRunner"
+    "consumer:build": "forge build",
+    "consumer:test": "forge test",
+    "consumer:deploy": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/HttpPrecompileConsumer.sol:HttpPrecompileConsumer"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
