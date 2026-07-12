@@ -9,3 +9,5 @@ vite.config.d.ts
 .env*
 .secrets/
 .vercel/
+playwright-report/
+test-results/

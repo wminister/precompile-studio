@@ -48,7 +48,7 @@ declare global {
   }
 }
 
-type Eip1193Provider = {
+export type Eip1193Provider = {
   request: <T = unknown>(args: { method: string; params?: unknown[] }) => Promise<T>;
   on?: (event: string, handler: (...args: unknown[]) => void) => void;
   removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
@@ -70,7 +70,7 @@ type EIP6963ProviderDetail = {
   provider: Eip1193Provider;
 };
 
-type WalletTransactionRequest = {
+export type WalletTransactionRequest = {
   from: string;
   to: string;
   chainId?: string;
@@ -84,7 +84,7 @@ type WalletTransactionRequest = {
   maxPriorityFeePerGas?: string;
 };
 
-type SendWalletTransactionOptions = {
+export type SendWalletTransactionOptions = {
   signFirst?: boolean;
 };
 
@@ -157,7 +157,7 @@ type RunnerCodeState = {
 type ReceiptStatus = "pending" | "confirmed" | "failed";
 type RunnerHistoryFilter = "all" | ReceiptStatus;
 
-type RpcReceipt = {
+export type RpcReceipt = {
   transactionHash: string;
   blockNumber?: string;
   status?: string;
@@ -166,7 +166,7 @@ type RpcReceipt = {
   spcCalls?: unknown;
 };
 
-type SpcCall = {
+export type SpcCall = {
   address?: string;
   input?: string;
   output?: string;
@@ -174,7 +174,7 @@ type SpcCall = {
   blockNumber?: number;
 };
 
-type RunnerRun = {
+export type RunnerRun = {
   hash: string;
   runnerAddress: string;
   submittedAt: number;
@@ -192,7 +192,7 @@ type RpcLog = {
   topics?: string[];
 };
 
-type RunnerCallbackEvidence = {
+export type RunnerCallbackEvidence = {
   status: "pending" | "complete" | "http-error" | "precompile-error" | "missing";
   detail: string;
   result?: {
@@ -256,9 +256,9 @@ type RecipePreset = {
   source?: "local" | "example";
 };
 
-type RecipeId = "http" | "jq" | "llm" | "agent" | "scheduler";
+export type RecipeId = "http" | "jq" | "llm" | "agent" | "scheduler";
 
-type Recipe = {
+export type Recipe = {
   id: RecipeId;
   name: string;
   label: string;
@@ -268,7 +268,7 @@ type Recipe = {
   fields: ComposerField[];
 };
 
-type ComposerField = {
+export type ComposerField = {
   key: string;
   label: string;
   value: string;
@@ -276,7 +276,7 @@ type ComposerField = {
   options?: string[];
 };
 
-const RITUAL = {
+export const RITUAL = {
   chainId: 1979,
   chainHex: "0x7bb",
   rpc: "https://rpc.ritualfoundation.org",
@@ -285,7 +285,7 @@ const RITUAL = {
   docs: "https://docs.ritualfoundation.org",
 };
 
-const RITUAL_CHAIN_PARAMS = {
+export const RITUAL_CHAIN_PARAMS = {
   chainId: RITUAL.chainHex,
   chainName: "Ritual Testnet",
   nativeCurrency: { name: "RITUAL", symbol: "RITUAL", decimals: 18 },
@@ -293,7 +293,7 @@ const RITUAL_CHAIN_PARAMS = {
   blockExplorerUrls: [RITUAL.explorer],
 };
 
-const SYSTEM_CONTRACTS = {
+export const SYSTEM_CONTRACTS = {
   RitualWallet: "0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948",
   AsyncJobTracker: "0xC069FFCa0389f44eCA2C626e55491b0ab045AEF5",
   TEEServiceRegistry: "0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F",
@@ -323,7 +323,7 @@ function capabilityLabel(capabilityId: number) {
   return EXECUTOR_CAPABILITIES.find((capability) => capability.id === capabilityId)?.label ?? `Capability ${capabilityId}`;
 }
 
-const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
+export const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const LLM_INFERENCE_PRECOMPILE = "0x0000000000000000000000000000000000000802";
 const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
 const SOVEREIGN_AGENT_PRECOMPILE = "0x000000000000000000000000000000000000080c";
@@ -543,7 +543,7 @@ const httpConsumerAbi = [
   },
 ] as const;
 
-const recipes: Recipe[] = [
+export const recipes: Recipe[] = [
   {
     id: "http",
     name: "HTTP",
@@ -864,7 +864,7 @@ function decodeHexNumber(hex?: string) {
   return Number.parseInt(hex, 16);
 }
 
-function receiptStatus(receipt?: RpcReceipt): ReceiptStatus {
+export function receiptStatus(receipt?: RpcReceipt): ReceiptStatus {
   if (!receipt) return "pending";
   return receipt.status === "0x0" ? "failed" : "confirmed";
 }
@@ -959,7 +959,7 @@ function formatHttpBody(bodyText?: string, contentType?: string) {
   return bodyText;
 }
 
-function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvidence | undefined {
+export function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvidence | undefined {
   if (!output || !/^0x(?:[a-fA-F0-9]{2})*$/.test(output)) return undefined;
 
   try {
@@ -1002,7 +1002,7 @@ function describeHttpPrecompileOutput(output?: string): RunnerCallbackEvidence |
   }
 }
 
-function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
+export function describeRunnerCallback(run: RunnerRun): RunnerCallbackEvidence {
   if (!run.receipt) {
     return {
       status: "pending",
@@ -1168,7 +1168,7 @@ function formatSubmittedAt(timestamp: number) {
   }).format(timestamp);
 }
 
-function runnerTraceStages(run: RunnerRun) {
+export function runnerTraceStages(run: RunnerRun) {
   const blockNumber = decodeHexNumber(run.receipt?.blockNumber);
   const gasUsed = decodeHexNumber(run.receipt?.gasUsed);
   const callback = describeRunnerCallback(run);
@@ -1293,7 +1293,7 @@ function parseSavedExecutors(value: string | null): SavedExecutor[] {
   }
 }
 
-function parseRunnerRuns(value: string | null): RunnerRun[] {
+export function parseRunnerRuns(value: string | null): RunnerRun[] {
   if (!value) return [];
   try {
     const parsed = JSON.parse(value);
@@ -1641,7 +1641,7 @@ async function sendSignedRawTransaction(provider: Eip1193Provider, tx: WalletTra
   }
 }
 
-async function sendWalletTransaction(
+export async function sendWalletTransaction(
   provider: Eip1193Provider,
   tx: WalletTransactionRequest,
   options: SendWalletTransactionOptions = {},
@@ -1663,6 +1663,49 @@ async function sendWalletTransaction(
     }
     return sendSignedRawTransaction(provider, tx);
   }
+}
+
+export async function requestWalletAccounts(provider: Eip1193Provider) {
+  return provider.request<string[]>({ method: "eth_requestAccounts" });
+}
+
+export async function ensureRitualChain(provider: Eip1193Provider) {
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: RITUAL.chainHex }],
+    });
+    return "switched" as const;
+  } catch (switchError) {
+    if (!isUnknownChainError(switchError)) throw switchError;
+  }
+
+  await provider.request({
+    method: "wallet_addEthereumChain",
+    params: [RITUAL_CHAIN_PARAMS],
+  });
+  await provider.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: RITUAL.chainHex }],
+  });
+  return "added" as const;
+}
+
+export function createRitualDepositTransaction(
+  from: string,
+  value: bigint,
+  lockDuration: bigint,
+): WalletTransactionRequest {
+  return {
+    from,
+    to: SYSTEM_CONTRACTS.RitualWallet,
+    value: `0x${value.toString(16)}`,
+    data: encodeFunctionData({
+      abi: ritualWalletAbi,
+      functionName: "deposit",
+      args: [lockDuration],
+    }),
+  };
 }
 
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
@@ -1719,7 +1762,7 @@ function fieldValue(fields: ComposerField[], key: string) {
   return fields.find((field) => field.key === key)?.value ?? "";
 }
 
-function buildHttpDraft(fields: ComposerField[]) {
+export function buildHttpDraft(fields: ComposerField[]) {
   const executor = fieldValue(fields, "executor").trim();
   const method = fieldValue(fields, "method").trim();
   const ttlRaw = fieldValue(fields, "ttl").trim();
@@ -1775,7 +1818,7 @@ function buildHttpDraft(fields: ComposerField[]) {
   };
 }
 
-function buildLlmDraft(fields: ComposerField[]) {
+export function buildLlmDraft(fields: ComposerField[]) {
   const executor = fieldValue(fields, "executor").trim();
   const ttlValue = fieldValue(fields, "ttl").trim();
   const ttl = Number(ttlValue);
@@ -1869,7 +1912,7 @@ function buildLlmDraft(fields: ComposerField[]) {
   };
 }
 
-function buildJqDraft(fields: ComposerField[]) {
+export function buildJqDraft(fields: ComposerField[]) {
   const query = fieldValue(fields, "query").trim();
   const inputData = fieldValue(fields, "inputData").trim();
   const outputTypeKey = fieldValue(fields, "outputType").trim();
@@ -1906,7 +1949,7 @@ function buildJqDraft(fields: ComposerField[]) {
   };
 }
 
-function buildAgentDraft(fields: ComposerField[]) {
+export function buildAgentDraft(fields: ComposerField[]) {
   const executor = fieldValue(fields, "executor").trim();
   const errors: string[] = [];
   const ttl = parseUintField(fieldValue(fields, "ttl"), "TTL", errors, { min: 1n });
@@ -2009,7 +2052,7 @@ function buildAgentDraft(fields: ComposerField[]) {
   };
 }
 
-function buildScheduleDraft(fields: ComposerField[]) {
+export function buildScheduleDraft(fields: ComposerField[]) {
   const errors: string[] = [];
   const callbackData = parseHexBytesField(fieldValue(fields, "callbackData"), "Callback calldata", errors);
   const gasLimit = parseUintField(fieldValue(fields, "gas"), "Gas limit", errors, { min: 1n, max: 4294967295n });
@@ -2126,7 +2169,7 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
 // happens during estimation), so it badly under-reports — a real HTTP call
 // needs ~157k+ but estimates ~97k. Trusting the estimate makes the tx die
 // out-of-gas, so we always take the larger of the estimate and the floor.
-async function prepareWalletTransaction(tx: WalletTransactionRequest, gasFloor: string): Promise<WalletTransactionRequest> {
+export async function prepareWalletTransaction(tx: WalletTransactionRequest, gasFloor: string): Promise<WalletTransactionRequest> {
   const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
     rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
@@ -2855,7 +2898,7 @@ function App() {
       providerRef.current = provider;
       setWallet((current) => ({ ...current, status: "connecting", error: undefined }));
       try {
-        const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
+        const accounts = await requestWalletAccounts(provider);
         await refreshWallet(provider, accounts[0]);
       } catch (error) {
         setWallet({ status: "error", error: walletErrorMessage(error, "Wallet connection failed.") });
@@ -2891,36 +2934,13 @@ function App() {
     setIsSwitchingChain(true);
     setWallet((current) => ({ ...current, error: undefined }));
     try {
-      await provider.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: RITUAL.chainHex }],
-      });
+      await ensureRitualChain(provider);
       await refreshWallet(provider, currentAddress);
     } catch (switchError) {
-      if (!isUnknownChainError(switchError)) {
-        setWallet((current) => ({
-          ...current,
-          error: walletErrorMessage(switchError, "Could not switch to Ritual."),
-        }));
-        return;
-      }
-
-      try {
-        await provider.request({
-          method: "wallet_addEthereumChain",
-          params: [RITUAL_CHAIN_PARAMS],
-        });
-        await provider.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: RITUAL.chainHex }],
-        });
-        await refreshWallet(provider, currentAddress);
-      } catch (addError) {
-        setWallet((current) => ({
-          ...current,
-          error: walletErrorMessage(addError, "Could not add Ritual testnet to wallet."),
-        }));
-      }
+      setWallet((current) => ({
+        ...current,
+        error: walletErrorMessage(switchError, "Could not switch or add Ritual testnet."),
+      }));
     } finally {
       chainSwitchingRef.current = false;
       chainSwitchAccountRef.current = undefined;
@@ -3536,16 +3556,10 @@ function App() {
 
     setDepositState({ status: "submitting" });
     try {
-      const tx = await prepareWalletTransaction({
-        from: wallet.address,
-        to: SYSTEM_CONTRACTS.RitualWallet,
-        value: `0x${value.toString(16)}`,
-        data: encodeFunctionData({
-          abi: ritualWalletAbi,
-          functionName: "deposit",
-          args: [lockDuration],
-        }),
-      }, "0x249f0");
+      const tx = await prepareWalletTransaction(
+        createRitualDepositTransaction(wallet.address, value, lockDuration),
+        "0x249f0",
+      );
       const hash = await sendWalletTransaction(provider, tx);
       setDepositState({ status: "submitted", hash });
       window.setTimeout(() => {
@@ -4837,13 +4851,13 @@ function Guard({ ok, label, help }: { ok: boolean; label: string; help?: string 
 }
 
 const rootElement = document.getElementById("root");
-if (!rootElement) throw new Error("Precompile Studio root element is missing.");
+if (rootElement) {
+  const root = window.__precompileStudioRoot ?? createRoot(rootElement);
+  window.__precompileStudioRoot = root;
 
-const root = window.__precompileStudioRoot ?? createRoot(rootElement);
-window.__precompileStudioRoot = root;
-
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}

@@ -20,11 +20,11 @@ This roadmap records the remaining work required to turn every advertised recipe
 
 ## Phase 3: Automated Regression Coverage
 
-- [ ] Add unit tests for every recipe encoder and decoder.
-- [ ] Add receipt fixtures for HTTP success, HTTP error, precompile error, revert, malformed output, and pending transactions.
-- [ ] Add mocked EIP-1193 wallet tests for connect, chain switch, deposit, and send.
-- [ ] Add browser tests for desktop and mobile critical paths.
-- [ ] Add a production smoke check after Vercel deployment.
+- [x] Add unit tests for every recipe encoder and decoder.
+- [x] Add receipt fixtures for HTTP success, HTTP error, precompile error, revert, malformed output, and pending transactions.
+- [x] Add mocked EIP-1193 wallet tests for connect, chain switch, deposit, and send.
+- [x] Add browser tests for desktop and mobile critical paths.
+- [x] Add a production smoke check after Vercel deployment.
 
 ## Phase 4: Complete JQ
 

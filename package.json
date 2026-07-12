@@ -7,6 +7,10 @@
     "dev": "vite --host 127.0.0.1",
     "build": "npm run verify:recipes && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:all": "npm run test && npm run consumer:test && npm run test:e2e",
+    "smoke:production": "node scripts/smoke-production.mjs",
     "verify:recipes": "node scripts/verify-recipes.mjs",
     "consumer:build": "forge build",
     "consumer:test": "forge test",
@@ -25,7 +29,10 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/react": "^19.0.1",
-    "@types/react-dom": "^19.0.2"
+    "@types/react-dom": "^19.0.2",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.10"
   }
 }

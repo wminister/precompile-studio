@@ -63,6 +63,16 @@ npm run build
 
 The build verifies recipe example JSON and ABI smoke encoding before writing production output to `dist/`.
 
+## Tests
+
+```bash
+npm run test
+npm run consumer:test
+npm run test:e2e
+```
+
+Vitest covers every recipe encoder, Ritual HTTP receipt outcomes, and mocked EIP-1193 wallet flows. Foundry covers the owned consumer contract. Playwright imports a mocked Ritual receipt at desktop and mobile widths and checks the decoded response and horizontal overflow. GitHub runs all three suites before production deployment, then checks the deployed bundle with `npm run smoke:production`.
+
 ## HTTP Consumer
 
 The studio defaults to its owned HTTP consumer at `0x30a2132b7f47A30E2D55A191F6723161C232263C`, which exposes `callHTTPCallRaw(bytes)` on Ritual testnet.
