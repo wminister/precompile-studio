@@ -13,6 +13,7 @@ import {
   RITUAL_CHAIN_PARAMS,
   JQ_PRECOMPILE,
   LLM_PRECOMPILE_CONSUMER_ADDRESS,
+  SCHEDULED_JQ_CONSUMER_ADDRESS,
   SOVEREIGN_AGENT_HARNESS_ADDRESS,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
@@ -23,6 +24,7 @@ import {
   createRitualDepositTransaction,
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
+  createSchedulerTransaction,
   decodeSovereignAgentResult,
   decodeJqOutput,
   describeHttpPrecompileOutput,
@@ -34,6 +36,8 @@ import {
   receiptStatus,
   readAgentHarnessStatus,
   readAgentLifecycle,
+  readSchedulerLifecycle,
+  readScheduledJqConsumerStatus,
   recipes,
   requestWalletAccounts,
   runJqCall,
@@ -125,15 +129,99 @@ describe("recipe encoders", () => {
   });
 
   it("encodes the Scheduler recipe", () => {
-    const draft = buildScheduleDraft(recipeFields("scheduler", { payer: CONSUMER_ADDRESS }));
+    const draft = buildScheduleDraft(recipeFields("scheduler"));
     expect(draft.errors).toEqual([]);
     expect(draft.encodedInput).toMatch(/^0x/);
+    expect(draft.requiredBalance).toBe(10_400_000_000_000_000n);
   });
 
   it("rejects invalid recipe input before encoding", () => {
     expect(buildHttpDraft(recipeFields("http", { executor: zeroAddress })).encodedInput).toBeUndefined();
     expect(buildJqDraft(recipeFields("jq", { inputData: "{" })).encodedInput).toBeUndefined();
-    expect(buildScheduleDraft(recipeFields("scheduler", { payer: zeroAddress })).encodedInput).toBeUndefined();
+    expect(buildScheduleDraft(recipeFields("scheduler", { inputData: "{" })).encodedInput).toBeUndefined();
+  });
+});
+
+describe("Scheduled JQ consumer", () => {
+  it("uses the atomic payable path when escrow has a shortfall", () => {
+    const draft = buildScheduleDraft(recipeFields("scheduler"));
+    const tx = createSchedulerTransaction(TEST_ADDRESS, draft, 10_400_000_000_000_000n);
+    expect(tx.to).toBe(SCHEDULED_JQ_CONSUMER_ADDRESS);
+    expect(tx.value).toBe("0x24f2beb1aa0000");
+    expect(tx.data?.slice(0, 10)).toBe(
+      keccak256(stringToHex("fundAndSchedule(string,string,uint8,uint32,uint32,uint32,uint32,uint256,uint256)")).slice(0, 10),
+    );
+  });
+
+  it("reads escrow, schedule state, and the latest result", async () => {
+    const responses = [
+      encodeAbiParameters(parseAbiParameters("address"), [TEST_ADDRESS]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [400_000_000_000_000n]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [45_500_000n]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [0n]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [3_146_449n]),
+      encodeAbiParameters(parseAbiParameters("uint8"), [2]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [1n]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [0n]),
+      encodeAbiParameters(parseAbiParameters("uint32"), [1]),
+      encodeAbiParameters(parseAbiParameters("bytes"), [encodeAbiParameters(parseAbiParameters("uint256"), [1979n])]),
+    ];
+    let index = 0;
+    const requester = async <T,>(method: string) => (method === "eth_getLogs" ? [] : responses[index++]) as T;
+    await expect(readScheduledJqConsumerStatus(requester)).resolves.toMatchObject({
+      owner: TEST_ADDRESS,
+      balance: 400_000_000_000_000n,
+      activeScheduleId: 0n,
+      lastScheduleId: 3_146_449n,
+      scheduleState: 2,
+      executionCount: 1n,
+      lifecycle: [
+        { kind: "scheduled", label: "Schedule created" },
+        { kind: "executed", label: "Execution 1 completed" },
+        { kind: "completed", label: "Schedule completed" },
+      ],
+    });
+  });
+
+  it("reconciles schedule creation and completion events", async () => {
+    const callId = 3_146_449n;
+    const addressTopic = `0x${"0".repeat(24)}${SCHEDULED_JQ_CONSUMER_ADDRESS.slice(2).toLowerCase()}`;
+    const callIdTopic = encodeAbiParameters(parseAbiParameters("uint256"), [callId]);
+    const logs = [
+      {
+        topics: [
+          keccak256(stringToHex("CallScheduled(uint256,address,address,uint32,uint32,uint32,uint32,uint32,uint256,uint256,uint256,bytes)")),
+          callIdTopic,
+          addressTopic,
+          addressTopic,
+        ],
+        data: encodeAbiParameters(
+          parseAbiParameters("uint32,uint32,uint32,uint32,uint32,uint256,uint256,uint256,bytes"),
+          [45_371_900, 1, 20, 200_000, 100, 2_000_000_000n, 0n, 0n, "0x1234"],
+        ),
+        blockNumber: "0x2b4533c",
+        transactionHash: TX_HASH,
+      },
+      {
+        topics: [
+          keccak256(stringToHex("CallCompleted(uint256,address,address,uint32,uint32,uint32,uint256)")),
+          callIdTopic,
+          addressTopic,
+          addressTopic,
+        ],
+        data: encodeAbiParameters(parseAbiParameters("uint32,uint32,uint32,uint256"), [45_371_900, 1, 20, 1n]),
+        blockNumber: "0x2b45350",
+        transactionHash: TX_HASH,
+      },
+    ];
+    const requester = async <T,>(_method: string, params?: unknown[]) => {
+      const filter = params?.[0] as { topics?: string[] } | undefined;
+      return logs.filter((log) => log.topics[0] === filter?.topics?.[0]) as T;
+    };
+    await expect(readSchedulerLifecycle(callId, requester)).resolves.toMatchObject([
+      { kind: "scheduled", label: "Schedule created", tone: "neutral" },
+      { kind: "completed", label: "Schedule completed", tone: "ok" },
+    ]);
   });
 });
 

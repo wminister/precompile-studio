@@ -51,6 +51,19 @@ test.beforeEach(async ({ page }) => {
         );
       }
       else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
+      else if (call?.data?.startsWith(toFunctionSelector("consumerBalance()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [400_000_000_000_000n]);
+      else if (call?.data?.startsWith(toFunctionSelector("activeScheduleId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [0n]);
+      else if (call?.data?.startsWith(toFunctionSelector("lastScheduleId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [3_146_449n]);
+      else if (call?.data?.startsWith(toFunctionSelector("activeScheduleState()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [2]);
+      else if (call?.data?.startsWith(toFunctionSelector("executionCount()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [1n]);
+      else if (call?.data?.startsWith(toFunctionSelector("lastExecutionIndex()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [0n]);
+      else if (call?.data?.startsWith(toFunctionSelector("activeNumCalls()"))) result = encodeAbiParameters(parseAbiParameters("uint32"), [1]);
+      else if (call?.data?.startsWith(toFunctionSelector("lastResult()"))) {
+        result = encodeAbiParameters(
+          parseAbiParameters("bytes"),
+          [encodeAbiParameters(parseAbiParameters("uint256"), [1979n])],
+        );
+      }
       else result = "0x" + "0".repeat(64);
     }
     if (payload.method === "eth_getLogs") result = [];
@@ -113,5 +126,18 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
   await expect(launch.getByText("Connected", { exact: true })).toBeVisible();
   await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
+  await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("reconciles the completed Scheduled JQ lifecycle without overflow", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Scheduled JQ live recipe", exact: true }).click();
+
+  const workflow = page.getByTestId("scheduler-workflow");
+  await expect(workflow.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(workflow.getByText("Schedule created", { exact: true })).toBeVisible();
+  await expect(workflow.getByText("Execution 1 completed", { exact: true })).toBeVisible();
+  await expect(workflow.getByText("Schedule completed", { exact: true })).toBeVisible();
+  await expect(workflow.getByText("1979", { exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });

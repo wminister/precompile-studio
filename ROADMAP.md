@@ -52,9 +52,11 @@ Live verification note (2026-07-13): factory wiring matched Ritual's published s
 
 ## Phase 7: Complete Scheduler
 
-- [ ] Deploy a Scheduler-compatible consumer and configure approvals.
-- [ ] Schedule a real supported callback from the studio.
-- [ ] Track execution IDs, future calls, skips, failures, expiry, and cancellation.
+- [x] Deploy a Scheduler-compatible consumer and configure contract-owned escrow.
+- [x] Schedule a real supported JQ callback from the studio.
+- [x] Track execution IDs, future calls, skips, failures, expiry, and cancellation.
+
+Live verification note (2026-07-13): `ScheduledJqConsumer` was deployed at `0x7243...A668`. Atomic fund-and-schedule transaction `0x36be...6a6f` created call `3146449`; Ritual executed it at block `45,372,505`, and the consumer recorded one completed callback with decoded `uint256` result `1979`. The studio reconciles recent Scheduler events, synthetic execution transactions, and consumer state so lifecycle evidence remains useful after the RPC log-retention window.
 
 ## Phase 8: Release Hardening
 

@@ -1,21 +1,19 @@
 {
   "version": 1,
   "preset": {
-    "id": "scheduler-recurring-callback-example",
+    "id": "scheduler-jq-price-example",
     "recipeId": "scheduler",
-    "label": "Recurring callback",
+    "label": "Scheduled JQ price transform",
     "updatedAt": 1783110000000,
     "fields": [
-      { "key": "callbackData", "value": "0x000000000000000000000000000000000000000000000000000000000000000000000000" },
-      { "key": "gas", "value": "500000" },
-      { "key": "startBlock", "value": "120" },
-      { "key": "numCalls", "value": "4" },
-      { "key": "frequency", "value": "50" },
-      { "key": "ttl", "value": "30" },
-      { "key": "maxFeePerGas", "value": "0" },
-      { "key": "maxPriorityFeePerGas", "value": "0" },
-      { "key": "value", "value": "0" },
-      { "key": "payer", "value": "0x0000000000000000000000000000000000000000" }
+      { "key": "query", "value": ".data.price" },
+      { "key": "inputData", "value": "{\"data\":{\"price\":1979}}" },
+      { "key": "outputType", "value": "uint256" },
+      { "key": "frequency", "value": "20" },
+      { "key": "numCalls", "value": "1" },
+      { "key": "gas", "value": "200000" },
+      { "key": "ttl", "value": "100" },
+      { "key": "maxFeePerGas", "value": "2000000000" }
     ]
   }
 }

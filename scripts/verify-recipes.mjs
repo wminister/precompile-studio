@@ -60,16 +60,14 @@ const requiredFields = {
     "rpcUrls",
   ],
   scheduler: [
-    "callbackData",
-    "gas",
-    "startBlock",
-    "numCalls",
+    "query",
+    "inputData",
+    "outputType",
     "frequency",
+    "numCalls",
+    "gas",
     "ttl",
     "maxFeePerGas",
-    "maxPriorityFeePerGas",
-    "value",
-    "payer",
   ],
 };
 
@@ -107,21 +105,19 @@ const exampleFiles = [
 const schedulerAbi = [
   {
     type: "function",
-    name: "schedule",
-    stateMutability: "payable",
+    name: "scheduleTransform",
+    stateMutability: "nonpayable",
     inputs: [
-      { name: "data", type: "bytes" },
-      { name: "gas", type: "uint32" },
-      { name: "startBlock", type: "uint32" },
-      { name: "numCalls", type: "uint32" },
+      { name: "jqFilter", type: "string" },
+      { name: "inputJson", type: "string" },
+      { name: "outputType", type: "uint8" },
       { name: "frequency", type: "uint32" },
+      { name: "numCalls", type: "uint32" },
+      { name: "gasLimit", type: "uint32" },
       { name: "ttl", type: "uint32" },
       { name: "maxFeePerGas", type: "uint256" },
-      { name: "maxPriorityFeePerGas", type: "uint256" },
-      { name: "value", type: "uint256" },
-      { name: "payer", type: "address" },
     ],
-    outputs: [],
+    outputs: [{ name: "callId", type: "uint256" }],
   },
 ];
 
@@ -275,12 +271,6 @@ function parseHexBytes(value, label, byteLength) {
   return normalized;
 }
 
-function hasZeroExecutionIndexPlaceholder(calldata) {
-  const hex = calldata.slice(2);
-  if (hex.length < 72) return false;
-  return /^0{64}$/i.test(hex.slice(8, 72));
-}
-
 function storageRef(fields, prefix) {
   return [fields[`${prefix}Platform`], fields[`${prefix}Path`], fields[`${prefix}KeyRef`]];
 }
@@ -347,28 +337,21 @@ function encodeAgent(fields) {
 }
 
 function encodeScheduler(fields) {
-  const payer = fields.payer === zeroAddress ? testExecutor : fields.payer;
-  const callbackData = parseHexBytes(fields.callbackData, "Scheduler callbackData");
-  if ((callbackData.length - 2) / 2 < 36) {
-    throw new Error("Scheduler callbackData must include selector and executionIndex placeholder");
-  }
-  if (!hasZeroExecutionIndexPlaceholder(callbackData)) {
-    throw new Error("Scheduler callbackData bytes 4-35 must be a zero executionIndex placeholder");
-  }
+  JSON.parse(fields.inputData);
+  const outputType = jqOutputTypes[fields.outputType];
+  if (outputType === undefined) throw new Error("Unsupported Scheduled JQ output type");
   return encodeFunctionData({
     abi: schedulerAbi,
-    functionName: "schedule",
+    functionName: "scheduleTransform",
     args: [
-      callbackData,
-      Number(parseUint(fields.gas, "Scheduler gas", { min: 1n, max: 4294967295n })),
-      Number(parseUint(fields.startBlock, "Scheduler startBlock", { min: 1n, max: 4294967295n })),
-      Number(parseUint(fields.numCalls, "Scheduler numCalls", { min: 1n, max: 4294967295n })),
+      fields.query,
+      fields.inputData,
+      outputType,
       Number(parseUint(fields.frequency, "Scheduler frequency", { min: 1n, max: 4294967295n })),
+      Number(parseUint(fields.numCalls, "Scheduler numCalls", { min: 1n, max: 4294967295n })),
+      Number(parseUint(fields.gas, "Scheduler gas", { min: 1n, max: 4294967295n })),
       Number(parseUint(fields.ttl, "Scheduler ttl", { min: 1n, max: 500n })),
-      parseUint(fields.maxFeePerGas, "Scheduler maxFeePerGas"),
-      parseUint(fields.maxPriorityFeePerGas, "Scheduler maxPriorityFeePerGas"),
-      parseUint(fields.value, "Scheduler value"),
-      payer,
+      parseUint(fields.maxFeePerGas, "Scheduler maxFeePerGas", { min: 1n }),
     ],
   });
 }

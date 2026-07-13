@@ -26,9 +26,10 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local saved HTTP consumer contracts scoped by wallet
 - Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
-- Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduler recipe examples
-- Live HTTP, LLM, JQ, Sovereign Agent, and Scheduler calldata composers
+- Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ recipe examples
+- Live HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ calldata composers
 - Factory-backed Sovereign Agent launch with registry-key ECIES encryption, harness ownership checks, and lifecycle reconciliation
+- Contract-owned Scheduled JQ escrow with atomic funding, scheduling, cancellation, withdrawal, and lifecycle evidence
 - Request preview with copy action
 - Copyable normalized call JSON for encoded live recipes
 - Copyable Foundry `cast send` commands for encoded live recipes
@@ -103,6 +104,14 @@ TEE executor addresses can also be saved locally from recipes that need an execu
 The Agent recipe uses the factory-deployed harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe`. The studio discovers a capability-0 executor and its public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, and submits `configureFundAndStart` to the harness from its owner wallet.
 
 The default launch funds five scheduled calls, runs every 2,000 blocks, and locks the harness funding for 100,000 blocks. The studio reads the harness owner, series state, and sender lock, then reconciles `JobAdded`, `Phase1Settled`, `ResultDelivered`, `JobRemoved`, and the harness callback event into user-facing lifecycle states. Scheduler funding and transaction gas are paid by the wallet that confirms the launch.
+
+## Scheduled JQ Consumer
+
+The Scheduled JQ recipe uses the deployed consumer at `0x7243c1A2cA1Ea555416951480B147c27b17eA668`. It owns its Scheduler calls and RitualWallet escrow, runs JQ through precompile `0x0803`, records the latest decoded callback result, and prevents anyone except the owner from funding, scheduling, cancelling, or withdrawing.
+
+The studio calculates Ritual's fixed `0.01 RITUAL` Scheduler reserve plus the complete execution budget. When the consumer is short, `fundAndSchedule` deposits exactly the shortfall and creates the schedule in one wallet confirmation. Lifecycle reconciliation uses recent Scheduler events first, durable synthetic Scheduler block transactions after RPC log retention, and the consumer's recorded terminal state as the final authority.
+
+The live smoke schedule is call `3146449`. It was created in transaction `0x36be73b849cf0bd66eb8c0e7396d479566f66c6f23a3142543df19e6ce666a6f`, executed at block `45,372,505`, completed one callback, and stored the decoded `uint256` result `1979`. Full deployment evidence is in [`deployments/ritual-testnet.json`](./deployments/ritual-testnet.json).
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.
 
