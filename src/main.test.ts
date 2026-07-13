@@ -3,7 +3,9 @@ import {
   decodeAbiParameters,
   decodeFunctionData,
   encodeAbiParameters,
+  keccak256,
   parseAbiParameters,
+  stringToHex,
   zeroAddress,
 } from "viem";
 import {
@@ -11,6 +13,7 @@ import {
   RITUAL_CHAIN_PARAMS,
   JQ_PRECOMPILE,
   LLM_PRECOMPILE_CONSUMER_ADDRESS,
+  SOVEREIGN_AGENT_HARNESS_ADDRESS,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
   buildHttpDraft,
@@ -19,6 +22,8 @@ import {
   buildScheduleDraft,
   createRitualDepositTransaction,
   createLlmConsumerTransaction,
+  createAgentHarnessTransaction,
+  decodeSovereignAgentResult,
   decodeJqOutput,
   describeHttpPrecompileOutput,
   describeLlmPrecompileOutput,
@@ -27,6 +32,8 @@ import {
   parseRunnerRuns,
   prepareWalletTransaction,
   receiptStatus,
+  readAgentHarnessStatus,
+  readAgentLifecycle,
   recipes,
   requestWalletAccounts,
   runJqCall,
@@ -99,14 +106,22 @@ describe("recipe encoders", () => {
   });
 
   it("encodes the Agent recipe", () => {
-    const draft = buildAgentDraft(
-      recipeFields("agent", { executor: TEST_ADDRESS, callbackAddress: CONSUMER_ADDRESS }),
-    );
+    const draft = buildAgentDraft(recipeFields("agent", { executor: TEST_ADDRESS }));
     expect(draft.errors).toEqual([]);
     expect(draft.encodedInput).toMatch(/^0x/);
     const decoded = decodeAbiParameters(parseAbiParameters(draft.abi), draft.encodedInput!);
     expect(decoded[0]).toBe(TEST_ADDRESS);
-    expect(decoded[6]).toBe(CONSUMER_ADDRESS);
+    expect(decoded[6]).toBe(SOVEREIGN_AGENT_HARNESS_ADDRESS);
+    expect(decoded[11]).toBe(6);
+    expect(decoded[18]).toBe("zai-org/GLM-4.7-FP8");
+  });
+
+  it("rejects unsafe Agent lifecycle input", () => {
+    const shortPoll = buildAgentDraft(recipeFields("agent", { executor: TEST_ADDRESS, maxPollBlock: "500" }));
+    expect(shortPoll.errors).toContain("Max poll block must be greater than TTL for two-phase delivery.");
+    expect(buildAgentDraft(recipeFields("agent", { executor: TEST_ADDRESS, cliType: "4" })).errors).toContain(
+      "CLI type must be 0 (Claude Code), 5 (Crush), or 6 (ZeroClaw).",
+    );
   });
 
   it("encodes the Scheduler recipe", () => {
@@ -119,6 +134,93 @@ describe("recipe encoders", () => {
     expect(buildHttpDraft(recipeFields("http", { executor: zeroAddress })).encodedInput).toBeUndefined();
     expect(buildJqDraft(recipeFields("jq", { inputData: "{" })).encodedInput).toBeUndefined();
     expect(buildScheduleDraft(recipeFields("scheduler", { payer: zeroAddress })).encodedInput).toBeUndefined();
+  });
+});
+
+describe("Sovereign Agent harness", () => {
+  it("creates a payable configureFundAndStart transaction for the deployed harness", () => {
+    const draft = buildAgentDraft(
+      recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
+    );
+    const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, 5n);
+    expect(tx.from).toBe(TEST_ADDRESS);
+    expect(tx.to).toBe(SOVEREIGN_AGENT_HARNESS_ADDRESS);
+    expect(tx.value).toBe("0x5");
+    expect(tx.data?.slice(0, 10)).toBe("0xb1906702");
+  });
+
+  it("reads ownership, schedule state, and sender lock from live-view calls", async () => {
+    const responses = [
+      encodeAbiParameters(parseAbiParameters("address"), [TEST_ADDRESS]),
+      encodeAbiParameters(parseAbiParameters("bool"), [false]),
+      encodeAbiParameters(parseAbiParameters("uint8"), [0]),
+      encodeAbiParameters(parseAbiParameters("uint256"), [0n]),
+      encodeAbiParameters(parseAbiParameters("uint64"), [0n]),
+      encodeAbiParameters(parseAbiParameters("bool"), [false]),
+    ];
+    let index = 0;
+    const requester = async <T,>() => responses[index++] as T;
+    await expect(readAgentHarnessStatus(requester)).resolves.toEqual({
+      owner: TEST_ADDRESS,
+      configured: false,
+      wakeMode: 0,
+      activeCallId: "0",
+      currentSeriesId: "0",
+      senderLocked: false,
+    });
+  });
+
+  it("decodes the delivered Sovereign Agent result tuple", () => {
+    const encoded = encodeAbiParameters(
+      parseAbiParameters("bool, string, string, (string,string,string), (string,string,string), (string,string,string)[]"),
+      [true, "", "Ritual result", ["", "", ""], ["", "", ""], []],
+    );
+    expect(decodeSovereignAgentResult(encoded).text).toBe("Ritual result");
+  });
+
+  it("reconciles a delivered Agent result from tracker and harness logs", async () => {
+    const jobId = `0x${"12".repeat(32)}`;
+    const jobAddedTopic = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
+    const resultDeliveredTopic = keccak256(stringToHex("ResultDelivered(bytes32,address,bool)"));
+    const sovereignResultTopic = keccak256(stringToHex("SovereignResult(bytes32,bytes)"));
+    const innerResult = encodeAbiParameters(
+      parseAbiParameters("bool, string, string, (string,string,string), (string,string,string), (string,string,string)[]"),
+      [true, "", "Delivered text", ["", "", ""], ["", "", ""], []],
+    );
+    const jobLog = {
+      topics: [jobAddedTopic, `0x${"0".repeat(24)}${TEST_ADDRESS.slice(2)}`, jobId, `0x${"0".repeat(64)}`],
+      data: encodeAbiParameters(
+        parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
+        [100n, "0x", SOVEREIGN_AGENT_HARNESS_ADDRESS as `0x${string}`, `0x${"0".repeat(64)}` as `0x${string}`, 99n, 1n, 500n, 1n] as const,
+      ),
+      blockNumber: "0x64",
+      transactionHash: TX_HASH,
+    };
+    const trackerResultLog = {
+      topics: [resultDeliveredTopic, jobId, `0x${"0".repeat(24)}${SOVEREIGN_AGENT_HARNESS_ADDRESS.slice(2).toLowerCase()}`],
+      data: encodeAbiParameters(parseAbiParameters("bool"), [true]),
+      blockNumber: "0x66",
+      transactionHash: TX_HASH,
+    };
+    const harnessResultLog = {
+      topics: [sovereignResultTopic, jobId],
+      data: encodeAbiParameters(parseAbiParameters("bytes"), [innerResult]),
+      blockNumber: "0x66",
+      transactionHash: TX_HASH,
+    };
+    const requester = async <T,>(method: string, params?: unknown[]) => {
+      expect(method).toBe("eth_getLogs");
+      const filter = params?.[0] as { address: string; topics: Array<string | null> };
+      if (filter.topics[0] === jobAddedTopic) return [jobLog] as T;
+      if (filter.topics[0] === resultDeliveredTopic) return [trackerResultLog] as T;
+      if (filter.topics[0] === sovereignResultTopic) return [harnessResultLog] as T;
+      return [] as T;
+    };
+    await expect(readAgentLifecycle(true, requester)).resolves.toMatchObject({
+      status: "settled",
+      jobId,
+      result: { success: true, text: "Delivered text" },
+    });
   });
 });
 

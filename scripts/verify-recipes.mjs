@@ -4,6 +4,7 @@ import { encodeAbiParameters, encodeFunctionData, parseAbiParameters, stringToHe
 
 const root = process.cwd();
 const testExecutor = "0x1111111111111111111111111111111111111111";
+const sovereignAgentHarness = "0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe";
 
 const httpSignature =
   "address, bytes[], uint256, bytes[], bytes, string, uint8, string[], string[], bytes, uint256, uint8, bool";
@@ -306,25 +307,31 @@ function parseStorageRefList(value) {
 
 function encodeAgent(fields) {
   const executor = fields.executor === zeroAddress ? testExecutor : fields.executor;
-  const callbackAddress = fields.callbackAddress === zeroAddress ? testExecutor : fields.callbackAddress;
+  const callbackAddress = fields.callbackAddress === zeroAddress ? sovereignAgentHarness : fields.callbackAddress;
   const prompt = fields.prompt.trim();
   const tools = parseStringList(fields.tools);
+  const ttl = parseUint(fields.ttl, "Agent ttl", { min: 1n });
+  const maxPollBlock = parseUint(fields.maxPollBlock, "Agent maxPollBlock", { min: 1n, max: 70_000n });
+  const cliType = parseUint(fields.cliType, "Agent cliType", { max: 65535n });
   if (!prompt) throw new Error("Agent prompt is required");
-  if (!tools.length) throw new Error("Agent tools are required");
-  if (!fields.rpcUrls.trim()) throw new Error("Agent rpcUrls are required");
+  if (callbackAddress.toLowerCase() !== sovereignAgentHarness.toLowerCase()) {
+    throw new Error("Agent callbackAddress must be the deployed Sovereign Agent harness");
+  }
+  if (maxPollBlock <= ttl) throw new Error("Agent maxPollBlock must be greater than ttl");
+  if (![0n, 5n, 6n].includes(cliType)) throw new Error("Agent cliType must be 0, 5, or 6");
   return encodeAbiParameters(parseAbiParameters(agentSignature), [
     executor,
-    parseUint(fields.ttl, "Agent ttl", { min: 1n }),
+    ttl,
     "0x",
     parseUint(fields.pollInterval, "Agent pollInterval", { min: 1n }),
-    parseUint(fields.maxPollBlock, "Agent maxPollBlock", { min: 1n }),
+    maxPollBlock,
     fields.taskIdMarker,
     callbackAddress,
     parseHexBytes(fields.callbackSelector, "Agent callbackSelector", 4),
     parseUint(fields.gasLimit, "Agent gasLimit", { min: 1n }),
     parseUint(fields.maxFeePerGas, "Agent maxFeePerGas"),
     parseUint(fields.maxPriorityFeePerGas, "Agent maxPriorityFeePerGas"),
-    Number(parseUint(fields.cliType, "Agent cliType", { max: 65535n })),
+    Number(cliType),
     prompt,
     parseHexBytes(fields.encryptedSecrets, "Agent encryptedSecrets"),
     storageRef(fields, "history"),

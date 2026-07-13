@@ -43,10 +43,12 @@ Live verification note (2026-07-12): capability `1` and executor `0xb42e...c91b`
 
 ## Phase 6: Complete Agent
 
-- [ ] Verify the deployed SovereignAgentFactory and its Scheduler, RitualWallet, registry, and AsyncDelivery wiring.
-- [ ] Deploy a deterministic SovereignAgentHarness through the factory and use it as the authenticated callback target.
-- [ ] Track AsyncJobTracker lifecycle events and sender lock state.
-- [ ] Present submitted, processing, delivery, callback, failed, and expired states.
+- [x] Verify the deployed SovereignAgentFactory and its Scheduler, RitualWallet, registry, and AsyncDelivery wiring.
+- [x] Deploy a deterministic SovereignAgentHarness through the factory and use it as the authenticated callback target.
+- [x] Track AsyncJobTracker lifecycle events and sender lock state.
+- [x] Present submitted, processing, delivery, callback, failed, and expired states.
+
+Live verification note (2026-07-13): factory wiring matched Ritual's published system contracts. Harness `0x8067...E2Fe` was deployed deterministically in transaction `0x5853...a887`; its owner and initial lifecycle getters were read back from chain. Agent launch remains an explicit owner-wallet action because it transfers scheduler funding and starts recurring calls.
 
 ## Phase 7: Complete Scheduler
 

@@ -16,6 +16,16 @@
       "blockNumber": 44894328,
       "credentialErrorTransaction": "0xdbbad49212d5fa1b6bde3fa96ab79939080061ce5ef98b25501a2dc3598bd4ed",
       "registryErrorTransaction": "0x2d76e081edd26ae789e1695bc864946160aa88522c65477875bf971ef32d4fa6"
+    },
+    "SovereignAgentHarness": {
+      "address": "0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe",
+      "factory": "0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304",
+      "userSalt": "0x0ff0af115e9268046f6d65ca13dcaa9b66233c663ed3c33c8bd5f7382790ebe2",
+      "childSalt": "0x1d9713a5dc070c5e422298b46322426cc1116e5d0f5de6da765b1c19cbb21662",
+      "deploymentTransaction": "0x5853c11c1307f278c9292913debdb607161e6129dac941174bd7422234c5a887",
+      "failedGasProbeTransaction": "0x4995ee86187454674ef8b91bcfd6e5d7e6498fd8470a51b8717cc347cf5e8ca2",
+      "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
+      "blockNumber": 45343963
     }
   }
 }

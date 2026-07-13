@@ -27,19 +27,25 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  concatHex,
   decodeAbiParameters,
   decodeEventLog,
+  decodeFunctionResult,
   encodeAbiParameters,
   encodeFunctionData,
   formatEther,
   isAddress,
+  keccak256,
   parseEther,
   parseAbiParameters,
   stringToHex,
   zeroAddress,
 } from "viem";
 import ritualTestnetDeployment from "../deployments/ritual-testnet.json";
+import { encryptAgentProviderSecret } from "./agentCrypto";
 import "./styles.css";
+
+export { encryptAgentProviderSecret } from "./agentCrypto";
 
 declare global {
   interface Window {
@@ -165,6 +171,35 @@ type LlmRun = {
   error?: string;
 };
 
+type AgentRun = {
+  hash: string;
+  submittedAt: number;
+  status: ReceiptStatus;
+  receipt?: RpcReceipt;
+  error?: string;
+};
+
+type AgentHarnessState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; data: AgentHarnessStatus }
+  | { status: "error"; error: string };
+
+export type AgentLifecycle = {
+  status: "idle" | "scheduled" | "committed" | "result-ready" | "settled" | "failed" | "expired";
+  jobId?: string;
+  executor?: string;
+  commitBlock?: number;
+  settledBlock?: number;
+  transactionHash?: string;
+  result?: ReturnType<typeof decodeSovereignAgentResult>;
+  error?: string;
+};
+
+type AgentLifecycleState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; data: AgentLifecycle }
+  | { status: "error"; error: string };
+
 type CopyFeedback = {
   tone: "ok" | "bad";
   message: string;
@@ -213,6 +248,8 @@ type RpcLog = {
   address?: string;
   data?: string;
   topics?: string[];
+  blockNumber?: string;
+  transactionHash?: string;
 };
 
 export type RunnerCallbackEvidence = {
@@ -290,6 +327,8 @@ type SavedExecutor = {
 type DiscoveredExecutor = {
   address: string;
   capabilityId: number;
+  publicKey?: string;
+  isValid?: boolean;
 };
 
 type ExecutorDiscoveryState = {
@@ -387,6 +426,8 @@ const LLM_ABI_SIGNATURE =
 const JQ_ABI_SIGNATURE = "string, string, uint8";
 const SOVEREIGN_AGENT_ABI_SIGNATURE =
   "address, uint256, bytes, uint64, uint64, string, address, bytes4, uint256, uint256, uint256, uint16, string, bytes, (string,string,string), (string,string,string), (string,string,string)[], (string,string,string), string, string[], uint16, uint32, string";
+const AGENT_HARNESS_CONFIG_SIGNATURE =
+  `(${SOVEREIGN_AGENT_ABI_SIGNATURE}), (uint32,uint32,uint32,uint256,uint256,uint256), (uint32,uint16,uint16), uint256`;
 const EXECUTOR_STORAGE_PREFIX = "precompile-studio:executors";
 const RUNNER_STORAGE_PREFIX = "precompile-studio:runners";
 const RUNNER_HISTORY_STORAGE_PREFIX = "precompile-studio:runner-history";
@@ -405,6 +446,8 @@ const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }>
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileConsumer.address;
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
+export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
+export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 const DEFAULT_LLM_EXECUTOR = "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b";
@@ -501,6 +544,16 @@ export const JQ_OUTPUT_TYPES: Record<string, number> = {
 const JQ_DYNAMIC_OUTPUT_TYPES = new Set(["string", "int256[]", "uint256[]", "string[]", "bool[]", "address[]"]);
 
 const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
+const AGENT_CONFIGURE_SELECTOR = "0xb1906702";
+const AGENT_SCHEDULE = [5_000_000, 2_000, 500, 20_000_000_000n, 1_000_000_000n, 0n] as const;
+const AGENT_ROLLING = [5, 5_000, 1] as const;
+const AGENT_LOCK_BLOCKS = 100_000n;
+const AGENT_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.SovereignAgentHarness.blockNumber;
+const JOB_ADDED_TOPIC = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
+const PHASE1_SETTLED_TOPIC = keccak256(stringToHex("Phase1Settled(bytes32,address,uint256)"));
+const RESULT_DELIVERED_TOPIC = keccak256(stringToHex("ResultDelivered(bytes32,address,bool)"));
+const JOB_REMOVED_TOPIC = keccak256(stringToHex("JobRemoved(address,bytes32,bool)"));
+const SOVEREIGN_RESULT_TOPIC = keccak256(stringToHex("SovereignResult(bytes32,bytes)"));
 
 const schedulerAbi = [
   {
@@ -614,6 +667,59 @@ const llmConsumerAbi = [
   },
 ] as const;
 
+const teeServiceRegistryAbi = [
+  {
+    type: "function",
+    name: "getServicesByCapability",
+    stateMutability: "view",
+    inputs: [
+      { name: "capability", type: "uint8" },
+      { name: "checkValidity", type: "bool" },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "tuple[]",
+        components: [
+          {
+            name: "node",
+            type: "tuple",
+            components: [
+              { name: "paymentAddress", type: "address" },
+              { name: "teeAddress", type: "address" },
+              { name: "teeType", type: "uint8" },
+              { name: "publicKey", type: "bytes" },
+              { name: "endpoint", type: "string" },
+              { name: "certPubKeyHash", type: "bytes32" },
+              { name: "capability", type: "uint8" },
+            ],
+          },
+          { name: "isValid", type: "bool" },
+          { name: "workloadId", type: "bytes32" },
+        ],
+      },
+    ],
+  },
+] as const;
+
+const asyncJobTrackerAbi = [
+  {
+    type: "function",
+    name: "hasPendingJobForSender",
+    stateMutability: "view",
+    inputs: [{ name: "sender", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+const sovereignHarnessStatusAbi = [
+  { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "configured", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
+  { type: "function", name: "wakeMode", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+  { type: "function", name: "activeCallId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "currentSeriesId", stateMutability: "view", inputs: [], outputs: [{ type: "uint64" }] },
+] as const;
+
 export const recipes: Recipe[] = [
   {
     id: "http",
@@ -672,44 +778,44 @@ export const recipes: Recipe[] = [
   {
     id: "agent",
     name: "Agent",
-    label: "Live CLI recipe",
+    label: "Factory-backed recipe",
     icon: Route,
     status: "live",
-    description: "23-field Sovereign Agent input for CLI execution at precompile 0x080C.",
+    description: "Factory-backed ZeroClaw task with authenticated two-phase delivery through the deployed harness.",
     fields: [
       { key: "executor", label: "Executor", value: zeroAddress },
-      { key: "ttl", label: "TTL blocks", value: "30" },
-      { key: "pollInterval", label: "Poll interval", value: "10" },
-      { key: "maxPollBlock", label: "Max poll block", value: "200" },
-      { key: "taskIdMarker", label: "Task marker", value: "" },
-      { key: "callbackAddress", label: "Callback contract", value: zeroAddress },
+      { key: "ttl", label: "TTL blocks", value: "500" },
+      { key: "pollInterval", label: "Poll interval", value: "5" },
+      { key: "maxPollBlock", label: "Max poll block", value: "6000" },
+      { key: "taskIdMarker", label: "Task marker", value: "PRECOMPILE_STUDIO_AGENT" },
+      { key: "callbackAddress", label: "Callback harness", value: SOVEREIGN_AGENT_HARNESS_ADDRESS },
       { key: "callbackSelector", label: "Callback selector", value: AGENT_CALLBACK_SELECTOR },
-      { key: "gasLimit", label: "Callback gas", value: "250000" },
-      { key: "maxFeePerGas", label: "Max fee wei", value: "0" },
-      { key: "maxPriorityFeePerGas", label: "Priority fee wei", value: "0" },
-      { key: "cliType", label: "CLI type", value: "0" },
+      { key: "gasLimit", label: "Callback gas", value: "3000000" },
+      { key: "maxFeePerGas", label: "Max fee wei", value: "20000000000" },
+      { key: "maxPriorityFeePerGas", label: "Priority fee wei", value: "1000000000" },
+      { key: "cliType", label: "CLI type", value: "6", type: "select", options: ["6", "5", "0"] },
       {
         key: "prompt",
         label: "Prompt",
-        value: "Audit the latest runner trace and return the next onchain action as JSON.",
+        value: "Explain what Ritual precompiles enable in two concise sentences.",
         type: "textarea",
       },
       { key: "encryptedSecrets", label: "Encrypted secrets", value: "0x", type: "textarea" },
-      { key: "historyPlatform", label: "History platform", value: "gcs" },
-      { key: "historyPath", label: "History path", value: "agents/precompile-studio/history.jsonl" },
-      { key: "historyKeyRef", label: "History key ref", value: "GCS_CREDS" },
-      { key: "outputPlatform", label: "Output platform", value: "gcs" },
-      { key: "outputPath", label: "Output path", value: "agents/precompile-studio/output.json" },
-      { key: "outputKeyRef", label: "Output key ref", value: "GCS_CREDS" },
+      { key: "historyPlatform", label: "History platform (optional)", value: "" },
+      { key: "historyPath", label: "History path (optional)", value: "" },
+      { key: "historyKeyRef", label: "History key ref (optional)", value: "" },
+      { key: "outputPlatform", label: "Output platform (optional)", value: "" },
+      { key: "outputPath", label: "Output path (optional)", value: "" },
+      { key: "outputKeyRef", label: "Output key ref (optional)", value: "" },
       { key: "skillsJson", label: "Skills refs JSON", value: "[]", type: "textarea" },
       { key: "systemPromptPlatform", label: "System platform", value: "" },
       { key: "systemPromptPath", label: "System path", value: "" },
       { key: "systemPromptKeyRef", label: "System key ref", value: "" },
-      { key: "model", label: "Model", value: "claude-code" },
-      { key: "tools", label: "Allowed tools", value: "read,write,shell", type: "textarea" },
+      { key: "model", label: "Model", value: DEFAULT_LLM_MODEL },
+      { key: "tools", label: "Allowed tools (optional)", value: "", type: "textarea" },
       { key: "maxTurns", label: "Max turns", value: "8" },
       { key: "maxTokens", label: "Max tokens", value: "4096" },
-      { key: "rpcUrls", label: "RPC URLs", value: RITUAL.rpc, type: "textarea" },
+      { key: "rpcUrls", label: "RPC URLs (optional)", value: "", type: "textarea" },
     ],
   },
   {
@@ -802,41 +908,41 @@ const builtInRecipePresets: RecipePreset[] = [
   {
     id: "example-agent-runner-audit",
     recipeId: "agent",
-    label: "Example: Runner trace audit",
+    label: "Example: Ritual ZeroClaw agent",
     updatedAt: 0,
     source: "example",
     fields: normalizePresetFields("agent", [
       { key: "executor", value: zeroAddress },
-      { key: "ttl", value: "30" },
-      { key: "pollInterval", value: "10" },
-      { key: "maxPollBlock", value: "200" },
-      { key: "taskIdMarker", value: "" },
-      { key: "callbackAddress", value: zeroAddress },
+      { key: "ttl", value: "500" },
+      { key: "pollInterval", value: "5" },
+      { key: "maxPollBlock", value: "6000" },
+      { key: "taskIdMarker", value: "PRECOMPILE_STUDIO_AGENT" },
+      { key: "callbackAddress", value: SOVEREIGN_AGENT_HARNESS_ADDRESS },
       { key: "callbackSelector", value: AGENT_CALLBACK_SELECTOR },
-      { key: "gasLimit", value: "250000" },
-      { key: "maxFeePerGas", value: "0" },
-      { key: "maxPriorityFeePerGas", value: "0" },
-      { key: "cliType", value: "0" },
+      { key: "gasLimit", value: "3000000" },
+      { key: "maxFeePerGas", value: "20000000000" },
+      { key: "maxPriorityFeePerGas", value: "1000000000" },
+      { key: "cliType", value: "6" },
       {
         key: "prompt",
         value: "Audit the latest runner trace and return the next onchain action as JSON.",
       },
       { key: "encryptedSecrets", value: "0x" },
-      { key: "historyPlatform", value: "gcs" },
-      { key: "historyPath", value: "agents/precompile-studio/history.jsonl" },
-      { key: "historyKeyRef", value: "GCS_CREDS" },
-      { key: "outputPlatform", value: "gcs" },
-      { key: "outputPath", value: "agents/precompile-studio/output.json" },
-      { key: "outputKeyRef", value: "GCS_CREDS" },
+      { key: "historyPlatform", value: "" },
+      { key: "historyPath", value: "" },
+      { key: "historyKeyRef", value: "" },
+      { key: "outputPlatform", value: "" },
+      { key: "outputPath", value: "" },
+      { key: "outputKeyRef", value: "" },
       { key: "skillsJson", value: "[]" },
       { key: "systemPromptPlatform", value: "" },
       { key: "systemPromptPath", value: "" },
       { key: "systemPromptKeyRef", value: "" },
-      { key: "model", value: "claude-code" },
-      { key: "tools", value: "read,write,shell" },
+      { key: "model", value: DEFAULT_LLM_MODEL },
+      { key: "tools", value: "" },
       { key: "maxTurns", value: "8" },
       { key: "maxTokens", value: "4096" },
-      { key: "rpcUrls", value: RITUAL.rpc },
+      { key: "rpcUrls", value: "" },
     ]),
   },
   {
@@ -1896,6 +2002,196 @@ export function createLlmConsumerTransaction(
   };
 }
 
+export function createAgentHarnessTransaction(
+  from: string,
+  draft: ReturnType<typeof buildAgentDraft>,
+  schedulerFunding: bigint,
+  lockDuration = AGENT_LOCK_BLOCKS,
+): WalletTransactionRequest {
+  if (!draft.encodedInput || draft.errors.length || !draft.values) {
+    throw new Error("Resolve the Sovereign Agent input before configuring the harness.");
+  }
+  if (draft.callbackAddress.toLowerCase() !== SOVEREIGN_AGENT_HARNESS_ADDRESS.toLowerCase()) {
+    throw new Error("Agent delivery target must be the deployed Sovereign Agent harness.");
+  }
+  if (schedulerFunding <= 0n) throw new Error("Harness funding must be greater than zero.");
+
+  const encodedArgs = encodeAbiParameters(parseAbiParameters(AGENT_HARNESS_CONFIG_SIGNATURE), [
+    draft.values,
+    AGENT_SCHEDULE,
+    AGENT_ROLLING,
+    lockDuration,
+  ] as never);
+  return {
+    from,
+    to: SOVEREIGN_AGENT_HARNESS_ADDRESS,
+    value: `0x${schedulerFunding.toString(16)}`,
+    data: concatHex([AGENT_CONFIGURE_SELECTOR, encodedArgs]),
+  };
+}
+
+export type AgentHarnessStatus = {
+  owner: string;
+  configured: boolean;
+  wakeMode: number;
+  activeCallId: string;
+  currentSeriesId: string;
+  senderLocked: boolean;
+};
+
+async function readViewFunction<T>(
+  address: string,
+  abi: readonly unknown[],
+  functionName: string,
+  args: readonly unknown[] = [],
+  requester: <R>(method: string, params?: unknown[]) => Promise<R> = rpc,
+) {
+  const data = encodeFunctionData({ abi: abi as never, functionName, args } as never);
+  const raw = await requester<string>("eth_call", [{ to: address, data }, "latest"]);
+  return decodeFunctionResult({ abi: abi as never, functionName, data: raw as `0x${string}` } as never) as T;
+}
+
+export async function readAgentHarnessStatus(
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+): Promise<AgentHarnessStatus> {
+  const [owner, configured, wakeMode, activeCallId, currentSeriesId, senderLocked] = await Promise.all([
+    readViewFunction<string>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "owner", [], requester),
+    readViewFunction<boolean>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "configured", [], requester),
+    readViewFunction<number>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "wakeMode", [], requester),
+    readViewFunction<bigint>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "activeCallId", [], requester),
+    readViewFunction<bigint>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "currentSeriesId", [], requester),
+    readViewFunction<boolean>(SYSTEM_CONTRACTS.AsyncJobTracker, asyncJobTrackerAbi, "hasPendingJobForSender", [SOVEREIGN_AGENT_HARNESS_ADDRESS], requester),
+  ]);
+  return {
+    owner,
+    configured,
+    wakeMode,
+    activeCallId: activeCallId.toString(),
+    currentSeriesId: currentSeriesId.toString(),
+    senderLocked,
+  };
+}
+
+export function decodeSovereignAgentResult(result: `0x${string}`) {
+  const [success, error, text, convoHistory, output, artifacts] = decodeAbiParameters(
+    parseAbiParameters("bool, string, string, (string,string,string), (string,string,string), (string,string,string)[]"),
+    result,
+  );
+  return { success, error, text, convoHistory, output, artifacts };
+}
+
+function addressTopic(address: string) {
+  return `0x${address.slice(2).toLowerCase().padStart(64, "0")}`;
+}
+
+function newestLog(logs: RpcLog[]) {
+  return [...logs].sort((a, b) => Number(BigInt(b.blockNumber ?? "0x0") - BigInt(a.blockNumber ?? "0x0")))[0];
+}
+
+export async function readAgentLifecycle(
+  configured: boolean,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+): Promise<AgentLifecycle> {
+  const fromBlock = `0x${AGENT_DEPLOYMENT_BLOCK.toString(16)}`;
+  const jobLogs = await requester<RpcLog[]>("eth_getLogs", [{
+    address: SYSTEM_CONTRACTS.AsyncJobTracker,
+    fromBlock,
+    toBlock: "latest",
+    topics: [JOB_ADDED_TOPIC, null, null, addressTopic(SOVEREIGN_AGENT_PRECOMPILE)],
+  }]);
+  const matchingJobs = jobLogs.filter((log) => {
+    try {
+      const decoded = decodeAbiParameters(
+        parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
+        log.data as `0x${string}`,
+      );
+      return decoded[2].toLowerCase() === SOVEREIGN_AGENT_HARNESS_ADDRESS.toLowerCase();
+    } catch {
+      return false;
+    }
+  });
+  const jobLog = newestLog(matchingJobs);
+  const jobId = jobLog?.topics?.[2];
+  if (!jobLog || !jobId) return { status: configured ? "scheduled" : "idle" };
+
+  const [commitBlock] = decodeAbiParameters(
+    parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
+    jobLog.data as `0x${string}`,
+  );
+  const [phase1Logs, resultLogs, removedLogs, harnessResultLogs] = await Promise.all([
+    requester<RpcLog[]>("eth_getLogs", [{
+      address: SYSTEM_CONTRACTS.AsyncJobTracker,
+      fromBlock,
+      toBlock: "latest",
+      topics: [PHASE1_SETTLED_TOPIC, jobId],
+    }]),
+    requester<RpcLog[]>("eth_getLogs", [{
+      address: SYSTEM_CONTRACTS.AsyncJobTracker,
+      fromBlock,
+      toBlock: "latest",
+      topics: [RESULT_DELIVERED_TOPIC, jobId, addressTopic(SOVEREIGN_AGENT_HARNESS_ADDRESS)],
+    }]),
+    requester<RpcLog[]>("eth_getLogs", [{
+      address: SYSTEM_CONTRACTS.AsyncJobTracker,
+      fromBlock,
+      toBlock: "latest",
+      topics: [JOB_REMOVED_TOPIC, null, jobId],
+    }]),
+    requester<RpcLog[]>("eth_getLogs", [{
+      address: SOVEREIGN_AGENT_HARNESS_ADDRESS,
+      fromBlock,
+      toBlock: "latest",
+      topics: [SOVEREIGN_RESULT_TOPIC],
+    }]),
+  ]);
+  const phase1Log = newestLog(phase1Logs);
+  const resultLog = newestLog(resultLogs);
+  const removedLog = newestLog(removedLogs);
+  const harnessResultLog = newestLog(harnessResultLogs.filter((log) => {
+    if (log.topics?.[1]?.toLowerCase() === jobId.toLowerCase()) return true;
+    if (log.topics?.length !== 1 || !log.data) return false;
+    try {
+      const [decodedJobId] = decodeAbiParameters(parseAbiParameters("bytes32, bytes"), log.data as `0x${string}`);
+      return decodedJobId.toLowerCase() === jobId.toLowerCase();
+    } catch {
+      return false;
+    }
+  }));
+
+  let decodedResult: ReturnType<typeof decodeSovereignAgentResult> | undefined;
+  let decodeError: string | undefined;
+  if (harnessResultLog?.data) {
+    try {
+      const resultBytes = harnessResultLog.topics?.length === 1
+        ? decodeAbiParameters(parseAbiParameters("bytes32, bytes"), harnessResultLog.data as `0x${string}`)[1]
+        : decodeAbiParameters(parseAbiParameters("bytes"), harnessResultLog.data as `0x${string}`)[0];
+      decodedResult = decodeSovereignAgentResult(resultBytes);
+    } catch {
+      decodeError = "The callback arrived, but its Agent result tuple could not be decoded.";
+    }
+  }
+
+  const base = {
+    jobId,
+    executor: jobLog.topics?.[1] ? `0x${jobLog.topics[1].slice(-40)}` : undefined,
+    commitBlock: Number(commitBlock),
+    transactionHash: harnessResultLog?.transactionHash ?? resultLog?.transactionHash ?? jobLog.transactionHash,
+    result: decodedResult,
+    error: decodeError,
+  };
+  if (removedLog?.topics?.[3] && BigInt(removedLog.topics[3]) === 0n) return { ...base, status: "expired" };
+  if (resultLog?.data) {
+    const [success] = decodeAbiParameters(parseAbiParameters("bool"), resultLog.data as `0x${string}`);
+    return { ...base, status: success && decodedResult?.success !== false ? "settled" : "failed" };
+  }
+  if (decodedResult) return { ...base, status: decodedResult.success ? "settled" : "failed" };
+  if (phase1Log?.data) {
+    const [settledBlock] = decodeAbiParameters(parseAbiParameters("uint256"), phase1Log.data as `0x${string}`);
+    return { ...base, status: "result-ready", settledBlock: Number(settledBlock) };
+  }
+  return { ...base, status: "committed" };
+}
+
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
   return [
     fieldValue(fields, `${prefix}Platform`).trim(),
@@ -2229,48 +2525,53 @@ export function buildAgentDraft(fields: ComposerField[]) {
   }
   if (!isAddress(callbackAddress) || callbackAddress.toLowerCase() === zeroAddress) {
     errors.push("Set the contract callback address for two-phase delivery.");
+  } else if (callbackAddress.toLowerCase() !== SOVEREIGN_AGENT_HARNESS_ADDRESS.toLowerCase()) {
+    errors.push("Callback target must be the deployed Sovereign Agent harness.");
   }
   if (callbackSelector === "0x00000000") {
     errors.push("Callback selector should point to onSovereignAgentResult(bytes32,bytes).");
   }
   if (!prompt) errors.push("Prompt is required.");
-  if (!convoHistory.every(Boolean)) {
-    errors.push("Conversation history storage ref needs platform, path, and key ref.");
+  if (convoHistory.some(Boolean) && !convoHistory.every(Boolean)) {
+    errors.push("Conversation history needs platform, path, and key ref, or all three fields must be empty.");
   }
-  if (!output.every(Boolean)) {
-    errors.push("Output storage ref needs platform, path, and key ref.");
+  if (output.some(Boolean) && !output.every(Boolean)) {
+    errors.push("Output storage needs platform, path, and key ref, or all three fields must be empty.");
   }
   if (!model) errors.push("Model is required.");
-  if (!tools.length) errors.push("At least one allowed tool is required.");
-  if (!rpcUrls) errors.push("RPC URLs are required for chain-aware agents.");
+  if (![0n, 5n, 6n].includes(cliType)) errors.push("CLI type must be 0 (Claude Code), 5 (Crush), or 6 (ZeroClaw).");
+  if (maxPollBlock <= ttl) errors.push("Max poll block must be greater than TTL for two-phase delivery.");
+  if (maxPollBlock > 70_000n) errors.push("Max poll block cannot exceed 70,000.");
+
+  const values = [
+    executor as `0x${string}`,
+    ttl,
+    "0x",
+    pollInterval,
+    maxPollBlock,
+    taskIdMarker,
+    callbackAddress as `0x${string}`,
+    callbackSelector as `0x${string}`,
+    gasLimit,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+    Number(cliType),
+    prompt,
+    encryptedSecrets as `0x${string}`,
+    convoHistory,
+    output,
+    skills,
+    systemPrompt,
+    model,
+    tools,
+    Number(maxTurns),
+    Number(maxTokens),
+    rpcUrls,
+  ] as const;
 
   const encodedInput =
     errors.length === 0
-      ? encodeAbiParameters(parseAbiParameters(SOVEREIGN_AGENT_ABI_SIGNATURE), [
-          executor as `0x${string}`,
-          ttl,
-          "0x",
-          pollInterval,
-          maxPollBlock,
-          taskIdMarker,
-          callbackAddress as `0x${string}`,
-          callbackSelector as `0x${string}`,
-          gasLimit,
-          maxFeePerGas,
-          maxPriorityFeePerGas,
-          Number(cliType),
-          prompt,
-          encryptedSecrets as `0x${string}`,
-          convoHistory,
-          output,
-          skills,
-          systemPrompt,
-          model,
-          tools,
-          Number(maxTurns),
-          Number(maxTokens),
-          rpcUrls,
-        ])
+      ? encodeAbiParameters(parseAbiParameters(SOVEREIGN_AGENT_ABI_SIGNATURE), values)
       : undefined;
 
   return {
@@ -2295,6 +2596,7 @@ export function buildAgentDraft(fields: ComposerField[]) {
     maxTurns,
     maxTokens,
     rpcUrls,
+    values,
     encodedInput,
     errors,
   };
@@ -2385,31 +2687,29 @@ function decodeAddressResult(result: string) {
 }
 
 async function discoverExecutors(capabilityId: number): Promise<{ executors: DiscoveredExecutor[]; total: number }> {
-  const countResult = await rpc<string>("eth_call", [
-    {
-      to: SYSTEM_CONTRACTS.TEEServiceRegistry,
-      data: `0x80aa7ed0${encodeUint256(capabilityId)}`,
-    },
+  const data = encodeFunctionData({
+    abi: teeServiceRegistryAbi,
+    functionName: "getServicesByCapability",
+    args: [capabilityId, true],
+  });
+  const raw = await rpc<string>("eth_call", [
+    { to: SYSTEM_CONTRACTS.TEEServiceRegistry, data },
     "latest",
   ]);
-  const total = decodeUintResult(countResult);
-  const limit = Math.min(total, 12);
-  const executors = await Promise.all(
-    Array.from({ length: limit }, async (_, index) => {
-      const addressResult = await rpc<string>("eth_call", [
-        {
-          to: SYSTEM_CONTRACTS.TEEServiceRegistry,
-          data: `0x6d94e70c${encodeUint256(capabilityId)}${encodeUint256(index)}`,
-        },
-        "latest",
-      ]);
-      return {
-        address: decodeAddressResult(addressResult),
-        capabilityId,
-      };
-    }),
-  );
-  return { executors, total };
+  const services = decodeFunctionResult({
+    abi: teeServiceRegistryAbi,
+    functionName: "getServicesByCapability",
+    data: raw as `0x${string}`,
+  });
+  return {
+    total: services.length,
+    executors: services.slice(0, 12).map((service) => ({
+      address: service.node.teeAddress,
+      capabilityId,
+      publicKey: service.node.publicKey,
+      isValid: service.isValid,
+    })),
+  };
 }
 
 // `gasFloor` is a *minimum* gas limit, not just a fallback. eth_estimateGas
@@ -2486,6 +2786,11 @@ function App() {
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
   const [llmTxState, setLlmTxState] = React.useState<TransactionState>({ status: "idle" });
   const [llmRun, setLlmRun] = React.useState<LlmRun | undefined>();
+  const [agentTxState, setAgentTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [agentRun, setAgentRun] = React.useState<AgentRun | undefined>();
+  const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
+  const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
+  const [agentFundingAmount, setAgentFundingAmount] = React.useState("5");
   const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
   const [isSwitchingChain, setIsSwitchingChain] = React.useState(false);
   const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
@@ -2612,6 +2917,8 @@ function App() {
   const directCallUnavailableReason =
     selectedRecipe.id === "scheduler"
       ? "Scheduler calls must originate from a contract that approved Scheduler callbacks."
+      : selectedRecipe.id === "agent"
+        ? "Sovereign Agent calls are launched through the deployed factory harness."
       : undefined;
   const callRequest = React.useMemo(
     () =>
@@ -2639,6 +2946,21 @@ function App() {
   const cleanSelectedExecutorAddress = hasExecutorField ? fieldValue(selectedFields, "executor").trim() : "";
   const selectedExecutorAddressOk =
     isAddress(cleanSelectedExecutorAddress) && cleanSelectedExecutorAddress.toLowerCase() !== zeroAddress;
+  const selectedDiscoveredExecutor = executorDiscovery.executors.find(
+    (executor) => executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase(),
+  );
+  const agentHarnessStatus = agentHarnessState.status === "ready" ? agentHarnessState.data : undefined;
+  const agentLifecycle = agentLifecycleState.status === "ready" ? agentLifecycleState.data : undefined;
+  const agentFunding = (() => {
+    try {
+      return parseEther(agentFundingAmount || "0");
+    } catch {
+      return 0n;
+    }
+  })();
+  const isAgentHarnessOwner =
+    Boolean(wallet.address && agentHarnessStatus?.owner) &&
+    wallet.address?.toLowerCase() === agentHarnessStatus?.owner.toLowerCase();
   const executorStorageScope = wallet.address?.toLowerCase() ?? "local";
   const activeSavedExecutor = savedExecutors.find(
     (executor) => executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase(),
@@ -2667,7 +2989,8 @@ function App() {
       : undefined;
   const hasPendingHttpTransaction = runnerRuns.some((run) => run.status === "pending");
   const hasPendingLlmTransaction = llmRun?.status === "pending";
-  const hasPendingAsyncTransaction = hasPendingHttpTransaction || hasPendingLlmTransaction;
+  const hasPendingAgentTransaction = agentRun?.status === "pending";
+  const hasPendingAsyncTransaction = hasPendingHttpTransaction || hasPendingLlmTransaction || hasPendingAgentTransaction;
   const llmEvidence = React.useMemo(() => {
     const spcCalls = Array.isArray(llmRun?.receipt?.spcCalls) ? llmRun.receipt.spcCalls.filter(isSpcCall) : [];
     const llmCall = spcCalls.find((call) => call.address?.toLowerCase() === LLM_INFERENCE_PRECOMPILE.toLowerCase());
@@ -2689,6 +3012,19 @@ function App() {
     isRitualWalletFunded &&
     !hasPendingAsyncTransaction &&
     runnerTxState.status !== "submitting";
+  const canStartAgent =
+    selectedRecipe.id === "agent" &&
+    Boolean(agentDraft.encodedInput) &&
+    Boolean(selectedDiscoveredExecutor?.publicKey) &&
+    wallet.status === "connected" &&
+    isRightChain &&
+    isAgentHarnessOwner &&
+    agentHarnessState.status === "ready" &&
+    !agentHarnessStatus?.configured &&
+    !agentHarnessStatus?.senderLocked &&
+    agentFunding > 0n &&
+    !hasPendingAsyncTransaction &&
+    agentTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
     () => [
       {
@@ -3044,7 +3380,7 @@ function App() {
                 },
                 {
                   label: "tools",
-                  value: agentDraft.tools.length ? String(agentDraft.tools.length) : "missing",
+                  value: agentDraft.tools.length ? String(agentDraft.tools.length) : "none",
                   copyValue: agentDraft.tools.join(","),
                 },
                 {
@@ -3897,6 +4233,116 @@ function App() {
     }
   }, [depositAmount, depositLock, refreshWallet, wallet.address]);
 
+  const refreshAgentHarness = React.useCallback(async () => {
+    setAgentHarnessState({ status: "loading" });
+    try {
+      const data = await readAgentHarnessStatus();
+      setAgentHarnessState({ status: "ready", data });
+      return data;
+    } catch (error) {
+      setAgentHarnessState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Could not read the Sovereign Agent harness.",
+      });
+      return undefined;
+    }
+  }, []);
+
+  const refreshAgentLifecycle = React.useCallback(async (configured = agentHarnessStatus?.configured ?? false) => {
+    setAgentLifecycleState({ status: "loading" });
+    try {
+      setAgentLifecycleState({ status: "ready", data: await readAgentLifecycle(configured) });
+    } catch (error) {
+      setAgentLifecycleState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Could not read the Agent lifecycle events.",
+      });
+    }
+  }, [agentHarnessStatus?.configured]);
+
+  const refreshAgentReceipt = React.useCallback(async (hash: string) => {
+    try {
+      const receipt = await rpc<RpcReceipt | null>("eth_getTransactionReceipt", [hash]);
+      if (!receipt) return;
+      setAgentRun((current) =>
+        current?.hash.toLowerCase() === hash.toLowerCase()
+          ? { ...current, status: receiptStatus(receipt), receipt, error: undefined }
+          : current,
+      );
+      const status = await refreshAgentHarness();
+      await refreshAgentLifecycle(status?.configured ?? false);
+    } catch (error) {
+      setAgentRun((current) =>
+        current?.hash.toLowerCase() === hash.toLowerCase()
+          ? { ...current, error: error instanceof Error ? error.message : "Agent receipt lookup failed." }
+          : current,
+      );
+    }
+  }, [refreshAgentHarness, refreshAgentLifecycle]);
+
+  const startAgent = React.useCallback(async () => {
+    const provider = providerRef.current;
+    if (!provider || !wallet.address) {
+      setAgentTxState({ status: "error", error: "Connect the harness owner wallet before starting the Agent." });
+      return;
+    }
+    if (!selectedDiscoveredExecutor?.publicKey) {
+      setAgentTxState({ status: "error", error: "Select an executor from live registry discovery so its encryption key is available." });
+      return;
+    }
+    if (!isAgentHarnessOwner) {
+      setAgentTxState({ status: "error", error: "The connected wallet is not the owner of this Agent harness." });
+      return;
+    }
+    if (agentHarnessStatus?.configured) {
+      setAgentTxState({ status: "error", error: "This harness is already configured. Its active series cannot be configured twice." });
+      return;
+    }
+    if (agentFunding <= 0n) {
+      setAgentTxState({ status: "error", error: "Enter a positive scheduler funding amount." });
+      return;
+    }
+    if (hasPendingAsyncTransaction) {
+      setAgentTxState({ status: "error", error: "An async transaction is already pending. Wait for it to settle before starting the Agent." });
+      return;
+    }
+
+    setAgentTxState({ status: "submitting" });
+    try {
+      const encryptedSecrets = await encryptAgentProviderSecret(selectedDiscoveredExecutor.publicKey);
+      const nextFields = fieldState.agent.map((field) =>
+        field.key === "encryptedSecrets" ? { ...field, value: encryptedSecrets } : field,
+      );
+      const nextDraft = buildAgentDraft(nextFields);
+      if (!nextDraft.encodedInput || nextDraft.errors.length) {
+        throw new Error(nextDraft.errors[0] ?? "Resolve the Sovereign Agent input before starting the harness.");
+      }
+      setFieldState((current) => ({ ...current, agent: nextFields }));
+      const tx = await prepareWalletTransaction(
+        createAgentHarnessTransaction(wallet.address, nextDraft, agentFunding),
+        "0x4c4b40",
+      );
+      const hash = await sendWalletTransaction(provider, tx);
+      setAgentTxState({ status: "submitted", hash });
+      setAgentRun({ hash, submittedAt: Date.now(), status: "pending" });
+      window.setTimeout(() => refreshAgentReceipt(hash).catch(() => undefined), 2500);
+    } catch (error) {
+      setAgentTxState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Sovereign Agent launch was rejected.",
+      });
+    }
+  }, [
+    agentFunding,
+    agentHarnessStatus?.configured,
+    fieldState.agent,
+    hasPendingAsyncTransaction,
+    isAgentHarnessOwner,
+    refreshAgentReceipt,
+    selectedDiscoveredExecutor?.publicKey,
+    wallet.address,
+  ]);
+
   const sendLlmTransaction = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address || !llmCalldata) {
@@ -4026,6 +4472,25 @@ function App() {
     }, 6000);
     return () => window.clearInterval(timer);
   }, [llmRun, refreshLlmReceipt]);
+
+  React.useEffect(() => {
+    if (selectedRecipe.id !== "agent") return undefined;
+    const refresh = async () => {
+      const status = await refreshAgentHarness();
+      await refreshAgentLifecycle(status?.configured ?? false);
+    };
+    refresh().catch(() => undefined);
+    const timer = window.setInterval(() => refresh().catch(() => undefined), 15_000);
+    return () => window.clearInterval(timer);
+  }, [refreshAgentHarness, refreshAgentLifecycle, selectedRecipe.id, wallet.address]);
+
+  React.useEffect(() => {
+    if (!agentRun || agentRun.status !== "pending") return undefined;
+    const timer = window.setInterval(() => {
+      refreshAgentReceipt(agentRun.hash).catch(() => undefined);
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [agentRun, refreshAgentReceipt]);
 
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
@@ -4408,7 +4873,7 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy draft"}
                 </button>
-                {selectedRecipe.status === "live" && !["jq", "llm"].includes(selectedRecipe.id) ? (
+                {selectedRecipe.status === "live" && !["jq", "llm", "agent"].includes(selectedRecipe.id) ? (
                   <button
                     className="secondary-action"
                     onClick={copyCallRequest}
@@ -4419,7 +4884,7 @@ function App() {
                     {copiedCallRequest ? "Copied call" : directCallUnavailableReason ? "Contract only" : "Copy call JSON"}
                   </button>
                 ) : null}
-                {selectedRecipe.status === "live" && !["jq", "llm"].includes(selectedRecipe.id) ? (
+                {selectedRecipe.status === "live" && !["jq", "llm", "agent"].includes(selectedRecipe.id) ? (
                   <button
                     className="secondary-action"
                     onClick={copyCastCommand}
@@ -4530,6 +4995,134 @@ function App() {
                       </div>
                     ) : null}
                   </div>
+                </div>
+              ) : null}
+              {selectedRecipe.id === "agent" ? (
+                <div className="agent-launch" data-testid="agent-launch">
+                  <div className="agent-launch-head">
+                    <div>
+                      <span>Sovereign Agent harness</span>
+                      <strong>
+                        {agentHarnessState.status === "loading"
+                          ? "Reading onchain state"
+                          : agentHarnessState.status === "error"
+                            ? "Harness unavailable"
+                            : agentLifecycle?.status === "settled"
+                              ? "Agent result delivered"
+                              : agentLifecycle?.status === "failed" || agentLifecycle?.status === "expired"
+                                ? agentLifecycle.status === "expired" ? "Agent job expired" : "Agent job failed"
+                                : agentLifecycle?.status === "result-ready"
+                                  ? "TEE result ready"
+                                  : agentHarnessStatus?.configured
+                                    ? agentHarnessStatus.senderLocked
+                                      ? "Agent job processing"
+                                      : "Recurring series active"
+                              : "Ready to configure"}
+                      </strong>
+                    </div>
+                    <button
+                      className="section-toggle"
+                      type="button"
+                      onClick={() => {
+                        refreshAgentHarness()
+                          .then((status) => refreshAgentLifecycle(status?.configured ?? false))
+                          .catch(() => undefined);
+                      }}
+                      disabled={agentHarnessState.status === "loading"}
+                    >
+                      {agentHarnessState.status === "loading" ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="agent-launch-facts">
+                    <div>
+                      <span>Harness</span>
+                      <code>{formatAddress(SOVEREIGN_AGENT_HARNESS_ADDRESS)}</code>
+                    </div>
+                    <div className={isAgentHarnessOwner ? "ok" : "pending"}>
+                      <span>Owner</span>
+                      <strong>
+                        {agentHarnessStatus
+                          ? isAgentHarnessOwner
+                            ? "Connected"
+                            : formatAddress(agentHarnessStatus.owner)
+                          : "Checking"}
+                      </strong>
+                    </div>
+                    <div className={selectedDiscoveredExecutor?.publicKey ? "ok" : "pending"}>
+                      <span>Executor key</span>
+                      <strong>{selectedDiscoveredExecutor?.publicKey ? "Registry verified" : "Select discovered"}</strong>
+                    </div>
+                    <div>
+                      <span>Series</span>
+                      <strong>
+                        {!agentHarnessStatus?.currentSeriesId || agentHarnessStatus.currentSeriesId === "0"
+                          ? "Not started"
+                          : `#${agentHarnessStatus.currentSeriesId}`}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="agent-launch-controls">
+                    <label>
+                      <span>Scheduler funding</span>
+                      <div className="agent-funding-input">
+                        <input
+                          name="agent-funding"
+                          inputMode="decimal"
+                          value={agentFundingAmount}
+                          onChange={(event) => setAgentFundingAmount(event.target.value)}
+                        />
+                        <small>RITUAL</small>
+                      </div>
+                    </label>
+                    <p>5 calls · every 2,000 blocks · 100,000-block funding lock</p>
+                    <button className="primary-action large" type="button" onClick={startAgent} disabled={!canStartAgent}>
+                      {agentTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Route size={16} />}
+                      {agentTxState.status === "submitting"
+                        ? "Confirming"
+                        : agentHarnessStatus?.configured
+                          ? "Agent active"
+                          : "Start Agent"}
+                    </button>
+                  </div>
+                  {agentHarnessState.status === "error" ? <p className="agent-launch-message error">{agentHarnessState.error}</p> : null}
+                  {agentLifecycleState.status === "error" ? <p className="agent-launch-message error">{agentLifecycleState.error}</p> : null}
+                  {agentTxState.status === "error" ? <p className="agent-launch-message error">{agentTxState.error}</p> : null}
+                  {agentRun ? (
+                    <div className={`agent-run ${agentRun.status}`} aria-live="polite">
+                      <span>{agentRun.status === "pending" ? "Launch submitted" : agentRun.status === "confirmed" ? "Harness configured" : "Launch failed"}</span>
+                      <a href={explorerTransactionUrl(agentRun.hash)} target="_blank" rel="noreferrer">
+                        {formatHash(agentRun.hash)} <ArrowUpRight size={13} />
+                      </a>
+                      {agentRun.receipt?.blockNumber ? (
+                        <small>block {Number(BigInt(agentRun.receipt.blockNumber)).toLocaleString()}</small>
+                      ) : null}
+                      {agentRun.error ? <small>{agentRun.error}</small> : null}
+                    </div>
+                  ) : null}
+                  {agentLifecycle?.jobId ? (
+                    <div className={`agent-lifecycle ${agentLifecycle.status}`} aria-live="polite">
+                      <div>
+                        <span>Latest Agent job</span>
+                        <strong>
+                          {agentLifecycle.status === "committed"
+                            ? "TEE processing"
+                            : agentLifecycle.status === "result-ready"
+                              ? "Awaiting callback"
+                              : agentLifecycle.status === "settled"
+                                ? "Result delivered"
+                                : agentLifecycle.status === "expired"
+                                  ? "Job expired"
+                                  : "Job failed"}
+                        </strong>
+                      </div>
+                      <code>{formatHash(agentLifecycle.jobId)}</code>
+                      {agentLifecycle.executor ? <small>executor {formatAddress(agentLifecycle.executor)}</small> : null}
+                      {agentLifecycle.result?.text ? <p>{agentLifecycle.result.text}</p> : null}
+                      {agentLifecycle.result?.error ? <p className="error">{agentLifecycle.result.error}</p> : null}
+                      {agentLifecycle.error ? <p className="error">{agentLifecycle.error}</p> : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {copyFeedback ? (

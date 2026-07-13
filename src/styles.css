@@ -1092,6 +1092,209 @@ select:focus {
   gap: 8px;
 }
 
+.agent-launch {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 14px 2px 2px;
+}
+
+.agent-launch-head,
+.agent-launch-controls,
+.agent-run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-launch-head {
+  justify-content: space-between;
+}
+
+.agent-launch-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-launch-head span,
+.agent-launch-facts span,
+.agent-launch-controls label > span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-launch-head strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.agent-launch-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.agent-launch-facts > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border-right: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.agent-launch-facts > div:first-child {
+  padding-left: 0;
+}
+
+.agent-launch-facts > div:last-child {
+  border-right: 0;
+}
+
+.agent-launch-facts code,
+.agent-launch-facts strong {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-launch-facts .ok strong {
+  color: var(--accent-ink);
+}
+
+.agent-launch-facts .pending strong {
+  color: #ffb36b;
+}
+
+.agent-launch-controls {
+  justify-content: flex-end;
+}
+
+.agent-launch-controls label {
+  display: grid;
+  width: 180px;
+  gap: 5px;
+}
+
+.agent-funding-input {
+  position: relative;
+}
+
+.agent-funding-input input {
+  width: 100%;
+  padding-right: 62px;
+}
+
+.agent-funding-input small {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  transform: translateY(-50%);
+}
+
+.agent-launch-controls > p {
+  margin: 17px auto 0 0;
+  color: var(--quiet);
+  font-size: 0.74rem;
+}
+
+.agent-launch-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.agent-launch-message.error {
+  color: #ff9a89;
+}
+
+.agent-run {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.agent-run > span {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.agent-run.failed > span {
+  color: #ff9a89;
+}
+
+.agent-run a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.agent-run small {
+  color: var(--quiet);
+}
+
+.agent-lifecycle {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.22fr) auto auto minmax(0, 1fr);
+  gap: 10px 16px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.agent-lifecycle > div {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-lifecycle span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-lifecycle strong,
+.agent-lifecycle code,
+.agent-lifecycle small,
+.agent-lifecycle p {
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.agent-lifecycle strong,
+.agent-lifecycle.settled p {
+  color: var(--accent-ink);
+}
+
+.agent-lifecycle.failed strong,
+.agent-lifecycle.expired strong,
+.agent-lifecycle .error {
+  color: #ff9a89;
+}
+
+.agent-lifecycle code {
+  font-family: var(--mono);
+}
+
+.agent-lifecycle p {
+  overflow-wrap: anywhere;
+}
+
 .llm-result-body > a {
   display: inline-flex;
   width: fit-content;
@@ -2817,6 +3020,42 @@ pre {
 
   .http-response-headers dd {
     margin-bottom: 5px;
+  }
+
+  .agent-launch-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-launch-facts > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .agent-launch-facts > div:first-child,
+  .agent-launch-facts > div:nth-child(3) {
+    padding-left: 0;
+  }
+
+  .agent-launch-facts > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .agent-launch-controls,
+  .agent-run,
+  .agent-lifecycle {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-lifecycle {
+    display: flex;
+  }
+
+  .agent-launch-controls label {
+    width: 100%;
+  }
+
+  .agent-launch-controls > p {
+    margin: 0;
   }
 
 }

@@ -28,6 +28,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduler recipe examples
 - Live HTTP, LLM, JQ, Sovereign Agent, and Scheduler calldata composers
+- Factory-backed Sovereign Agent launch with registry-key ECIES encryption, harness ownership checks, and lifecycle reconciliation
 - Request preview with copy action
 - Copyable normalized call JSON for encoded live recipes
 - Copyable Foundry `cast send` commands for encoded live recipes
@@ -96,6 +97,12 @@ HTTP consumer addresses can be saved locally and reused from the consumer panel.
 The deployed Ritual testnet consumer is `0x6f78351167AA672e75948dc802FDf96f77E87Dfa`. The studio submits non-streaming calls through it, polls the settled receipt, and decodes completion, usage, model metadata, and executor errors from `spcCalls`. Capability `1` is the verified LLM registry slot; streaming remains a separate capability and is not sent through this path.
 
 TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP, LLM, and Sovereign Agent. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
+
+## Sovereign Agent Harness
+
+The Agent recipe uses the factory-deployed harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe`. The studio discovers a capability-0 executor and its public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, and submits `configureFundAndStart` to the harness from its owner wallet.
+
+The default launch funds five scheduled calls, runs every 2,000 blocks, and locks the harness funding for 100,000 blocks. The studio reads the harness owner, series state, and sender lock, then reconciles `JobAdded`, `Phase1Settled`, `ResultDelivered`, `JobRemoved`, and the harness callback event into user-facing lifecycle states. Scheduler funding and transaction gas are paid by the wallet that confirms the launch.
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.
 

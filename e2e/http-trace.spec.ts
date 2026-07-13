@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { toFunctionSelector } from "viem";
+import { encodeAbiParameters, parseAbiParameters, toFunctionSelector } from "viem";
 import {
   FIXTURE_CONSUMER_ADDRESS,
   FIXTURE_LLM_TX_HASH,
@@ -10,6 +10,10 @@ import {
 const RPC_URL = "https://rpc.ritualfoundation.org";
 const TX_HASH = FIXTURE_TX_HASH;
 const CONSUMER = FIXTURE_CONSUMER_ADDRESS;
+const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
+const TEST_EXECUTOR = "0x2222222222222222222222222222222222222222";
+const TEST_PUBLIC_KEY = `0x04${"33".repeat(64)}` as `0x${string}`;
+const ZERO_HASH = `0x${"0".repeat(64)}` as `0x${string}`;
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(({ llmHash }) => {
@@ -40,8 +44,16 @@ test.beforeEach(async ({ page }) => {
       if (call?.to?.toLowerCase().endsWith("0803")) result = `0x${1979n.toString(16).padStart(64, "0")}`;
       else if (call?.data?.startsWith(toFunctionSelector("balanceOf(address)"))) result = `0x${(10n ** 18n).toString(16).padStart(64, "0")}`;
       else if (call?.data?.startsWith(toFunctionSelector("lockUntil(address)"))) result = `0x${50_000_000n.toString(16).padStart(64, "0")}`;
+      else if (call?.data?.startsWith(toFunctionSelector("getServicesByCapability(uint8,bool)"))) {
+        result = encodeAbiParameters(
+          parseAbiParameters("((address,address,uint8,bytes,string,bytes32,uint8),bool,bytes32)[]"),
+          [[[[TEST_ACCOUNT, TEST_EXECUTOR, 0, TEST_PUBLIC_KEY, "", ZERO_HASH, 0], true, ZERO_HASH]]],
+        );
+      }
+      else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
       else result = "0x" + "0".repeat(64);
     }
+    if (payload.method === "eth_getLogs") result = [];
     if (payload.method === "eth_getTransactionReceipt") {
       result = payload.params?.[0] === FIXTURE_LLM_TX_HASH ? ritualReceiptFixtures.llmSuccess : ritualReceiptFixtures.success;
     }
@@ -88,5 +100,18 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(result.getByText("Completion ready", { exact: true })).toBeVisible();
   await expect(result.getByText("Ritual LLM online.", { exact: true })).toBeVisible();
   await expect(result.getByText("17 tokens", { exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("prepares the factory-backed Agent launch without overflow", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Agent live recipe", exact: true }).click();
+  await expect(page.getByText("Ready to configure", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Use", exact: true }).first().click();
+
+  const launch = page.getByTestId("agent-launch");
+  await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
