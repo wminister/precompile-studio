@@ -39,6 +39,24 @@
       "smokeNumCalls": 1,
       "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
       "blockNumber": 45371860
+    },
+    "ScheduledJqConsumerFactory": {
+      "address": "0x705e1393280062D95d6e3B522223eD3f28b9548b",
+      "scheduler": "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B",
+      "deploymentTransaction": "0xe2131e4e54c1bd6799c4ea26cb539b9488edf25de6ce6f200e1ee7afd58bf891",
+      "blockNumber": 45397139,
+      "smokeConsumer": "0x43beC43EBc45df36B0738Dfa13F9e406F08333e4",
+      "smokeOwner": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
+      "smokeTransaction": "0x9e8c8a97d1664672f81f53d234b3ea74994c8bdf3ace9f3cc9d16b145e7fe607",
+      "smokeBlock": 45398149,
+      "smokeScheduleTransaction": "0xa2d45aff240e5019a4405bbe719dd9b62575a83f8c4c2b15d58169f68649bf86",
+      "smokeScheduleBlock": 45403020,
+      "smokeCallId": 3147825,
+      "smokeStartBlock": 45403040,
+      "smokeFrequency": 20,
+      "smokeNumCalls": 1,
+      "smokeExecutionTransaction": "0x6823f7fba193301d594b4d5cad5c94ae1bdbc20362ec9e83c6df92859c2e718b",
+      "smokeDecodedResult": "1979"
     }
   }
 }

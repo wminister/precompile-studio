@@ -14,6 +14,7 @@ import {
   JQ_PRECOMPILE,
   LLM_PRECOMPILE_CONSUMER_ADDRESS,
   SCHEDULED_JQ_CONSUMER_ADDRESS,
+  SCHEDULED_JQ_FACTORY_ADDRESS,
   SOVEREIGN_AGENT_HARNESS_ADDRESS,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
@@ -25,6 +26,7 @@ import {
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
   createSchedulerTransaction,
+  createScheduledJqConsumerTransaction,
   decodeSovereignAgentResult,
   decodeJqOutput,
   describeHttpPrecompileOutput,
@@ -38,6 +40,7 @@ import {
   readAgentLifecycle,
   readSchedulerLifecycle,
   readScheduledJqConsumerStatus,
+  readScheduledJqConsumerDiscovery,
   recipes,
   requestWalletAccounts,
   runJqCall,
@@ -143,10 +146,36 @@ describe("recipe encoders", () => {
 });
 
 describe("Scheduled JQ consumer", () => {
+  it("creates a consumer through the deployed factory", () => {
+    const tx = createScheduledJqConsumerTransaction(TEST_ADDRESS);
+    expect(tx).toMatchObject({ from: TEST_ADDRESS, to: SCHEDULED_JQ_FACTORY_ADDRESS });
+    expect(tx.data?.slice(0, 10)).toBe(keccak256(stringToHex("createConsumer()")).slice(0, 10));
+  });
+
+  it("discovers an existing consumer or its deterministic future address", async () => {
+    const predicted = "0x2222222222222222222222222222222222222222";
+    const missingResponses = [
+      encodeAbiParameters(parseAbiParameters("address"), [zeroAddress]),
+      encodeAbiParameters(parseAbiParameters("address"), [predicted]),
+    ];
+    let missingIndex = 0;
+    const missingRequester = async <T,>() => missingResponses[missingIndex++] as T;
+    await expect(readScheduledJqConsumerDiscovery(TEST_ADDRESS, missingRequester)).resolves.toEqual({
+      status: "missing",
+      predictedAddress: predicted,
+    });
+
+    const readyRequester = async <T,>() => encodeAbiParameters(parseAbiParameters("address"), [CONSUMER_ADDRESS]) as T;
+    await expect(readScheduledJqConsumerDiscovery(TEST_ADDRESS, readyRequester)).resolves.toEqual({
+      status: "ready",
+      address: CONSUMER_ADDRESS,
+    });
+  });
+
   it("uses the atomic payable path when escrow has a shortfall", () => {
     const draft = buildScheduleDraft(recipeFields("scheduler"));
-    const tx = createSchedulerTransaction(TEST_ADDRESS, draft, 10_400_000_000_000_000n);
-    expect(tx.to).toBe(SCHEDULED_JQ_CONSUMER_ADDRESS);
+    const tx = createSchedulerTransaction(TEST_ADDRESS, draft, 10_400_000_000_000_000n, CONSUMER_ADDRESS);
+    expect(tx.to).toBe(CONSUMER_ADDRESS);
     expect(tx.value).toBe("0x24f2beb1aa0000");
     expect(tx.data?.slice(0, 10)).toBe(
       keccak256(stringToHex("fundAndSchedule(string,string,uint8,uint32,uint32,uint32,uint32,uint256,uint256)")).slice(0, 10),

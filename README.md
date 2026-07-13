@@ -29,7 +29,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ recipe examples
 - Live HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ calldata composers
 - Factory-backed Sovereign Agent launch with registry-key ECIES encryption, harness ownership checks, and lifecycle reconciliation
-- Contract-owned Scheduled JQ escrow with atomic funding, scheduling, cancellation, withdrawal, and lifecycle evidence
+- Per-wallet Scheduled JQ consumers with atomic funding, scheduling, cancellation, withdrawal, and lifecycle evidence
 - Request preview with copy action
 - Copyable normalized call JSON for encoded live recipes
 - Copyable Foundry `cast send` commands for encoded live recipes
@@ -48,7 +48,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 
 Use MetaMask for Ritual testnet transaction submission. Rabby can connect and read state, but currently converts Ritual custom transactions to a legacy transaction type rejected by the Ritual RPC and does not provide the raw-signing fallback needed to broadcast the supported form. The studio reports this limitation directly instead of silently disconnecting or blocking Rabby.
 
-HTTP and JQ are publicly usable. LLM submission is implemented but currently depends on a degraded Ritual executor path. Sovereign Agent and Scheduled JQ are owner-only because their deployed harness and consumer have a single on-chain owner; other visitors can inspect and compose those calls but cannot submit them from a different address.
+HTTP, JQ, and Scheduled JQ are publicly usable. Scheduled JQ creates one deterministic consumer per connected wallet. LLM submission is implemented but currently depends on a degraded Ritual executor path. The deployed Sovereign Agent harness remains owner-only; other visitors can inspect and compose that recipe but cannot launch it from a different address.
 
 ## Local Development
 
@@ -113,11 +113,11 @@ The default launch funds five scheduled calls, runs every 2,000 blocks, and lock
 
 ## Scheduled JQ Consumer
 
-The Scheduled JQ recipe uses the deployed consumer at `0x7243c1A2cA1Ea555416951480B147c27b17eA668`. It owns its Scheduler calls and RitualWallet escrow, runs JQ through precompile `0x0803`, records the latest decoded callback result, and prevents anyone except the owner from funding, scheduling, cancelling, or withdrawing.
+The Scheduled JQ recipe uses `ScheduledJqConsumerFactory` at `0x705e1393280062D95d6e3B522223eD3f28b9548b` to create one deterministic consumer per wallet. Each child owns its Scheduler calls and RitualWallet escrow, runs JQ through precompile `0x0803`, records the latest decoded callback result, and allows only its wallet owner to fund, schedule, cancel, or withdraw. The original consumer at `0x7243c1A2cA1Ea555416951480B147c27b17eA668` remains a readable public demo when no wallet is connected.
 
 The studio calculates Ritual's fixed `0.01 RITUAL` Scheduler reserve plus the complete execution budget. When the consumer is short, `fundAndSchedule` deposits exactly the shortfall and creates the schedule in one wallet confirmation. Lifecycle reconciliation uses recent Scheduler events first, durable synthetic Scheduler block transactions after RPC log retention, and the consumer's recorded terminal state as the final authority.
 
-The live smoke schedule is call `3146449`. It was created in transaction `0x36be73b849cf0bd66eb8c0e7396d479566f66c6f23a3142543df19e6ce666a6f`, executed at block `45,372,505`, completed one callback, and stored the decoded `uint256` result `1979`. Full deployment evidence is in [`deployments/ritual-testnet.json`](./deployments/ritual-testnet.json).
+The factory smoke created child `0x43beC43EBc45df36B0738Dfa13F9e406F08333e4` for the deployer. Its atomic fund-and-schedule transaction `0xa2d45aff240e5019a4405bbe719dd9b62575a83f8c4c2b15d58169f68649bf86` created call `3147825`; Ritual executed it in transaction `0x6823f7fba193301d594b4d5cad5c94ae1bdbc20362ec9e83c6df92859c2e718b` at block `45,403,040`, and the child stored the decoded `uint256` result `1979`. Full deployment evidence is in [`deployments/ritual-testnet.json`](./deployments/ritual-testnet.json).
 
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.
 

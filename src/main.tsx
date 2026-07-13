@@ -202,6 +202,7 @@ type AgentLifecycleState =
   | { status: "error"; error: string };
 
 export type ScheduledJqConsumerStatus = {
+  address: string;
   owner: string;
   balance: bigint;
   lockUntil: bigint;
@@ -226,10 +227,11 @@ export type SchedulerLifecycleEntry = {
 
 type ScheduledJqConsumerState =
   | { status: "idle" | "loading" }
+  | { status: "missing"; predictedAddress: string }
   | { status: "ready"; data: ScheduledJqConsumerStatus }
   | { status: "error"; error: string };
 
-type SchedulerAction = "schedule" | "cancel" | "withdraw";
+type SchedulerAction = "deploy" | "schedule" | "cancel" | "withdraw";
 
 type SchedulerTransactionState = TransactionState & { action?: SchedulerAction };
 
@@ -519,12 +521,12 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP and JQ are publicly usable. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion. Agent and Scheduled JQ use owner-controlled deployed contracts, so only their displayed owner wallet can launch or manage them until per-user factories are added.",
+      "HTTP, JQ, and Scheduled JQ are publicly usable. The first Scheduled JQ use creates one deterministic consumer owned by the connected wallet. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion. The current Sovereign Agent harness remains owner-only.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
     answer:
-      "The deployed Scheduled JQ consumer owns its own RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. Unused escrow can be withdrawn by the consumer owner after its lock expires.",
+      "Each wallet gets its own Scheduled JQ consumer and contract-owned RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. The same wallet can cancel active calls or withdraw unused escrow after its lock expires.",
   },
   {
     question: "What is stored by the app?",
@@ -605,11 +607,33 @@ const RESULT_DELIVERED_TOPIC = keccak256(stringToHex("ResultDelivered(bytes32,ad
 const JOB_REMOVED_TOPIC = keccak256(stringToHex("JobRemoved(address,bytes32,bool)"));
 const SOVEREIGN_RESULT_TOPIC = keccak256(stringToHex("SovereignResult(bytes32,bytes)"));
 export const SCHEDULED_JQ_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumer.address;
+export const SCHEDULED_JQ_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.address;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 const SCHEDULER_LOCK_BLOCKS = 50_000n;
-const SCHEDULER_ORIGIN_TX_STORAGE_KEY = "precompile-studio:scheduler-origin-tx";
+const SCHEDULER_ORIGIN_TX_STORAGE_PREFIX = "precompile-studio:scheduler-origin-tx";
 const SCHEDULE_STATE_LABELS = ["Scheduled", "Executing", "Completed", "Cancelled", "Expired"] as const;
 const SCHEDULED_JQ_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.ScheduledJqConsumer.blockNumber;
+const SCHEDULED_JQ_FACTORY_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.blockNumber;
+const SCHEDULED_JQ_SMOKE_RUNS = [
+  {
+    consumer: ritualTestnetDeployment.contracts.ScheduledJqConsumer.address,
+    callId: BigInt(ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeCallId),
+    transaction: ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeTransaction,
+    block: ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeBlock,
+    startBlock: ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeStartBlock,
+    frequency: ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeFrequency,
+    numCalls: ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeNumCalls,
+  },
+  {
+    consumer: ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeConsumer,
+    callId: BigInt(ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeCallId),
+    transaction: ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeScheduleTransaction,
+    block: ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeScheduleBlock,
+    startBlock: ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeStartBlock,
+    frequency: ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeFrequency,
+    numCalls: ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.smokeNumCalls,
+  },
+] as const;
 
 const schedulerLifecycleAbi = parseAbi([
   "event CallScheduled(uint256 indexed callId, address indexed to, address indexed caller, uint32 startBlock, uint32 numCalls, uint32 frequency, uint32 gas, uint32 ttl, uint256 maxFeePerGas, uint256 maxPriorityFeePerGas, uint256 value, bytes data)",
@@ -714,6 +738,30 @@ const scheduledJqConsumerAbi = [
       { name: "value", type: "uint256" },
     ],
     outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+const scheduledJqFactoryAbi = [
+  {
+    type: "function",
+    name: "consumerOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "consumer", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "predictConsumer",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "consumer", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "createConsumer",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ name: "consumer", type: "address" }],
   },
 ] as const;
 
@@ -962,9 +1010,9 @@ export const recipes: Recipe[] = [
   {
     id: "scheduler",
     name: "Scheduled JQ",
-    label: "Live consumer",
+    label: "Factory-backed recipe",
     icon: Activity,
-    status: "owner-only",
+    status: "live",
     description: "Run a JQ transform later or on a recurring Ritual schedule.",
     fields: [
       { key: "query", label: "JQ filter", value: ".data.price" },
@@ -2171,14 +2219,18 @@ export function createSchedulerTransaction(
   from: string,
   draft: ReturnType<typeof buildScheduleDraft>,
   funding = 0n,
+  consumerAddress = SCHEDULED_JQ_CONSUMER_ADDRESS,
 ): WalletTransactionRequest {
   if (!draft.encodedInput || draft.errors.length) {
     throw new Error("Resolve the Scheduled JQ input before creating the schedule.");
   }
-  if (funding === 0n) return { from, to: SCHEDULED_JQ_CONSUMER_ADDRESS, data: draft.encodedInput };
+  if (!isAddress(consumerAddress) || consumerAddress.toLowerCase() === zeroAddress) {
+    throw new Error("Create a Scheduled JQ consumer before creating the schedule.");
+  }
+  if (funding === 0n) return { from, to: consumerAddress, data: draft.encodedInput };
   return {
     from,
-    to: SCHEDULED_JQ_CONSUMER_ADDRESS,
+    to: consumerAddress,
     value: `0x${funding.toString(16)}`,
     data: encodeFunctionData({
       abi: scheduledJqConsumerAbi,
@@ -2202,16 +2254,61 @@ export function createSchedulerControlTransaction(
   from: string,
   action: "cancelSchedule" | "withdraw",
   amount?: bigint,
+  consumerAddress = SCHEDULED_JQ_CONSUMER_ADDRESS,
 ): WalletTransactionRequest {
+  if (!isAddress(consumerAddress) || consumerAddress.toLowerCase() === zeroAddress) {
+    throw new Error("Create a Scheduled JQ consumer before managing the schedule.");
+  }
   return {
     from,
-    to: SCHEDULED_JQ_CONSUMER_ADDRESS,
+    to: consumerAddress,
     data: encodeFunctionData({
       abi: scheduledJqConsumerAbi,
       functionName: action,
       args: action === "withdraw" ? [amount ?? 0n] : [],
     } as never),
   };
+}
+
+export function createScheduledJqConsumerTransaction(from: string): WalletTransactionRequest {
+  return {
+    from,
+    to: SCHEDULED_JQ_FACTORY_ADDRESS,
+    data: encodeFunctionData({
+      abi: scheduledJqFactoryAbi,
+      functionName: "createConsumer",
+    }),
+  };
+}
+
+export type ScheduledJqConsumerDiscovery =
+  | { status: "ready"; address: string }
+  | { status: "missing"; predictedAddress: string };
+
+export async function readScheduledJqConsumerDiscovery(
+  owner: string,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+): Promise<ScheduledJqConsumerDiscovery> {
+  const address = await readViewFunction<string>(
+    SCHEDULED_JQ_FACTORY_ADDRESS,
+    scheduledJqFactoryAbi,
+    "consumerOf",
+    [owner],
+    requester,
+  );
+  if (address.toLowerCase() !== zeroAddress) return { status: "ready", address };
+  const predictedAddress = await readViewFunction<string>(
+    SCHEDULED_JQ_FACTORY_ADDRESS,
+    scheduledJqFactoryAbi,
+    "predictConsumer",
+    [owner],
+    requester,
+  );
+  return { status: "missing", predictedAddress };
+}
+
+function schedulerOriginTransactionStorageKey(consumerAddress: string) {
+  return `${SCHEDULER_ORIGIN_TX_STORAGE_PREFIX}:${consumerAddress.toLowerCase()}`;
 }
 
 export type AgentHarnessStatus = {
@@ -2305,6 +2402,8 @@ export async function readSchedulerLifecycle(
   callId: bigint,
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
   originTransactionHash?: string,
+  consumerAddress = SCHEDULED_JQ_CONSUMER_ADDRESS,
+  deploymentBlock = SCHEDULED_JQ_DEPLOYMENT_BLOCK,
 ): Promise<SchedulerLifecycleEntry[]> {
   if (callId === 0n) return [];
   const callIdTopic = encodeAbiParameters(parseAbiParameters("uint256"), [callId]);
@@ -2313,7 +2412,7 @@ export async function readSchedulerLifecycle(
   const logGroups = await Promise.all(SCHEDULER_LIFECYCLE_TOPICS.map((topic) =>
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.Scheduler,
-      fromBlock: `0x${SCHEDULED_JQ_DEPLOYMENT_BLOCK.toString(16)}`,
+      fromBlock: `0x${deploymentBlock.toString(16)}`,
       toBlock: "latest",
       topics: [topic, callIdTopic],
     }]),
@@ -2321,10 +2420,10 @@ export async function readSchedulerLifecycle(
   const logs = logGroups.flat();
   const recoveredEntries: SchedulerLifecycleEntry[] = [];
 
-  const knownOriginTransaction = originTransactionHash
-    ?? (callId === BigInt(ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeCallId)
-      ? ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeTransaction
-      : undefined);
+  const smokeRun = SCHEDULED_JQ_SMOKE_RUNS.find((run) =>
+    run.consumer.toLowerCase() === consumerAddress.toLowerCase() && run.callId === callId,
+  );
+  const knownOriginTransaction = originTransactionHash ?? smokeRun?.transaction;
   if (logs.length === 0 && knownOriginTransaction) {
     const readReceipt = async (hash: string) => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -2360,18 +2459,17 @@ export async function readSchedulerLifecycle(
       } catch {
         // The consumer state still provides the terminal outcome.
       }
-    } else if (callId === BigInt(ritualTestnetDeployment.contracts.ScheduledJqConsumer.smokeCallId)) {
-      const smoke = ritualTestnetDeployment.contracts.ScheduledJqConsumer;
-      startBlock = smoke.smokeStartBlock;
-      frequency = smoke.smokeFrequency;
-      numCalls = smoke.smokeNumCalls;
+    } else if (smokeRun) {
+      startBlock = smokeRun.startBlock;
+      frequency = smokeRun.frequency;
+      numCalls = smokeRun.numCalls;
       recoveredEntries.push({
         kind: "scheduled",
         label: "Schedule created",
         detail: `${numCalls} execution, first at block ${startBlock.toLocaleString()}.`,
         tone: "neutral",
-        blockNumber: smoke.smokeBlock,
-        transactionHash: smoke.smokeTransaction,
+        blockNumber: smokeRun.block,
+        transactionHash: smokeRun.transaction,
       });
     }
     if (startBlock !== undefined && frequency !== undefined && numCalls !== undefined) {
@@ -2449,6 +2547,8 @@ export async function readSchedulerLifecycle(
 export async function readScheduledJqConsumerStatus(
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
   originTransactionHash?: string,
+  consumerAddress = SCHEDULED_JQ_CONSUMER_ADDRESS,
+  deploymentBlock = SCHEDULED_JQ_DEPLOYMENT_BLOCK,
 ): Promise<ScheduledJqConsumerStatus> {
   const [
     owner,
@@ -2462,18 +2562,24 @@ export async function readScheduledJqConsumerStatus(
     activeNumCalls,
     lastResult,
   ] = await Promise.all([
-    readViewFunction<string>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "owner", [], requester),
-    readViewFunction<bigint>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "consumerBalance", [], requester),
-    readViewFunction<bigint>(SYSTEM_CONTRACTS.RitualWallet, ritualWalletAbi, "lockUntil", [SCHEDULED_JQ_CONSUMER_ADDRESS], requester),
-    readViewFunction<bigint>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "activeScheduleId", [], requester),
-    readViewFunction<bigint>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "lastScheduleId", [], requester),
-    readViewFunction<number>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "activeScheduleState", [], requester),
-    readViewFunction<bigint>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "executionCount", [], requester),
-    readViewFunction<bigint>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "lastExecutionIndex", [], requester),
-    readViewFunction<number>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "activeNumCalls", [], requester),
-    readViewFunction<`0x${string}`>(SCHEDULED_JQ_CONSUMER_ADDRESS, scheduledJqConsumerAbi, "lastResult", [], requester),
+    readViewFunction<string>(consumerAddress, scheduledJqConsumerAbi, "owner", [], requester),
+    readViewFunction<bigint>(consumerAddress, scheduledJqConsumerAbi, "consumerBalance", [], requester),
+    readViewFunction<bigint>(SYSTEM_CONTRACTS.RitualWallet, ritualWalletAbi, "lockUntil", [consumerAddress], requester),
+    readViewFunction<bigint>(consumerAddress, scheduledJqConsumerAbi, "activeScheduleId", [], requester),
+    readViewFunction<bigint>(consumerAddress, scheduledJqConsumerAbi, "lastScheduleId", [], requester),
+    readViewFunction<number>(consumerAddress, scheduledJqConsumerAbi, "activeScheduleState", [], requester),
+    readViewFunction<bigint>(consumerAddress, scheduledJqConsumerAbi, "executionCount", [], requester),
+    readViewFunction<bigint>(consumerAddress, scheduledJqConsumerAbi, "lastExecutionIndex", [], requester),
+    readViewFunction<number>(consumerAddress, scheduledJqConsumerAbi, "activeNumCalls", [], requester),
+    readViewFunction<`0x${string}`>(consumerAddress, scheduledJqConsumerAbi, "lastResult", [], requester),
   ]);
-  const lifecycle = await readSchedulerLifecycle(lastScheduleId, requester, originTransactionHash);
+  const lifecycle = await readSchedulerLifecycle(
+    lastScheduleId,
+    requester,
+    originTransactionHash,
+    consumerAddress,
+    deploymentBlock,
+  );
   const latestEvidence = lifecycle[lifecycle.length - 1];
   if (lastScheduleId !== 0n && executionCount > 0n && !lifecycle.some((entry) => entry.kind === "executed")) {
     lifecycle.push({
@@ -2510,6 +2616,7 @@ export async function readScheduledJqConsumerStatus(
     });
   }
   return {
+    address: consumerAddress,
     owner,
     balance,
     lockUntil,
@@ -3388,6 +3495,13 @@ function App() {
     depositLock > 0 &&
     depositState.status !== "submitting";
   const scheduledJqStatus = scheduledJqState.status === "ready" ? scheduledJqState.data : undefined;
+  const scheduledJqConsumerAddress =
+    scheduledJqState.status === "ready"
+      ? scheduledJqState.data.address
+      : scheduledJqState.status === "missing"
+        ? scheduledJqState.predictedAddress
+        : undefined;
+  const isScheduledJqDemo = wallet.status !== "connected" || !wallet.address;
   const schedulerShortfall = scheduledJqStatus
     ? scheduleDraft.requiredBalance > scheduledJqStatus.balance
       ? scheduleDraft.requiredBalance - scheduledJqStatus.balance
@@ -3397,12 +3511,19 @@ function App() {
   const directCallUnavailableReason =
     selectedRecipe.id === "agent"
       ? "Sovereign Agent calls are launched through the deployed factory harness."
+      : selectedRecipe.id === "scheduler" && scheduledJqState.status !== "ready"
+        ? "Create your Scheduled JQ consumer before exporting a transaction."
       : undefined;
   const callRequest = React.useMemo(
     () => {
       if (!liveAbiDraft?.encodedInput || directCallUnavailableReason) return undefined;
       if (selectedRecipe.id === "scheduler") {
-        const tx = createSchedulerTransaction(wallet.address ?? zeroAddress, scheduleDraft, schedulerShortfall);
+        const tx = createSchedulerTransaction(
+          wallet.address ?? zeroAddress,
+          scheduleDraft,
+          schedulerShortfall,
+          scheduledJqConsumerAddress ?? SCHEDULED_JQ_CONSUMER_ADDRESS,
+        );
         return {
           chainId: RITUAL.chainId,
           recipe: selectedRecipe.id,
@@ -3426,6 +3547,7 @@ function App() {
       liveAbiDraft?.callTarget,
       liveAbiDraft?.encodedInput,
       scheduleDraft,
+      scheduledJqConsumerAddress,
       schedulerShortfall,
       selectedRecipe.id,
       selectedRecipe.name,
@@ -3459,6 +3581,12 @@ function App() {
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
+  const canCreateScheduledJqConsumer =
+    selectedRecipe.id === "scheduler" &&
+    scheduledJqState.status === "missing" &&
+    wallet.status === "connected" &&
+    isRightChain &&
+    schedulerTxState.status !== "submitting";
   const hasActiveSchedule = Boolean(
     scheduledJqStatus && scheduledJqStatus.activeScheduleId > 0n && scheduledJqStatus.scheduleState < 2,
   );
@@ -3701,10 +3829,21 @@ function App() {
       selectedRecipe.id === "scheduler"
         ? {
             ok: scheduledJqState.status === "ready" && isScheduledJqOwner,
-            label: isScheduledJqOwner ? "Scheduled JQ consumer ready" : "Connect consumer owner",
+            label:
+              wallet.status !== "connected"
+                ? "Connect for your Scheduler consumer"
+                : scheduledJqState.status === "missing"
+                  ? "Create Scheduled JQ consumer"
+                  : isScheduledJqOwner
+                    ? "Scheduled JQ consumer ready"
+                    : "Consumer ownership mismatch",
             help:
-              scheduledJqState.status !== "ready"
-                ? "Reading contract-owned Scheduler escrow."
+              wallet.status !== "connected"
+                ? "The public demo remains readable; connect to discover your own consumer."
+                : scheduledJqState.status === "missing"
+                  ? `Factory predicts ${formatAddress(scheduledJqState.predictedAddress)} for this wallet.`
+                  : scheduledJqState.status !== "ready"
+                    ? "Reading wallet-specific Scheduler escrow."
                 : isScheduledJqOwner
                   ? schedulerShortfall > 0n
                     ? `${formatRitual(schedulerShortfall)} RITUAL will be funded atomically.`
@@ -3770,6 +3909,7 @@ function App() {
     selectedRecipe.id,
     selectedRecipe.status,
     scheduledJqState.status,
+    scheduledJqState.status === "missing" ? scheduledJqState.predictedAddress : undefined,
     scheduledJqStatus?.owner,
     schedulerShortfall,
     wallet.address,
@@ -3956,7 +4096,11 @@ function App() {
                 encodedInput: scheduleDraft.encodedInput,
                 errors: scheduleDraft.errors,
                 facts: [
-                  { label: "target", value: formatAddress(scheduleDraft.callTarget), copyValue: scheduleDraft.callTarget },
+                  {
+                    label: "target",
+                    value: formatAddress(scheduledJqConsumerAddress ?? scheduleDraft.callTarget),
+                    copyValue: scheduledJqConsumerAddress ?? scheduleDraft.callTarget,
+                  },
                   { label: "output", value: scheduleDraft.outputTypeKey, copyValue: scheduleDraft.outputTypeKey },
                   { label: "calls", value: String(scheduleDraft.numCalls), copyValue: String(scheduleDraft.numCalls) },
                   { label: "freq", value: String(scheduleDraft.frequency), copyValue: String(scheduleDraft.frequency) },
@@ -4234,7 +4378,11 @@ function App() {
           : "Resolve LLM field errors before submitting inference."
       : selectedRecipe.id === "scheduler"
         ? scheduleDraft.encodedInput
-          ? `Schedule through the verified consumer at ${SCHEDULED_JQ_CONSUMER_ADDRESS}. Funding and scheduling use one wallet confirmation.`
+          ? scheduledJqState.status === "missing"
+            ? `Create the consumer predicted for this wallet at ${scheduledJqState.predictedAddress}.`
+            : scheduledJqState.status === "ready"
+              ? `Schedule through ${scheduledJqState.data.address}. Funding and scheduling use one wallet confirmation.`
+              : "Connect a wallet to discover its Scheduled JQ consumer."
           : "Resolve Scheduled JQ field errors before submitting."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
@@ -4789,10 +4937,34 @@ function App() {
   }, [depositAmount, depositLock, refreshWallet, wallet.address]);
 
   const refreshScheduledJq = React.useCallback(async () => {
-    setScheduledJqState((current) => (current.status === "ready" ? current : { status: "loading" }));
+    setScheduledJqState((current) => {
+      const currentMatchesWallet = current.status === "ready" && (wallet.address
+        ? current.data.address.toLowerCase() !== SCHEDULED_JQ_CONSUMER_ADDRESS.toLowerCase()
+          && current.data.owner.toLowerCase() === wallet.address.toLowerCase()
+        : current.data.address.toLowerCase() === SCHEDULED_JQ_CONSUMER_ADDRESS.toLowerCase());
+      return currentMatchesWallet ? current : { status: "loading" };
+    });
     try {
-      const originTransactionHash = window.localStorage.getItem(SCHEDULER_ORIGIN_TX_STORAGE_KEY) ?? undefined;
-      const data = await readScheduledJqConsumerStatus(rpc, originTransactionHash);
+      let consumerAddress = SCHEDULED_JQ_CONSUMER_ADDRESS;
+      let deploymentBlock = SCHEDULED_JQ_DEPLOYMENT_BLOCK;
+      if (wallet.address) {
+        const discovery = await readScheduledJqConsumerDiscovery(wallet.address);
+        if (discovery.status === "missing") {
+          setScheduledJqState(discovery);
+          return discovery;
+        }
+        consumerAddress = discovery.address;
+        deploymentBlock = SCHEDULED_JQ_FACTORY_DEPLOYMENT_BLOCK;
+      }
+      const originTransactionHash = window.localStorage.getItem(
+        schedulerOriginTransactionStorageKey(consumerAddress),
+      ) ?? undefined;
+      const data = await readScheduledJqConsumerStatus(
+        rpc,
+        originTransactionHash,
+        consumerAddress,
+        deploymentBlock,
+      );
       setScheduledJqState({ status: "ready", data });
       return data;
     } catch (error) {
@@ -4802,26 +4974,68 @@ function App() {
       });
       return undefined;
     }
-  }, []);
+  }, [wallet.address]);
+
+  const createScheduledJqConsumer = React.useCallback(async () => {
+    const provider = providerRef.current;
+    if (!provider || !wallet.address) {
+      setSchedulerTxState({ status: "error", action: "deploy", error: "Connect a wallet before creating a consumer." });
+      return;
+    }
+    if (!isRightChain) {
+      setSchedulerTxState({ status: "error", action: "deploy", error: "Switch the wallet to Ritual before creating a consumer." });
+      return;
+    }
+    setSchedulerTxState({ status: "submitting", action: "deploy" });
+    try {
+      const tx = await prepareWalletTransaction(createScheduledJqConsumerTransaction(wallet.address), "0x3d0900");
+      const hash = await sendWalletTransaction(provider, tx);
+      setSchedulerTxState({ status: "submitted", action: "deploy", hash });
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        const discovery = await readScheduledJqConsumerDiscovery(wallet.address);
+        if (discovery.status === "ready") {
+          await refreshScheduledJq();
+          return;
+        }
+      }
+      setSchedulerTxState({
+        status: "error",
+        action: "deploy",
+        hash,
+        error: "Consumer creation is still confirming. Use Refresh after the transaction is included.",
+      });
+    } catch (error) {
+      setSchedulerTxState({
+        status: "error",
+        action: "deploy",
+        error: error instanceof Error ? error.message : "Consumer creation was rejected.",
+      });
+    }
+  }, [isRightChain, refreshScheduledJq, wallet.address]);
 
   const submitScheduledJq = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address) {
-      setSchedulerTxState({ status: "error", action: "schedule", error: "Connect the consumer owner wallet first." });
+      setSchedulerTxState({ status: "error", action: "schedule", error: "Connect a wallet before scheduling." });
       return;
     }
     if (!isScheduledJqOwner) {
       setSchedulerTxState({ status: "error", action: "schedule", error: "The connected wallet is not the consumer owner." });
       return;
     }
+    if (!scheduledJqConsumerAddress) {
+      setSchedulerTxState({ status: "error", action: "schedule", error: "Create your Scheduled JQ consumer first." });
+      return;
+    }
     setSchedulerTxState({ status: "submitting", action: "schedule" });
     try {
       const tx = await prepareWalletTransaction(
-        createSchedulerTransaction(wallet.address, scheduleDraft, schedulerShortfall),
+        createSchedulerTransaction(wallet.address, scheduleDraft, schedulerShortfall, scheduledJqConsumerAddress),
         "0xf4240",
       );
       const hash = await sendWalletTransaction(provider, tx);
-      window.localStorage.setItem(SCHEDULER_ORIGIN_TX_STORAGE_KEY, hash);
+      window.localStorage.setItem(schedulerOriginTransactionStorageKey(scheduledJqConsumerAddress), hash);
       setSchedulerTxState({ status: "submitted", action: "schedule", hash });
       window.setTimeout(() => refreshScheduledJq().catch(() => undefined), 2500);
     } catch (error) {
@@ -4831,15 +5045,15 @@ function App() {
         error: error instanceof Error ? error.message : "Scheduled JQ submission was rejected.",
       });
     }
-  }, [isScheduledJqOwner, refreshScheduledJq, scheduleDraft, schedulerShortfall, wallet.address]);
+  }, [isScheduledJqOwner, refreshScheduledJq, scheduleDraft, scheduledJqConsumerAddress, schedulerShortfall, wallet.address]);
 
   const cancelScheduledJq = React.useCallback(async () => {
     const provider = providerRef.current;
-    if (!provider || !wallet.address || !canCancelSchedule) return;
+    if (!provider || !wallet.address || !scheduledJqConsumerAddress || !canCancelSchedule) return;
     setSchedulerTxState({ status: "submitting", action: "cancel" });
     try {
       const tx = await prepareWalletTransaction(
-        createSchedulerControlTransaction(wallet.address, "cancelSchedule"),
+        createSchedulerControlTransaction(wallet.address, "cancelSchedule", undefined, scheduledJqConsumerAddress),
         "0x493e0",
       );
       const hash = await sendWalletTransaction(provider, tx);
@@ -4852,15 +5066,15 @@ function App() {
         error: error instanceof Error ? error.message : "Schedule cancellation was rejected.",
       });
     }
-  }, [canCancelSchedule, refreshScheduledJq, wallet.address]);
+  }, [canCancelSchedule, refreshScheduledJq, scheduledJqConsumerAddress, wallet.address]);
 
   const withdrawScheduledJq = React.useCallback(async () => {
     const provider = providerRef.current;
-    if (!provider || !wallet.address || !scheduledJqStatus || !canWithdrawScheduler) return;
+    if (!provider || !wallet.address || !scheduledJqStatus || !scheduledJqConsumerAddress || !canWithdrawScheduler) return;
     setSchedulerTxState({ status: "submitting", action: "withdraw" });
     try {
       const tx = await prepareWalletTransaction(
-        createSchedulerControlTransaction(wallet.address, "withdraw", scheduledJqStatus.balance),
+        createSchedulerControlTransaction(wallet.address, "withdraw", scheduledJqStatus.balance, scheduledJqConsumerAddress),
         "0x493e0",
       );
       const hash = await sendWalletTransaction(provider, tx);
@@ -4873,7 +5087,7 @@ function App() {
         error: error instanceof Error ? error.message : "Consumer withdrawal was rejected.",
       });
     }
-  }, [canWithdrawScheduler, refreshScheduledJq, scheduledJqStatus, wallet.address]);
+  }, [canWithdrawScheduler, refreshScheduledJq, scheduledJqConsumerAddress, scheduledJqStatus, wallet.address]);
 
   const refreshAgentHarness = React.useCallback(async () => {
     setAgentHarnessState({ status: "loading" });
@@ -5577,14 +5791,23 @@ function App() {
                   </button>
                 ) : null}
                 {selectedRecipe.id === "scheduler" ? (
-                  <button className="primary-action large" type="button" onClick={submitScheduledJq} disabled={!canCreateSchedule}>
-                    {schedulerTxState.status === "submitting" && schedulerTxState.action === "schedule" ? (
+                  <button
+                    className="primary-action large"
+                    type="button"
+                    onClick={scheduledJqState.status === "missing" ? createScheduledJqConsumer : submitScheduledJq}
+                    disabled={scheduledJqState.status === "missing" ? !canCreateScheduledJqConsumer : !canCreateSchedule}
+                  >
+                    {schedulerTxState.status === "submitting" ? (
                       <Loader2 className="spin" size={16} />
+                    ) : scheduledJqState.status === "missing" ? (
+                      <Upload size={16} />
                     ) : (
                       <Activity size={16} />
                     )}
-                    {schedulerTxState.status === "submitting" && schedulerTxState.action === "schedule"
-                      ? "Confirming"
+                    {schedulerTxState.status === "submitting"
+                      ? schedulerTxState.action === "deploy" ? "Creating" : "Confirming"
+                      : scheduledJqState.status === "missing"
+                        ? "Create consumer"
                       : schedulerShortfall > 0n
                         ? "Fund & schedule"
                         : "Schedule JQ"}
@@ -5669,12 +5892,14 @@ function App() {
                 <div className="scheduler-workflow" data-testid="scheduler-workflow">
                   <div className="scheduler-workflow-head">
                     <div>
-                      <span>Scheduled JQ consumer</span>
+                      <span>{isScheduledJqDemo ? "Scheduled JQ demo" : "Your Scheduled JQ consumer"}</span>
                       <strong>
                         {scheduledJqState.status === "loading" || scheduledJqState.status === "idle"
                           ? "Reading onchain state"
                           : scheduledJqState.status === "error"
                             ? "Consumer unavailable"
+                            : scheduledJqState.status === "missing"
+                              ? "Consumer not created"
                             : hasActiveSchedule
                               ? SCHEDULE_STATE_LABELS[scheduledJqStatus?.scheduleState ?? 0]
                               : scheduledJqStatus?.lastScheduleId
@@ -5686,7 +5911,7 @@ function App() {
                       className="section-toggle"
                       type="button"
                       onClick={() => refreshScheduledJq().catch(() => undefined)}
-                      disabled={scheduledJqState.status === "loading"}
+                      disabled={scheduledJqState.status === "loading" || schedulerTxState.status === "submitting"}
                     >
                       {scheduledJqState.status === "loading" ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
                       Refresh
@@ -5696,21 +5921,45 @@ function App() {
                   <div className="scheduler-facts">
                     <div>
                       <span>Consumer</span>
-                      <code>{formatAddress(SCHEDULED_JQ_CONSUMER_ADDRESS)}</code>
+                      <code>{scheduledJqConsumerAddress ? formatAddress(scheduledJqConsumerAddress) : "Checking"}</code>
                     </div>
-                    <div className={isScheduledJqOwner ? "ok" : "pending"}>
+                    <div className={isScheduledJqOwner || scheduledJqState.status === "missing" ? "ok" : "pending"}>
                       <span>Owner</span>
-                      <strong>{scheduledJqStatus ? (isScheduledJqOwner ? "Connected" : formatAddress(scheduledJqStatus.owner)) : "Checking"}</strong>
+                      <strong>
+                        {scheduledJqState.status === "missing"
+                          ? "Connected wallet"
+                          : scheduledJqStatus
+                            ? isScheduledJqOwner
+                              ? "Connected"
+                              : formatAddress(scheduledJqStatus.owner)
+                            : "Checking"}
+                      </strong>
                     </div>
                     <div className={schedulerShortfall === 0n ? "ok" : "pending"}>
                       <span>Consumer escrow</span>
-                      <strong>{scheduledJqStatus ? `${formatRitual(scheduledJqStatus.balance)} RITUAL` : "Checking"}</strong>
+                      <strong>
+                        {scheduledJqState.status === "missing"
+                          ? "After creation"
+                          : scheduledJqStatus
+                            ? `${formatRitual(scheduledJqStatus.balance)} RITUAL`
+                            : "Checking"}
+                      </strong>
                     </div>
                     <div>
                       <span>Last call</span>
-                      <strong>{scheduledJqStatus?.lastScheduleId ? `#${scheduledJqStatus.lastScheduleId}` : "None"}</strong>
+                      <strong>{scheduledJqState.status === "missing" ? "New" : scheduledJqStatus?.lastScheduleId ? `#${scheduledJqStatus.lastScheduleId}` : "None"}</strong>
                     </div>
                   </div>
+
+                  {scheduledJqState.status === "missing" ? (
+                    <div className="scheduler-setup" role="status">
+                      <div>
+                        <span>One-time setup</span>
+                        <p>Deploy the predicted consumer once. This wallet will own its schedules, escrow, and withdrawals.</p>
+                      </div>
+                      <code>{formatAddress(SCHEDULED_JQ_FACTORY_ADDRESS)}</code>
+                    </div>
+                  ) : null}
 
                   <div className="scheduler-budget">
                     <div>
@@ -5728,7 +5977,7 @@ function App() {
                   <div className="scheduler-controls">
                     <span>
                       {schedulerLockRemaining === undefined
-                        ? "Escrow lock pending"
+                        ? scheduledJqState.status === "missing" ? "Escrow starts after consumer creation" : "Escrow lock pending"
                         : schedulerLockRemaining > 0
                           ? `Escrow unlocks in ${schedulerLockRemaining.toLocaleString()} blocks`
                           : "Escrow is unlocked"}
@@ -6441,7 +6690,7 @@ function App() {
               </div>
             </section>
 
-            {wallet.status === "connected" ? (
+            {wallet.status === "connected" && ["http", "llm"].includes(selectedRecipe.id) ? (
               <section className="inspector-section disclosure-section">
                 <button
                   className={showFunding ? "inspector-disclosure open" : "inspector-disclosure"}

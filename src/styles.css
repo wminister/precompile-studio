@@ -1209,6 +1209,42 @@ select:focus {
   color: #ffb36b;
 }
 
+.scheduler-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 0 11px;
+}
+
+.scheduler-setup > div {
+  display: grid;
+  gap: 3px;
+}
+
+.scheduler-setup span {
+  color: var(--accent-ink);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.scheduler-setup p {
+  max-width: 66ch;
+  margin: 0;
+  color: var(--quiet);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.scheduler-setup code {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
 .scheduler-budget {
   display: grid;
   grid-template-columns: minmax(140px, 0.24fr) minmax(0, 1fr);
@@ -3351,6 +3387,12 @@ pre {
   .scheduler-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .scheduler-setup {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .scheduler-controls > div {

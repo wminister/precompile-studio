@@ -28,7 +28,7 @@ interface IRitualScheduler {
 /// @notice Contract-owned recurring JQ execution for Precompile Studio.
 /// @dev The consumer is both Scheduler caller and payer, so no EOA scheduler
 ///      approval is required. The Scheduler injects executionIndex at runtime.
-contract ScheduledJqConsumer {
+abstract contract ScheduledJqConsumerCore {
     address internal constant JQ_PRECOMPILE = 0x0000000000000000000000000000000000000803;
     address internal constant RITUAL_WALLET = 0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948;
     uint256 public constant SCHEDULER_RESERVE = 0.01 ether;
@@ -60,9 +60,9 @@ contract ScheduledJqConsumer {
     error InsufficientConsumerFunds(uint256 required, uint256 available);
     error TransferFailed();
 
-    constructor(address schedulerAddress) {
-        if (schedulerAddress == address(0)) revert InvalidSchedule();
-        owner = msg.sender;
+    constructor(address schedulerAddress, address initialOwner) {
+        if (schedulerAddress == address(0) || initialOwner == address(0)) revert InvalidSchedule();
+        owner = initialOwner;
         scheduler = IRitualScheduler(schedulerAddress);
     }
 
@@ -209,4 +209,16 @@ contract ScheduledJqConsumer {
             return 4;
         }
     }
+}
+
+/// @notice Direct-deployment wrapper retained for existing deployments.
+contract ScheduledJqConsumer is ScheduledJqConsumerCore {
+    constructor(address schedulerAddress) ScheduledJqConsumerCore(schedulerAddress, msg.sender) {}
+}
+
+/// @notice Explicit-owner implementation used by ScheduledJqConsumerFactory.
+contract UserScheduledJqConsumer is ScheduledJqConsumerCore {
+    constructor(address schedulerAddress, address initialOwner)
+        ScheduledJqConsumerCore(schedulerAddress, initialOwner)
+    {}
 }

@@ -12,10 +12,14 @@ const TX_HASH = FIXTURE_TX_HASH;
 const CONSUMER = FIXTURE_CONSUMER_ADDRESS;
 const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
 const TEST_EXECUTOR = "0x2222222222222222222222222222222222222222";
+const SCHEDULER_CONSUMER = "0x7243c1A2cA1Ea555416951480B147c27b17eA668";
+const PREDICTED_SCHEDULER_CONSUMER = "0x3333333333333333333333333333333333333333";
 const TEST_PUBLIC_KEY = `0x04${"33".repeat(64)}` as `0x${string}`;
 const ZERO_HASH = `0x${"0".repeat(64)}` as `0x${string}`;
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
+  let factoryLookupCount = 0;
   await page.addInitScript(({ llmHash }) => {
     const account = "0x1111111111111111111111111111111111111111";
     const provider = {
@@ -49,6 +53,14 @@ test.beforeEach(async ({ page }) => {
           parseAbiParameters("((address,address,uint8,bytes,string,bytes32,uint8),bool,bytes32)[]"),
           [[[[TEST_ACCOUNT, TEST_EXECUTOR, 0, TEST_PUBLIC_KEY, "", ZERO_HASH, 0], true, ZERO_HASH]]],
         );
+      }
+      else if (call?.data?.startsWith(toFunctionSelector("consumerOf(address)"))) {
+        factoryLookupCount += 1;
+        const consumer = firstTimeSchedulerWallet && factoryLookupCount === 1 ? "0x0000000000000000000000000000000000000000" : SCHEDULER_CONSUMER;
+        result = encodeAbiParameters(parseAbiParameters("address"), [consumer]);
+      }
+      else if (call?.data?.startsWith(toFunctionSelector("predictConsumer(address)"))) {
+        result = encodeAbiParameters(parseAbiParameters("address"), [PREDICTED_SCHEDULER_CONSUMER]);
       }
       else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
       else if (call?.data?.startsWith(toFunctionSelector("consumerBalance()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [400_000_000_000_000n]);
@@ -131,7 +143,7 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
 
 test("reconciles the completed Scheduled JQ lifecycle without overflow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Scheduled JQ Owner only recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Scheduled JQ Live recipe", exact: true }).click();
 
   const workflow = page.getByTestId("scheduler-workflow");
   await expect(workflow.getByText("Completed", { exact: true })).toBeVisible();
@@ -139,5 +151,21 @@ test("reconciles the completed Scheduled JQ lifecycle without overflow", async (
   await expect(workflow.getByText("Execution 1 completed", { exact: true })).toBeVisible();
   await expect(workflow.getByText("Schedule completed", { exact: true })).toBeVisible();
   await expect(workflow.getByText("1979", { exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("creates its Scheduled JQ consumer without leaving the composer", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Scheduled JQ Live recipe", exact: true }).click();
+
+  const workflow = page.getByTestId("scheduler-workflow");
+  await expect(workflow.getByText("Consumer not created", { exact: true })).toBeVisible();
+  await expect(workflow.getByText("0x3333...3333", { exact: true })).toBeVisible();
+  const create = page.getByRole("button", { name: "Create consumer", exact: true });
+  await expect(create).toBeEnabled();
+  await create.click();
+
+  await expect(workflow.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(workflow.getByText("0x7243...A668", { exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });

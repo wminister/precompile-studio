@@ -7,6 +7,7 @@ const contractAddresses = [
   deployments.contracts.LlmPrecompileConsumer.address,
   deployments.contracts.SovereignAgentHarness.address,
   deployments.contracts.ScheduledJqConsumer.address,
+  deployments.contracts.ScheduledJqConsumerFactory.address,
 ].map((address) => address.toLowerCase());
 const attempts = 6;
 

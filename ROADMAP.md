@@ -65,4 +65,14 @@ Live verification note (2026-07-13): `ScheduledJqConsumer` was deployed at `0x72
 - [x] Complete accessibility, responsive, error-state, and production verification passes.
 - [x] Publish a step-by-step test guide for every recipe.
 
-Release verification note (2026-07-13): Vitest, Foundry, and ten desktop/mobile Playwright cases pass. Chrome DevTools reported no console issues; Lighthouse scored accessibility and best practices at 100 on desktop and mobile. The production smoke test verifies all four deployed consumer/harness addresses in the Vercel bundle and the standalone FAQ route.
+Release verification note (2026-07-13): Vitest, Foundry, and twelve desktop/mobile Playwright cases pass. Chrome DevTools reported no console issues; Lighthouse scored accessibility and best practices at 100 on desktop and mobile. The production smoke test verifies all five deployed consumer, factory, and harness addresses in the Vercel bundle plus the standalone FAQ route.
+
+## Phase 9: Per-Wallet Scheduled JQ
+
+- [x] Refactor the Scheduler consumer core for explicit owner assignment without changing the legacy deployment.
+- [x] Deploy a deterministic one-consumer-per-wallet factory on Ritual testnet.
+- [x] Discover or create the connected wallet's consumer directly from the studio.
+- [x] Scope Scheduler transactions, lifecycle recovery, and local origin evidence to the discovered consumer.
+- [x] Verify a factory child with a real atomic fund-and-schedule execution.
+
+Live verification note (2026-07-13): factory `0x705e...548b` created child `0x43be...33e4` for the deployer. Transaction `0xa2d4...bf86` funded the child and created call `3147825`; Ritual executed it at block `45,403,040` in synthetic Scheduler transaction `0x6823...e718b`. The child reached completed state and stored decoded result `1979`. Twelve desktop/mobile Playwright cases now cover existing and first-time Scheduled JQ wallets.

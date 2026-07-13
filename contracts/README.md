@@ -1,6 +1,6 @@
 # Precompile Studio Contracts
 
-The repository contains owned consumers for HTTP, non-streaming LLM inference, and Scheduled JQ, plus the factory-compatible Sovereign Agent harness.
+The repository contains owned consumers for HTTP and non-streaming LLM inference, a per-wallet Scheduled JQ factory, and the factory-compatible Sovereign Agent harness.
 
 ## HTTP Consumer
 
@@ -52,8 +52,8 @@ The connected wallet still pays its own Ritual testnet gas and precompile fees.
 
 ## Scheduled JQ Consumer
 
-`ScheduledJqConsumer.sol` is an owner-operated Scheduler callback contract. It funds its own RitualWallet account, enforces Ritual's `0.01 RITUAL` Scheduler reserve plus the complete execution budget, schedules JQ precompile calls, records callback results, and exposes local lifecycle state after the Scheduler removes a completed one-shot call from its own storage.
+`ScheduledJqConsumer.sol` provides the owner-operated Scheduler callback core. It funds its own RitualWallet account, enforces Ritual's `0.01 RITUAL` Scheduler reserve plus the complete execution budget, schedules JQ precompile calls, records callback results, and exposes local lifecycle state after the Scheduler removes a completed one-shot call from its own storage.
 
 `fundAndSchedule` combines the escrow top-up and schedule creation in one payable transaction. `cancelSchedule` and `withdraw` remain owner-only, and RitualWallet still enforces the configured escrow lock before withdrawal.
 
-The current Ritual testnet deployment is `0x7243c1A2cA1Ea555416951480B147c27b17eA668`. The verified smoke call and deployment transactions are recorded in [`../deployments/ritual-testnet.json`](../deployments/ritual-testnet.json).
+`ScheduledJqConsumerFactory.sol` deploys one deterministic consumer per wallet and assigns that wallet as the immutable owner. The Ritual testnet factory is `0x705e1393280062D95d6e3B522223eD3f28b9548b`; the original direct deployment at `0x7243c1A2cA1Ea555416951480B147c27b17eA668` remains the frontend's disconnected demo. Factory, child, schedule, and execution evidence are recorded in [`../deployments/ritual-testnet.json`](../deployments/ritual-testnet.json).

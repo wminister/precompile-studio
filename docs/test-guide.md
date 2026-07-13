@@ -54,18 +54,19 @@ The Studio submission and receipt decoder are live. Ritual's current executor pa
 
 The harness was factory-deployed and its callback wiring is verified. Final Agent output still depends on Ritual's TEE and AsyncDelivery infrastructure.
 
-## Scheduled JQ: Deployed Owner Only
+## Scheduled JQ: Per-Wallet Consumer
 
 1. Open **Scheduled JQ**.
-2. Check the owner shown in **Scheduled JQ consumer** and connect that exact address.
-3. Keep the smoke values: filter `.data.price`, input `{"data":{"price":1979}}`, output `uint256`, frequency `20`, executions `1`, callback gas `200000`, window `100`, and max fee `2000000000`.
-4. Review **Required escrow**. It includes Ritual's `0.01 RITUAL` Scheduler reserve plus the full execution budget.
-5. Press **Fund & schedule** when escrow is short, or **Schedule JQ** when it is already funded. Confirm the single transaction in MetaMask.
-6. Expect a call ID and **Schedule created** in the on-chain lifecycle.
-7. After the scheduled block, expect **Execution completed**, **Schedule completed**, and decoded result `1979`.
-8. Use **Cancel** while a schedule is active. Use **Withdraw** only after the consumer escrow lock expires.
+2. Connect MetaMask. The studio asks the factory for this wallet's consumer.
+3. If the panel shows **Consumer not created**, press **Create consumer** and confirm the one-time deployment transaction. The panel should switch to **Ready to schedule** after inclusion.
+4. Keep the smoke values: filter `.data.price`, input `{"data":{"price":1979}}`, output `uint256`, frequency `20`, executions `1`, callback gas `200000`, window `100`, and max fee `2000000000`.
+5. Review **Required escrow**. It includes Ritual's `0.01 RITUAL` Scheduler reserve plus the full execution budget.
+6. Press **Fund & schedule** when escrow is short, or **Schedule JQ** when it is already funded. Confirm the single transaction in MetaMask.
+7. Expect a call ID and **Schedule created** in the on-chain lifecycle.
+8. After the scheduled block, expect **Execution completed**, **Schedule completed**, and decoded result `1979`.
+9. Use **Cancel** while a schedule is active. Use **Withdraw** only after the consumer escrow lock expires.
 
-The verified smoke call is `3146449`. Its creation and execution transactions are linked from the lifecycle panel and recorded in `deployments/ritual-testnet.json`.
+The verified factory-child smoke call is `3147825`. Its creation and execution transactions are linked from the lifecycle panel and recorded in `deployments/ritual-testnet.json`.
 
 ## What To Report
 
