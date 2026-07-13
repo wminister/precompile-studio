@@ -877,7 +877,10 @@ select:focus-visible {
 }
 
 .composer-intro {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding-top: 0;
 }
 
@@ -888,6 +891,41 @@ select:focus-visible {
   font-size: 0.82rem;
   line-height: 1.35;
   text-align: left;
+}
+
+.recipe-support {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.recipe-support > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.recipe-support.degraded {
+  color: #ffb36b;
+}
+
+.recipe-support.degraded > span,
+.recipe-support.owner-only > span {
+  background: #ffb36b;
+}
+
+.recipe-support.owner-only {
+  color: var(--muted);
+}
+
+.recipe-support.preview > span {
+  background: var(--quiet);
 }
 
 .preset-controls {
@@ -3222,6 +3260,12 @@ pre {
 }
 
 @media (max-width: 430px) {
+  .composer-intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
   .composer-surface,
   .abi-panel,
   .inspector-section,

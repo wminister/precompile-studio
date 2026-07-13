@@ -44,6 +44,12 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Explorer: <https://explorer.ritualfoundation.org>
 - RPC: <https://rpc.ritualfoundation.org>
 
+## Wallet Compatibility
+
+Use MetaMask for Ritual testnet transaction submission. Rabby can connect and read state, but currently converts Ritual custom transactions to a legacy transaction type rejected by the Ritual RPC and does not provide the raw-signing fallback needed to broadcast the supported form. The studio reports this limitation directly instead of silently disconnecting or blocking Rabby.
+
+HTTP and JQ are publicly usable. LLM submission is implemented but currently depends on a degraded Ritual executor path. Sovereign Agent and Scheduled JQ are owner-only because their deployed harness and consumer have a single on-chain owner; other visitors can inspect and compose those calls but cannot submit them from a different address.
+
 ## Local Development
 
 ```bash
@@ -73,7 +79,7 @@ npm run consumer:test
 npm run test:e2e
 ```
 
-Vitest covers every recipe encoder, Ritual HTTP receipt outcomes, and mocked EIP-1193 wallet flows. Foundry covers the owned consumer contract. Playwright imports a mocked Ritual receipt at desktop and mobile widths and checks the decoded response and horizontal overflow. GitHub runs all three suites before production deployment, then checks the deployed bundle with `npm run smoke:production`.
+Vitest covers every recipe encoder, Ritual receipt outcomes, Scheduler lifecycle recovery, and mocked EIP-1193 wallet flows. Foundry covers the owned consumer contracts. Playwright exercises HTTP, JQ, LLM, Agent, and Scheduled JQ paths at desktop and mobile widths and checks decoded evidence and horizontal overflow. GitHub runs all three suites before production deployment, then verifies every deployed contract address in the production bundle with `npm run smoke:production`.
 
 ## HTTP Consumer
 
@@ -116,6 +122,8 @@ The live smoke schedule is call `3146449`. It was created in transaction `0x36be
 Composer fields can also be saved as local recipe presets. Presets are stored in the browser, can be loaded back into the matching recipe tab, and can be copied/imported as JSON. See [`docs/presets.md`](./docs/presets.md), [`examples/http-preset.json`](./examples/http-preset.json), [`examples/llm-preset.json`](./examples/llm-preset.json), [`examples/jq-preset.json`](./examples/jq-preset.json), [`examples/agent-preset.json`](./examples/agent-preset.json), and [`examples/scheduler-preset.json`](./examples/scheduler-preset.json) for the preset format.
 
 See [`contracts/README.md`](./contracts/README.md) for build, test, and deployment details, and [`ROADMAP.md`](./ROADMAP.md) for the remaining milestones.
+
+For a button-by-button verification walkthrough, see [`docs/test-guide.md`](./docs/test-guide.md).
 
 ## Vercel
 

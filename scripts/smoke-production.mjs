@@ -1,5 +1,13 @@
+import { readFile } from "node:fs/promises";
+
 const productionUrl = process.env.PRODUCTION_URL ?? "https://precompile-studio.vercel.app";
-const consumerAddress = "0x30a2132b7f47a30e2d55a191f6723161c232263c";
+const deployments = JSON.parse(await readFile(new URL("../deployments/ritual-testnet.json", import.meta.url), "utf8"));
+const contractAddresses = [
+  deployments.contracts.HttpPrecompileConsumer.address,
+  deployments.contracts.LlmPrecompileConsumer.address,
+  deployments.contracts.SovereignAgentHarness.address,
+  deployments.contracts.ScheduledJqConsumer.address,
+].map((address) => address.toLowerCase());
 const attempts = 6;
 
 async function check() {
@@ -10,7 +18,9 @@ async function check() {
   const scriptPath = html.match(/<script[^>]+src="([^"]+)"/)?.[1];
   if (!scriptPath) throw new Error("production JavaScript asset is missing");
   const script = await fetch(new URL(scriptPath, response.url)).then((asset) => asset.text());
-  if (!script.toLowerCase().includes(consumerAddress)) throw new Error("owned consumer is not in production bundle");
+  const normalizedScript = script.toLowerCase();
+  const missingAddress = contractAddresses.find((address) => !normalizedScript.includes(address));
+  if (missingAddress) throw new Error(`deployment ${missingAddress} is not in the production bundle`);
 
   const faq = await fetch(new URL("/faq", response.url));
   if (!faq.ok) throw new Error(`FAQ returned HTTP ${faq.status}`);
@@ -20,7 +30,7 @@ let lastError;
 for (let attempt = 1; attempt <= attempts; attempt += 1) {
   try {
     await check();
-    console.log(JSON.stringify({ ok: true, productionUrl, consumerAddress }));
+    console.log(JSON.stringify({ ok: true, productionUrl, contractAddresses }));
     process.exit(0);
   } catch (error) {
     lastError = error;

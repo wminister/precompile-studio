@@ -60,7 +60,9 @@ Live verification note (2026-07-13): `ScheduledJqConsumer` was deployed at `0x72
 
 ## Phase 8: Release Hardening
 
-- [ ] Label recipes honestly as live or composer-only until their full paths are verified.
-- [ ] Document MetaMask as the supported Ritual submission wallet and explain Rabby's custom-network limitation.
-- [ ] Complete accessibility, responsive, error-state, and production verification passes.
-- [ ] Publish a step-by-step test guide for every live recipe.
+- [x] Label recipes honestly as public, degraded, or owner-only based on verified behavior.
+- [x] Document MetaMask as the supported Ritual submission wallet and explain Rabby's custom-network limitation.
+- [x] Complete accessibility, responsive, error-state, and production verification passes.
+- [x] Publish a step-by-step test guide for every recipe.
+
+Release verification note (2026-07-13): Vitest, Foundry, and ten desktop/mobile Playwright cases pass. Chrome DevTools reported no console issues; Lighthouse scored accessibility and best practices at 100 on desktop and mobile. The production smoke test verifies all four deployed consumer/harness addresses in the Vercel bundle and the standalone FAQ route.

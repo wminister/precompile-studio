@@ -92,7 +92,7 @@ test("imports and decodes an HTTP transaction without overflow", async ({ page }
 
 test("runs the synchronous JQ recipe without a wallet", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "JQ live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "JQ Live recipe", exact: true }).click();
   await page.getByRole("button", { name: "Run JQ", exact: true }).click();
 
   const result = page.getByTestId("jq-result");
@@ -104,7 +104,7 @@ test("runs the synchronous JQ recipe without a wallet", async ({ page }) => {
 test("submits and decodes an LLM completion", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "0x1111...1111", exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "LLM live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "LLM Ritual degraded recipe", exact: true }).click();
   const send = page.getByRole("button", { name: "Send LLM", exact: true });
   await expect(send).toBeEnabled();
   await send.click();
@@ -118,7 +118,7 @@ test("submits and decodes an LLM completion", async ({ page }) => {
 
 test("prepares the factory-backed Agent launch without overflow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Owner only recipe", exact: true }).click();
   await expect(page.getByText("Ready to configure", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Use", exact: true }).first().click();
 
@@ -131,7 +131,7 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
 
 test("reconciles the completed Scheduled JQ lifecycle without overflow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Scheduled JQ live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Scheduled JQ Owner only recipe", exact: true }).click();
 
   const workflow = page.getByTestId("scheduler-workflow");
   await expect(workflow.getByText("Completed", { exact: true })).toBeVisible();

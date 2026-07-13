@@ -388,7 +388,7 @@ export type Recipe = {
   name: string;
   label: string;
   icon: React.ElementType;
-  status: "live" | "preview";
+  status: "live" | "degraded" | "owner-only" | "preview";
   description: string;
   fields: ComposerField[];
 };
@@ -512,6 +512,16 @@ const FAQ_ITEMS = [
       "JQ uses a read-only eth_call, so it needs no wallet or gas. For transaction-based recipes, the connected user pays their own Ritual testnet gas. The studio does not sponsor or relay transactions, and async flows also use the connected account's RitualWallet escrow.",
   },
   {
+    question: "Which wallet should I use?",
+    answer:
+      "Use MetaMask for Ritual transaction submission. Rabby can connect and read Ritual state, but it currently converts custom Ritual transactions to a legacy type that the Ritual RPC rejects, then refuses the raw-signing fallback. This is a Rabby and custom-network compatibility limitation rather than a failed Studio simulation.",
+  },
+  {
+    question: "Which recipes can every visitor run?",
+    answer:
+      "HTTP and JQ are publicly usable. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion. Agent and Scheduled JQ use owner-controlled deployed contracts, so only their displayed owner wallet can launch or manage them until per-user factories are added.",
+  },
+  {
     question: "How does Scheduled JQ pay for future calls?",
     answer:
       "The deployed Scheduled JQ consumer owns its own RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. Unused escrow can be withdrawn by the consumer owner after its lock expires.",
@@ -559,6 +569,13 @@ const HTTP_METHOD_IDS: Record<string, number> = {
   PATCH: 5,
   HEAD: 6,
   OPTIONS: 7,
+};
+
+const RECIPE_STATUS_LABELS: Record<Recipe["status"], string> = {
+  live: "Live",
+  degraded: "Ritual degraded",
+  "owner-only": "Owner only",
+  preview: "Preview",
 };
 
 export const JQ_OUTPUT_TYPES: Record<string, number> = {
@@ -879,7 +896,7 @@ export const recipes: Recipe[] = [
     name: "LLM",
     label: "Live chat recipe",
     icon: Wand2,
-    status: "live",
+    status: "degraded",
     description: "30-field LLM input for GLM-4.7 chat completion at precompile 0x0802.",
     fields: [
       { key: "executor", label: "Executor", value: DEFAULT_LLM_EXECUTOR },
@@ -904,7 +921,7 @@ export const recipes: Recipe[] = [
     name: "Agent",
     label: "Factory-backed recipe",
     icon: Route,
-    status: "live",
+    status: "owner-only",
     description: "Factory-backed ZeroClaw task with authenticated two-phase delivery through the deployed harness.",
     fields: [
       { key: "executor", label: "Executor", value: zeroAddress },
@@ -947,7 +964,7 @@ export const recipes: Recipe[] = [
     name: "Scheduled JQ",
     label: "Live consumer",
     icon: Activity,
-    status: "live",
+    status: "owner-only",
     description: "Run a JQ transform later or on a recurring Ritual schedule.",
     fields: [
       { key: "query", label: "JQ filter", value: ".data.price" },
@@ -3715,11 +3732,11 @@ function App() {
       {
         ok: Boolean(liveAbiDraft?.encodedInput) && (liveAbiDraft?.errors.length ?? 1) === 0,
         label:
-          selectedRecipe.status === "live"
+          selectedRecipe.status !== "preview"
             ? liveAbiDraft?.errors[0] ?? `${selectedRecipe.name} ABI input encodes`
             : `${liveRecipeLabel} are live recipes`,
         help:
-          selectedRecipe.status === "live"
+          selectedRecipe.status !== "preview"
             ? liveAbiDraft?.encodedInput
               ? `${Math.floor((liveAbiDraft.encodedInput.length - 2) / 2)} encoded bytes`
               : "Fix fields before copying ABI input."
@@ -3806,7 +3823,7 @@ function App() {
             : selectedRecipe.id === "scheduler"
               ? "contract workflow"
               : "planning shell";
-  const stageTitle = selectedRecipe.status === "live" ? "Composer" : `${selectedRecipe.name} preview`;
+  const stageTitle = isPreviewRecipe ? `${selectedRecipe.name} preview` : "Composer";
   const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
   const readyPillClass = [
     "ready-pill",
@@ -5368,7 +5385,7 @@ function App() {
                       role="tab"
                       aria-selected={recipe.id === activeRecipe}
                       aria-controls={`recipe-panel-${recipe.id}`}
-                      aria-label={`${recipe.name} ${recipe.status === "preview" ? "preview" : "live"} recipe`}
+                      aria-label={`${recipe.name} ${RECIPE_STATUS_LABELS[recipe.status]} recipe`}
                       tabIndex={recipe.id === activeRecipe ? 0 : -1}
                     >
                       <Icon size={17} />
@@ -5385,6 +5402,10 @@ function App() {
                 aria-labelledby={`recipe-tab-${selectedRecipe.id}`}
               >
                 <p>{selectedRecipe.description}</p>
+                <span className={`recipe-support ${selectedRecipe.status}`}>
+                  <span aria-hidden="true" />
+                  {RECIPE_STATUS_LABELS[selectedRecipe.status]}
+                </span>
               </div>
 
               <div className="preset-controls" aria-label="Recipe presets">
