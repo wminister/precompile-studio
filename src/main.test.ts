@@ -4,13 +4,13 @@ import {
   decodeFunctionData,
   encodeAbiParameters,
   parseAbiParameters,
-  stringToHex,
   zeroAddress,
 } from "viem";
 import {
   RITUAL,
   RITUAL_CHAIN_PARAMS,
   JQ_PRECOMPILE,
+  LLM_PRECOMPILE_CONSUMER_ADDRESS,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
   buildHttpDraft,
@@ -18,6 +18,7 @@ import {
   buildLlmDraft,
   buildScheduleDraft,
   createRitualDepositTransaction,
+  createLlmConsumerTransaction,
   decodeJqOutput,
   describeHttpPrecompileOutput,
   describeLlmPrecompileOutput,
@@ -219,17 +220,38 @@ describe("Ritual HTTP receipt evidence", () => {
 });
 
 describe("Ritual LLM receipt evidence", () => {
-  const encodeLlmOutput = (hasError = false, errorMessage = "") =>
-    encodeAbiParameters(
+  const encodeLlmOutput = (hasError = false, errorMessage = "") => {
+    const messageData = encodeAbiParameters(
+      parseAbiParameters("string, string, string, uint256, bytes[]"),
+      ["assistant", "Ritual", "", 0n, []],
+    );
+    const choiceData = encodeAbiParameters(
+      parseAbiParameters("uint256, string, bytes"),
+      [0n, "stop", messageData],
+    );
+    const usageData = encodeAbiParameters(
+      parseAbiParameters("uint256, uint256, uint256"),
+      [12n, 4n, 16n],
+    );
+    const completionData = encodeAbiParameters(
+      parseAbiParameters("string, string, uint256, string, string, string, uint256, bytes[], bytes"),
+      ["chatcmpl-1", "chat.completion", 1n, "zai-org/GLM-4.7-FP8", "", "default", 1n, [choiceData], usageData],
+    );
+    const metadataData = encodeAbiParameters(
+      parseAbiParameters("string, uint256, string, uint256, uint256"),
+      ["zai-org/GLM-4.7-FP8", 355_000_000_000n, "fp8", 1_000_000n, 131_072n],
+    );
+    return encodeAbiParameters(
       parseAbiParameters("bool, bytes, bytes, string, (string,string,string)"),
       [
         hasError,
-        stringToHex('{"choices":[{"message":{"content":"Ritual"}}]}'),
-        stringToHex('{"model":"zai-org/GLM-4.7-FP8"}'),
+        hasError ? "0x" : completionData,
+        hasError ? "0x" : metadataData,
         errorMessage,
         ["gcs", "convos/session.jsonl", "GCS_CREDS"],
       ],
     );
+  };
 
   it("decodes completion, metadata, and updated conversation history", () => {
     const evidence = describeLlmPrecompileOutput(encodeLlmOutput());
@@ -237,8 +259,18 @@ describe("Ritual LLM receipt evidence", () => {
       status: "complete",
       result: {
         hasError: false,
-        completionText: '{"choices":[{"message":{"content":"Ritual"}}]}',
-        metadataText: '{"model":"zai-org/GLM-4.7-FP8"}',
+        completionText: "Ritual",
+        completion: {
+          model: "zai-org/GLM-4.7-FP8",
+          content: "Ritual",
+          finishReason: "stop",
+          totalTokens: "16",
+        },
+        metadata: {
+          model: "zai-org/GLM-4.7-FP8",
+          datatype: "fp8",
+          maxSequenceLength: "131072",
+        },
         updatedConvoHistory: ["gcs", "convos/session.jsonl", "GCS_CREDS"],
       },
     });
@@ -311,6 +343,27 @@ describe("mocked EIP-1193 wallet flows", () => {
     const request = vi.fn().mockResolvedValue(TX_HASH);
     await expect(sendWalletTransaction({ request }, tx)).resolves.toBe(TX_HASH);
     expect(request).toHaveBeenCalledWith({ method: "eth_sendTransaction", params: [tx] });
+  });
+
+  it("targets the deployed LLM consumer with encoded precompile input", () => {
+    const draft = buildLlmDraft(recipeFields("llm"));
+    expect(draft.errors).toEqual([]);
+    const tx = createLlmConsumerTransaction(TEST_ADDRESS, draft.encodedInput!);
+    expect(tx.to).toBe(LLM_PRECOMPILE_CONSUMER_ADDRESS);
+    expect(
+      decodeFunctionData({
+        abi: [
+          {
+            type: "function",
+            name: "callLlmRaw",
+            stateMutability: "nonpayable",
+            inputs: [{ name: "llmInput", type: "bytes" }],
+            outputs: [],
+          },
+        ] as const,
+        data: tx.data as `0x${string}`,
+      }),
+    ).toMatchObject({ functionName: "callLlmRaw", args: [draft.encodedInput] });
   });
 
   it("rejects malformed calldata before opening the wallet", async () => {

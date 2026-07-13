@@ -34,14 +34,17 @@ This roadmap records the remaining work required to turn every advertised recipe
 
 ## Phase 5: Complete LLM
 
-- [ ] Verify the active LLM executor capability mapping.
-- [ ] Add or deploy an LLM consumer and wallet submission flow.
-- [ ] Decode LLM `spcCalls` output and display completion, metadata, and errors.
-- [ ] Treat streaming as a separate verified capability.
+- [x] Verify the active LLM executor capability mapping.
+- [x] Add and deploy an LLM consumer with wallet submission.
+- [x] Decode LLM `spcCalls` output and display completion, metadata, and errors.
+- [x] Treat streaming as a separate capability and keep it out of the verified non-streaming path.
+
+Live verification note (2026-07-12): capability `1` and executor `0xb42e...c91b` were accepted and settled through the deployed consumer. The credential-free smoke call reached the executor but returned a registry certificate-hash infrastructure error, so a successful model completion still depends on Ritual restoring that executor path.
 
 ## Phase 6: Complete Agent
 
-- [ ] Deploy a two-phase callback consumer that only accepts `AsyncDelivery`.
+- [ ] Verify the deployed SovereignAgentFactory and its Scheduler, RitualWallet, registry, and AsyncDelivery wiring.
+- [ ] Deploy a deterministic SovereignAgentHarness through the factory and use it as the authenticated callback target.
 - [ ] Track AsyncJobTracker lifecycle events and sender lock state.
 - [ ] Present submitted, processing, delivery, callback, failed, and expired states.
 

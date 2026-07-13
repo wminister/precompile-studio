@@ -20,6 +20,7 @@ const requiredFields = {
     "ttl",
     "messagesJson",
     "model",
+    "maxCompletionTokens",
     "temperature",
     "stream",
     "historyPlatform",
@@ -198,9 +199,13 @@ function encodeLlm(fields) {
   if (!Array.isArray(messages) || !messages.length) throw new Error("LLM messagesJson must be a non-empty array");
   const ttl = Number(fields.ttl);
   const temperature = Number(fields.temperature);
+  const maxCompletionTokens = Number(fields.maxCompletionTokens);
   if (!Number.isInteger(ttl) || ttl <= 0) throw new Error("LLM ttl must be a positive whole number");
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
     throw new Error("LLM temperature must be between 0 and 2");
+  }
+  if (!Number.isInteger(maxCompletionTokens) || maxCompletionTokens < 1) {
+    throw new Error("LLM maxCompletionTokens must be a positive whole number");
   }
   return encodeAbiParameters(parseAbiParameters(llmSignature), [
     executor,
@@ -213,16 +218,16 @@ function encodeLlm(fields) {
     0n,
     "",
     false,
-    -1n,
+    BigInt(maxCompletionTokens),
     "",
     "",
     1n,
-    false,
+    true,
     0n,
-    "",
+    "medium",
     "0x",
     -1n,
-    "",
+    "auto",
     "",
     fields.stream === "true",
     BigInt(Math.round(temperature * 1000)),

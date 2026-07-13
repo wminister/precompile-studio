@@ -93,7 +93,7 @@ HTTP consumer addresses can be saved locally and reused from the consumer panel.
 
 [`contracts/LlmPrecompileConsumer.sol`](./contracts/LlmPrecompileConsumer.sol) applies the same Ritual envelope-unwrapping pattern to LLM inference. It stores compact hashes and lengths for completion and model metadata plus error and conversation-history evidence. Full model output remains in `receipt.spcCalls` for the studio to decode without duplicating large response bytes in contract storage.
 
-The contract and frontend decoder are tested locally. Deployment and wallet submission remain intentionally disabled until an active LLM executor and a live consumer smoke transaction are verified on Ritual testnet.
+The deployed Ritual testnet consumer is `0x6f78351167AA672e75948dc802FDf96f77E87Dfa`. The studio submits non-streaming calls through it, polls the settled receipt, and decodes completion, usage, model metadata, and executor errors from `spcCalls`. Capability `1` is the verified LLM registry slot; streaming remains a separate capability and is not sent through this path.
 
 TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP, LLM, and Sovereign Agent. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 

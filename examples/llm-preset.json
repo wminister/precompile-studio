@@ -8,11 +8,11 @@
     "fields": [
       {
         "key": "executor",
-        "value": "0x0000000000000000000000000000000000000000"
+        "value": "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b"
       },
       {
         "key": "ttl",
-        "value": "30"
+        "value": "300"
       },
       {
         "key": "messagesJson",
@@ -21,6 +21,10 @@
       {
         "key": "model",
         "value": "zai-org/GLM-4.7-FP8"
+      },
+      {
+        "key": "maxCompletionTokens",
+        "value": "4096"
       },
       {
         "key": "temperature",
@@ -32,15 +36,15 @@
       },
       {
         "key": "historyPlatform",
-        "value": "gcs"
+        "value": ""
       },
       {
         "key": "historyPath",
-        "value": "convos/precompile-studio.jsonl"
+        "value": ""
       },
       {
         "key": "historyKeyRef",
-        "value": "GCS_CREDS"
+        "value": ""
       }
     ]
   }

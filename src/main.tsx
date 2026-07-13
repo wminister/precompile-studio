@@ -157,6 +157,14 @@ type JqCallState =
   | { status: "empty"; raw: string }
   | { status: "error"; error: string; raw?: string };
 
+type LlmRun = {
+  hash: string;
+  submittedAt: number;
+  status: ReceiptStatus;
+  receipt?: RpcReceipt;
+  error?: string;
+};
+
 type CopyFeedback = {
   tone: "ok" | "bad";
   message: string;
@@ -230,8 +238,24 @@ export type LlmPrecompileEvidence = {
     hasError: boolean;
     completionBytes: number;
     completionText?: string;
+    completion?: {
+      id: string;
+      model: string;
+      role?: string;
+      content?: string;
+      finishReason?: string;
+      promptTokens?: string;
+      completionTokens?: string;
+      totalTokens?: string;
+    };
     metadataBytes: number;
     metadataText?: string;
+    metadata?: {
+      model: string;
+      parameterCount: string;
+      datatype: string;
+      maxSequenceLength: string;
+    };
     errorMessage?: string;
     updatedConvoHistory: StorageRefTuple;
   };
@@ -332,9 +356,9 @@ export const SYSTEM_CONTRACTS = {
 
 const EXECUTOR_CAPABILITIES = [
   { id: 0, label: "HTTP candidates", recipeIds: ["http"] as RecipeId[] },
-  { id: 1, label: "JQ candidates", recipeIds: ["jq"] as RecipeId[] },
-  { id: 3, label: "LLM candidates", recipeIds: ["llm"] as RecipeId[] },
-  { id: 4, label: "Agent candidates", recipeIds: ["agent"] as RecipeId[] },
+  { id: 1, label: "LLM candidates", recipeIds: ["llm"] as RecipeId[] },
+  { id: 3, label: "Streaming candidates", recipeIds: [] as RecipeId[] },
+  { id: 4, label: "Capability 4", recipeIds: [] as RecipeId[] },
   { id: 5, label: "Capability 5", recipeIds: [] as RecipeId[] },
   { id: 6, label: "Capability 6", recipeIds: [] as RecipeId[] },
   { id: 7, label: "Capability 7", recipeIds: [] as RecipeId[] },
@@ -380,8 +404,10 @@ const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }>
 ];
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
 const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileConsumer.address;
+export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
+const DEFAULT_LLM_EXECUTOR = "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b";
 
 const FAQ_ITEMS = [
   {
@@ -392,7 +418,7 @@ const FAQ_ITEMS = [
   {
     question: "How do I use it from start to finish?",
     answer:
-      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, then use the recipe action. JQ runs immediately through Ritual RPC without a wallet. HTTP sends through the verified consumer after you confirm the transaction in MetaMask.",
+      "Pick a recipe tab, fill the fields, resolve any red ABI or readiness checks, then use the recipe action. JQ runs immediately through Ritual RPC without a wallet. HTTP and non-streaming LLM calls submit through their verified consumers after you confirm the transaction in MetaMask.",
   },
   {
     question: "What is the simplest example?",
@@ -574,6 +600,20 @@ const httpConsumerAbi = [
   },
 ] as const;
 
+const llmConsumerAbi = [
+  {
+    type: "function",
+    name: "callLlmRaw",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "llmInput", type: "bytes" }],
+    outputs: [
+      { name: "hasError", type: "bool" },
+      { name: "completionHash", type: "bytes32" },
+      { name: "completionLength", type: "uint256" },
+    ],
+  },
+] as const;
+
 export const recipes: Recipe[] = [
   {
     id: "http",
@@ -612,8 +652,8 @@ export const recipes: Recipe[] = [
     status: "live",
     description: "30-field LLM input for GLM-4.7 chat completion at precompile 0x0802.",
     fields: [
-      { key: "executor", label: "Executor", value: zeroAddress },
-      { key: "ttl", label: "TTL blocks", value: "30" },
+      { key: "executor", label: "Executor", value: DEFAULT_LLM_EXECUTOR },
+      { key: "ttl", label: "TTL blocks", value: "300" },
       {
         key: "messagesJson",
         label: "Messages JSON",
@@ -621,11 +661,12 @@ export const recipes: Recipe[] = [
         type: "textarea",
       },
       { key: "model", label: "Model", value: DEFAULT_LLM_MODEL },
+      { key: "maxCompletionTokens", label: "Max completion tokens", value: "4096" },
       { key: "temperature", label: "Temperature", value: "0.7" },
       { key: "stream", label: "Streaming", value: "false", type: "select", options: ["false", "true"] },
-      { key: "historyPlatform", label: "History platform", value: "gcs" },
-      { key: "historyPath", label: "History path", value: "convos/precompile-studio.jsonl" },
-      { key: "historyKeyRef", label: "History key ref", value: "GCS_CREDS" },
+      { key: "historyPlatform", label: "History platform (optional)", value: "" },
+      { key: "historyPath", label: "History path (optional)", value: "" },
+      { key: "historyKeyRef", label: "History key ref (optional)", value: "" },
     ],
   },
   {
@@ -743,18 +784,19 @@ const builtInRecipePresets: RecipePreset[] = [
     updatedAt: 0,
     source: "example",
     fields: normalizePresetFields("llm", [
-      { key: "executor", value: zeroAddress },
-      { key: "ttl", value: "30" },
+      { key: "executor", value: DEFAULT_LLM_EXECUTOR },
+      { key: "ttl", value: "300" },
       {
         key: "messagesJson",
         value: '[{"role":"user","content":"Summarize why Ritual precompiles matter in one sentence."}]',
       },
       { key: "model", value: DEFAULT_LLM_MODEL },
+      { key: "maxCompletionTokens", value: "4096" },
       { key: "temperature", value: "0.7" },
       { key: "stream", value: "false" },
-      { key: "historyPlatform", value: "gcs" },
-      { key: "historyPath", value: "convos/precompile-studio.jsonl" },
-      { key: "historyKeyRef", value: "GCS_CREDS" },
+      { key: "historyPlatform", value: "" },
+      { key: "historyPath", value: "" },
+      { key: "historyKeyRef", value: "" },
     ]),
   },
   {
@@ -1043,8 +1085,66 @@ export function describeLlmPrecompileOutput(output?: string): LlmPrecompileEvide
     );
     const completionBytes = hexByteLength(completionData) ?? 0;
     const metadataBytes = hexByteLength(modelMetadata) ?? 0;
-    const completionText = decodeHexText(completionData);
-    const metadataText = decodeHexText(modelMetadata);
+    let completionText = decodeHexText(completionData);
+    let completion: LlmPrecompileEvidence["result"]["completion"];
+    let metadataText = decodeHexText(modelMetadata);
+    let metadata: LlmPrecompileEvidence["result"]["metadata"];
+    if (!hasError && completionData !== "0x") {
+      try {
+        const [id, , , completionModel, , , choicesCount, choicesData, usageData] = decodeAbiParameters(
+          parseAbiParameters("string, string, uint256, string, string, string, uint256, bytes[], bytes"),
+          completionData,
+        );
+        let role: string | undefined;
+        let content: string | undefined;
+        let finishReason: string | undefined;
+        if (choicesCount > 0n && choicesData.length) {
+          const [, decodedFinishReason, messageData] = decodeAbiParameters(
+            parseAbiParameters("uint256, string, bytes"),
+            choicesData[0],
+          );
+          [role, content] = decodeAbiParameters(
+            parseAbiParameters("string, string, string, uint256, bytes[]"),
+            messageData,
+          );
+          finishReason = decodedFinishReason;
+          completionText = content;
+        }
+        const [promptTokens, completionTokens, totalTokens] = decodeAbiParameters(
+          parseAbiParameters("uint256, uint256, uint256"),
+          usageData,
+        );
+        completion = {
+          id,
+          model: completionModel,
+          role,
+          content,
+          finishReason,
+          promptTokens: promptTokens.toString(),
+          completionTokens: completionTokens.toString(),
+          totalTokens: totalTokens.toString(),
+        };
+      } catch {
+        // Keep readable bytes as a fallback for non-standard executor output.
+      }
+    }
+    if (modelMetadata !== "0x") {
+      try {
+        const [metadataModel, parameterCount, datatype, , maxSequenceLength] = decodeAbiParameters(
+          parseAbiParameters("string, uint256, string, uint256, uint256"),
+          modelMetadata,
+        );
+        metadata = {
+          model: metadataModel,
+          parameterCount: parameterCount.toString(),
+          datatype,
+          maxSequenceLength: maxSequenceLength.toString(),
+        };
+        metadataText = `${metadataModel} · ${datatype} · ${maxSequenceLength.toLocaleString()} context`;
+      } catch {
+        // Preserve readable metadata bytes when the executor returns another shape.
+      }
+    }
     const status = hasError || errorMessage ? "precompile-error" : "complete";
     const detail = [
       status === "complete" ? "LLM completion" : "LLM error",
@@ -1062,8 +1162,10 @@ export function describeLlmPrecompileOutput(output?: string): LlmPrecompileEvide
         hasError,
         completionBytes,
         completionText,
+        completion,
         metadataBytes,
         metadataText,
+        metadata,
         errorMessage: errorMessage || undefined,
         updatedConvoHistory: [...updatedConvoHistory] as StorageRefTuple,
       },
@@ -1779,6 +1881,21 @@ export function createRitualDepositTransaction(
   };
 }
 
+export function createLlmConsumerTransaction(
+  from: string,
+  encodedInput: `0x${string}`,
+): WalletTransactionRequest {
+  return {
+    from,
+    to: LLM_PRECOMPILE_CONSUMER_ADDRESS,
+    data: encodeFunctionData({
+      abi: llmConsumerAbi,
+      functionName: "callLlmRaw",
+      args: [encodedInput],
+    }),
+  };
+}
+
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
   return [
     fieldValue(fields, `${prefix}Platform`).trim(),
@@ -1895,6 +2012,7 @@ export function buildLlmDraft(fields: ComposerField[]) {
   const ttl = Number(ttlValue);
   const messagesJson = fieldValue(fields, "messagesJson").trim();
   const model = fieldValue(fields, "model").trim();
+  const maxCompletionTokens = Number(fieldValue(fields, "maxCompletionTokens").trim());
   const temperatureValue = fieldValue(fields, "temperature").trim();
   const temperature = Number(temperatureValue);
   const stream = fieldValue(fields, "stream").trim() === "true";
@@ -1925,8 +2043,15 @@ export function buildLlmDraft(fields: ComposerField[]) {
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
     errors.push("Temperature must be between 0 and 2.");
   }
-  if (!historyPlatform || !historyPath || !historyKeyRef) {
-    errors.push("Conversation history platform, path, and key ref are required.");
+  if (stream) {
+    errors.push("Streaming uses a separate capability and SSE service; this verified consumer flow is non-streaming only.");
+  }
+  if (!Number.isInteger(maxCompletionTokens) || maxCompletionTokens < 1) {
+    errors.push("Max completion tokens must be a positive whole number.");
+  }
+  const historyParts = [historyPlatform, historyPath, historyKeyRef];
+  if (historyParts.some(Boolean) && !historyParts.every(Boolean)) {
+    errors.push("Conversation history must include platform, path, and key ref, or leave all three empty.");
   }
 
   const temperatureScaled = Number.isFinite(temperature) ? BigInt(Math.round(temperature * 1000)) : 0n;
@@ -1943,16 +2068,16 @@ export function buildLlmDraft(fields: ComposerField[]) {
           0n,
           "",
           false,
-          -1n,
+          BigInt(maxCompletionTokens),
           "",
           "",
           1n,
-          false,
+          true,
           0n,
-          "",
+          "medium",
           "0x",
           -1n,
-          "",
+          "auto",
           "",
           stream,
           temperatureScaled,
@@ -1977,6 +2102,7 @@ export function buildLlmDraft(fields: ComposerField[]) {
     stream,
     temperature,
     temperatureScaled,
+    maxCompletionTokens,
     convoHistory: [historyPlatform, historyPath, historyKeyRef] as const,
     encodedInput,
     errors,
@@ -2358,6 +2484,8 @@ function App() {
   const [runnerHistoryFilter, setRunnerHistoryFilter] = React.useState<RunnerHistoryFilter>("all");
   const [copiedRunnerHistory, setCopiedRunnerHistory] = React.useState(false);
   const [runnerTxState, setRunnerTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [llmTxState, setLlmTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [llmRun, setLlmRun] = React.useState<LlmRun | undefined>();
   const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
   const [isSwitchingChain, setIsSwitchingChain] = React.useState(false);
   const initialRunnerHistoryScope = React.useMemo(() => runnerHistoryStorageKey(), []);
@@ -2529,7 +2657,29 @@ function App() {
           args: [httpDraft.encodedInput as `0x${string}`],
         })
       : undefined;
+  const llmCalldata =
+    selectedRecipe.id === "llm" && llmDraft.encodedInput
+      ? encodeFunctionData({
+          abi: llmConsumerAbi,
+          functionName: "callLlmRaw",
+          args: [llmDraft.encodedInput as `0x${string}`],
+        })
+      : undefined;
   const hasPendingHttpTransaction = runnerRuns.some((run) => run.status === "pending");
+  const hasPendingLlmTransaction = llmRun?.status === "pending";
+  const hasPendingAsyncTransaction = hasPendingHttpTransaction || hasPendingLlmTransaction;
+  const llmEvidence = React.useMemo(() => {
+    const spcCalls = Array.isArray(llmRun?.receipt?.spcCalls) ? llmRun.receipt.spcCalls.filter(isSpcCall) : [];
+    const llmCall = spcCalls.find((call) => call.address?.toLowerCase() === LLM_INFERENCE_PRECOMPILE.toLowerCase());
+    return describeLlmPrecompileOutput(llmCall?.output);
+  }, [llmRun?.receipt]);
+  const canSendLlm =
+    Boolean(llmCalldata) &&
+    wallet.status === "connected" &&
+    isRightChain &&
+    isRitualWalletFunded &&
+    !hasPendingAsyncTransaction &&
+    llmTxState.status !== "submitting";
   const canSendRunner =
     Boolean(runnerCalldata) &&
     runnerAddressOk &&
@@ -2537,7 +2687,7 @@ function App() {
     wallet.status === "connected" &&
     isRightChain &&
     isRitualWalletFunded &&
-    !hasPendingHttpTransaction &&
+    !hasPendingAsyncTransaction &&
     runnerTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
     () => [
@@ -3187,6 +3337,10 @@ function App() {
         ? jqDraft.encodedInput
           ? "Run the synchronous JQ call through Ritual RPC. No wallet or gas is required."
           : "Resolve JQ field errors before running the query."
+      : selectedRecipe.id === "llm"
+        ? llmDraft.encodedInput
+          ? `Connect a wallet and send through the verified LLM consumer at ${LLM_PRECOMPILE_CONSUMER_ADDRESS}.`
+          : "Resolve LLM field errors before submitting inference."
       : selectedRecipe.id === "scheduler"
         ? scheduleDraft.encodedInput
           ? "Copy Scheduler calldata and call the system Scheduler from an approved contract."
@@ -3364,6 +3518,28 @@ function App() {
               }
             : run,
         ),
+      );
+    }
+  }, []);
+
+  const refreshLlmReceipt = React.useCallback(async (hash: string) => {
+    try {
+      const receipt = await rpc<RpcReceipt | null>("eth_getTransactionReceipt", [hash]);
+      setLlmRun((current) =>
+        current?.hash === hash
+          ? {
+              ...current,
+              status: receiptStatus(receipt ?? undefined),
+              receipt: receipt ?? undefined,
+              error: undefined,
+            }
+          : current,
+      );
+    } catch (error) {
+      setLlmRun((current) =>
+        current?.hash === hash
+          ? { ...current, error: error instanceof Error ? error.message : "LLM receipt lookup failed." }
+          : current,
       );
     }
   }, []);
@@ -3721,16 +3897,45 @@ function App() {
     }
   }, [depositAmount, depositLock, refreshWallet, wallet.address]);
 
+  const sendLlmTransaction = React.useCallback(async () => {
+    const provider = providerRef.current;
+    if (!provider || !wallet.address || !llmCalldata) {
+      setLlmTxState({ status: "error", error: "Connect a wallet and resolve the LLM input before sending." });
+      return;
+    }
+    if (hasPendingAsyncTransaction) {
+      setLlmTxState({ status: "error", error: "This wallet already has an async transaction pending." });
+      return;
+    }
+
+    setLlmTxState({ status: "submitting" });
+    try {
+      const tx = await prepareWalletTransaction(
+        createLlmConsumerTransaction(wallet.address, llmDraft.encodedInput as `0x${string}`),
+        "0x2dc6c0",
+      );
+      const hash = await sendWalletTransaction(provider, tx);
+      setLlmTxState({ status: "submitted", hash });
+      setLlmRun({ hash, submittedAt: Date.now(), status: "pending" });
+      window.setTimeout(() => refreshLlmReceipt(hash).catch(() => undefined), 2500);
+    } catch (error) {
+      setLlmTxState({
+        status: "error",
+        error: error instanceof Error ? error.message : "LLM consumer transaction was rejected.",
+      });
+    }
+  }, [hasPendingAsyncTransaction, llmCalldata, llmDraft.encodedInput, refreshLlmReceipt, wallet.address]);
+
   const sendRunnerTransaction = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address || !runnerCalldata || !runnerAddressOk) {
       setRunnerTxState({ status: "error", error: "Connect wallet, encode HTTP input, and set a consumer address." });
       return;
     }
-    if (hasPendingHttpTransaction) {
+    if (hasPendingAsyncTransaction) {
       setRunnerTxState({
         status: "error",
-        error: "An HTTP transaction is still pending in this browser. Wait for it to settle or refresh its receipt before sending another.",
+        error: "This wallet already has an async transaction pending. Wait for it to settle before sending HTTP.",
       });
       return;
     }
@@ -3767,7 +3972,7 @@ function App() {
         error: error instanceof Error ? error.message : "HTTP consumer transaction was rejected.",
       });
     }
-  }, [cleanRunnerAddress, fieldState.http, hasPendingHttpTransaction, refreshRunnerReceipt, runnerAddressOk, runnerCalldata, wallet.address]);
+  }, [cleanRunnerAddress, fieldState.http, hasPendingAsyncTransaction, refreshRunnerReceipt, runnerAddressOk, runnerCalldata, wallet.address]);
 
   React.useEffect(() => {
     const pendingHashes = pendingRunnerKey ? pendingRunnerKey.split(",") : [];
@@ -3813,6 +4018,14 @@ function App() {
       window.clearInterval(timer);
     };
   }, [pendingRunnerKey]);
+
+  React.useEffect(() => {
+    if (!llmRun || llmRun.status !== "pending") return undefined;
+    const timer = window.setInterval(() => {
+      refreshLlmReceipt(llmRun.hash).catch(() => undefined);
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [llmRun, refreshLlmReceipt]);
 
   const updateField = (key: string, value: string) => {
     setFieldState((current) => ({
@@ -4195,7 +4408,7 @@ function App() {
                   {copied ? <Check size={16} /> : <Clipboard size={16} />}
                   {copied ? "Copied" : "Copy draft"}
                 </button>
-                {selectedRecipe.status === "live" && selectedRecipe.id !== "jq" ? (
+                {selectedRecipe.status === "live" && !["jq", "llm"].includes(selectedRecipe.id) ? (
                   <button
                     className="secondary-action"
                     onClick={copyCallRequest}
@@ -4206,7 +4419,7 @@ function App() {
                     {copiedCallRequest ? "Copied call" : directCallUnavailableReason ? "Contract only" : "Copy call JSON"}
                   </button>
                 ) : null}
-                {selectedRecipe.status === "live" && selectedRecipe.id !== "jq" ? (
+                {selectedRecipe.status === "live" && !["jq", "llm"].includes(selectedRecipe.id) ? (
                   <button
                     className="secondary-action"
                     onClick={copyCastCommand}
@@ -4219,7 +4432,7 @@ function App() {
                 ) : null}
                 {selectedRecipe.status === "live" ? (
                   <button
-                    className={selectedRecipe.id === "jq" ? "secondary-action" : "primary-action large"}
+                    className={["jq", "llm"].includes(selectedRecipe.id) ? "secondary-action" : "primary-action large"}
                     onClick={copyEncodedInput}
                     disabled={!canCopyEncoded}
                   >
@@ -4236,6 +4449,12 @@ function App() {
                   >
                     {jqCallState.status === "running" ? <Loader2 className="spin" size={16} /> : <Zap size={16} />}
                     {jqCallState.status === "running" ? "Running" : "Run JQ"}
+                  </button>
+                ) : null}
+                {selectedRecipe.id === "llm" ? (
+                  <button className="primary-action large" type="button" onClick={sendLlmTransaction} disabled={!canSendLlm}>
+                    {llmTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wand2 size={16} />}
+                    {llmTxState.status === "submitting" ? "Confirming" : "Send LLM"}
                   </button>
                 ) : null}
               </div>
@@ -4268,6 +4487,49 @@ function App() {
                   ) : (
                     <pre>{jqCallState.result.isEmpty ? jqCallState.result.display || '""' : jqCallState.result.display}</pre>
                   )}
+                </div>
+              ) : null}
+              {selectedRecipe.id === "llm" && (llmRun || llmTxState.status === "error") ? (
+                <div
+                  className={`jq-result llm-result ${llmEvidence?.status ?? llmRun?.status ?? "error"}`}
+                  aria-live="polite"
+                  data-testid="llm-result"
+                >
+                  <div className="jq-result-head">
+                    <span>LLM result</span>
+                    <strong>
+                      {llmTxState.status === "error"
+                        ? "Submission failed"
+                        : llmRun?.status === "pending"
+                          ? "Waiting for settlement"
+                          : llmRun?.status === "failed"
+                            ? "Transaction failed"
+                            : llmEvidence?.status === "precompile-error"
+                              ? "Model error"
+                              : llmEvidence
+                                ? "Completion ready"
+                                : "No output found"}
+                    </strong>
+                  </div>
+                  <div className="llm-result-body">
+                    {llmTxState.status === "error" ? <p>{llmTxState.error}</p> : null}
+                    {llmRun ? (
+                      <a href={explorerTransactionUrl(llmRun.hash)} target="_blank" rel="noreferrer">
+                        {formatHash(llmRun.hash)} <ArrowUpRight size={13} />
+                      </a>
+                    ) : null}
+                    {llmRun?.status === "pending" ? <p>Ritual is waiting for the TEE executor and settlement transaction.</p> : null}
+                    {llmRun?.error ? <p>{llmRun.error}</p> : null}
+                    {llmEvidence?.result.errorMessage ? <p className="llm-error-message">{llmEvidence.result.errorMessage}</p> : null}
+                    {llmEvidence?.result.completionText ? <pre>{llmEvidence.result.completionText}</pre> : null}
+                    {llmEvidence?.result.completion ? (
+                      <div className="llm-result-meta">
+                        <span>{llmEvidence.result.completion.model}</span>
+                        {llmEvidence.result.completion.finishReason ? <span>{llmEvidence.result.completion.finishReason}</span> : null}
+                        {llmEvidence.result.completion.totalTokens ? <span>{llmEvidence.result.completion.totalTokens} tokens</span> : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
               {copyFeedback ? (
@@ -4966,7 +5228,7 @@ function FaqPage({ onStart }: { onStart: () => void }) {
               </div>
               <div>
                 <strong>LLM</strong>
-                <p>Prepare an LLM inference payload with model, messages, temperature, and history refs.</p>
+                <p>Submit non-streaming inference through the verified consumer and inspect completion, usage, metadata, or executor errors from the settled receipt.</p>
               </div>
               <div>
                 <strong>Agent</strong>

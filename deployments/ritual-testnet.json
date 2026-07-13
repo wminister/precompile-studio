@@ -8,6 +8,14 @@
       "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
       "blockNumber": 44077736,
       "smokeTransaction": "0xef5120f0ef6c5310ad2dba1ed849fb4aae5b55dfbe91cff56b55b93775f21845"
+    },
+    "LlmPrecompileConsumer": {
+      "address": "0x6f78351167AA672e75948dc802FDf96f77E87Dfa",
+      "deploymentTransaction": "0x7a1a4a105dd1b5036cd8ffdb6ab4a6d73609d2e9da35155bfd7b231203837cbb",
+      "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
+      "blockNumber": 44894328,
+      "credentialErrorTransaction": "0xdbbad49212d5fa1b6bde3fa96ab79939080061ce5ef98b25501a2dc3598bd4ed",
+      "registryErrorTransaction": "0x2d76e081edd26ae789e1695bc864946160aa88522c65477875bf971ef32d4fa6"
     }
   }
 }
