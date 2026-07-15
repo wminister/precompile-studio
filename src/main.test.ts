@@ -685,4 +685,27 @@ describe("mocked EIP-1193 wallet flows", () => {
     expect(tx).toMatchObject({ chainId: RITUAL.chainHex, type: "0x2", nonce: "0x2", gas: "0x1e8480" });
     expect(tx.gasPrice).toBeUndefined();
   });
+
+  it("caps an inflated Ritual gas estimate at a verified workflow ceiling", async () => {
+    const responses = new Map([
+      ["eth_maxPriorityFeePerGas", "0x3b9aca00"],
+      ["eth_gasPrice", "0x3b9aca07"],
+      ["eth_getTransactionCount", "0x2"],
+      ["eth_estimateGas", "0xb773f92"],
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const method = JSON.parse(String(init?.body)).method;
+        return { json: async () => ({ result: responses.get(method) }) } as Response;
+      }),
+    );
+
+    const tx = await prepareWalletTransaction(
+      { from: TEST_ADDRESS, to: CONSUMER_ADDRESS, data: "0x12" },
+      "0xf4240",
+      "0xf4240",
+    );
+    expect(tx.gas).toBe("0xf4240");
+  });
 });

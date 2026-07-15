@@ -3375,12 +3375,14 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
   };
 }
 
-// `gasFloor` is a *minimum* gas limit, not just a fallback. eth_estimateGas
-// cannot run Ritual's async precompiles (the TEE HTTP/LLM round-trip never
-// happens during estimation), so it badly under-reports — a real HTTP call
-// needs ~157k+ but estimates ~97k. Trusting the estimate makes the tx die
-// out-of-gas, so we always take the larger of the estimate and the floor.
-export async function prepareWalletTransaction(tx: WalletTransactionRequest, gasFloor: string): Promise<WalletTransactionRequest> {
+// Ritual estimates async work inconsistently: precompile calls can be too low,
+// while Scheduler funding can be hundreds of times too high. Floors protect
+// execution and an optional verified ceiling keeps wallet maximums realistic.
+export async function prepareWalletTransaction(
+  tx: WalletTransactionRequest,
+  gasFloor: string,
+  gasCeiling?: string,
+): Promise<WalletTransactionRequest> {
   const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
     rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
@@ -3401,8 +3403,11 @@ export async function prepareWalletTransaction(tx: WalletTransactionRequest, gas
 
   try {
     const estimate = await rpc<string>("eth_estimateGas", [feeTx]);
-    const gas = BigInt(estimate) > BigInt(gasFloor) ? estimate : gasFloor;
-    return { ...feeTx, gas };
+    const floor = BigInt(gasFloor);
+    const ceiling = gasCeiling ? BigInt(gasCeiling) : undefined;
+    const boundedEstimate = ceiling && BigInt(estimate) > ceiling ? ceiling : BigInt(estimate);
+    const gas = boundedEstimate > floor ? boundedEstimate : floor;
+    return { ...feeTx, gas: `0x${gas.toString(16)}` };
   } catch {
     return { ...feeTx, gas: gasFloor };
   }
@@ -5182,6 +5187,7 @@ function App() {
     try {
       const tx = await prepareWalletTransaction(
         createSchedulerTransaction(wallet.address, scheduleDraft, schedulerShortfall, scheduledJqConsumerAddress),
+        "0xf4240",
         "0xf4240",
       );
       const hash = await sendWalletTransaction(provider, tx);
