@@ -702,6 +702,34 @@ describe("mocked EIP-1193 wallet flows", () => {
     expect(tx.gasPrice).toBeUndefined();
   });
 
+  it("retries a temporary non-JSON RPC upstream response", async () => {
+    const responses = new Map([
+      ["eth_maxPriorityFeePerGas", "0x3b9aca00"],
+      ["eth_gasPrice", "0x77359400"],
+      ["eth_getTransactionCount", "0x2"],
+      ["eth_estimateGas", "0x186a0"],
+    ]);
+    let gasPriceAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const method = JSON.parse(String(init?.body)).method;
+        if (method === "eth_gasPrice" && gasPriceAttempts++ === 0) {
+          return new Response("upstream reset", { status: 502 });
+        }
+        return { json: async () => ({ result: responses.get(method) }) } as Response;
+      }),
+    );
+
+    const tx = await prepareWalletTransaction(
+      { from: TEST_ADDRESS, to: CONSUMER_ADDRESS, data: "0x12" },
+      "0x1e8480",
+    );
+
+    expect(gasPriceAttempts).toBe(2);
+    expect(tx.maxFeePerGas).toBeDefined();
+  });
+
   it("caps an inflated Ritual gas estimate at a verified workflow ceiling", async () => {
     const responses = new Map([
       ["eth_maxPriorityFeePerGas", "0x3b9aca00"],

@@ -3470,15 +3470,53 @@ export function buildScheduleDraft(fields: ComposerField[]) {
   };
 }
 
+class RpcTransportError extends Error {}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function readRpcPayload(response: Response): Promise<{ error?: { message?: string }; result?: unknown }> {
+  if (typeof response.text !== "function") {
+    return response.json();
+  }
+  const body = await response.text();
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new RpcTransportError("Ritual RPC returned a temporary non-JSON upstream response.");
+  }
+}
+
 async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
-  const response = await fetch(RITUAL.rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
-  });
-  const payload = await response.json();
-  if (payload.error) throw new Error(payload.error.message ?? "RPC request failed");
-  return payload.result as T;
+  const maxAttempts = method === "eth_sendRawTransaction" ? 1 : 3;
+  let lastTransportError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(RITUAL.rpc, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+      });
+      const payload = await readRpcPayload(response);
+      if (payload.error) throw new Error(payload.error.message ?? "RPC request failed");
+      if (response.ok === false) {
+        throw new RpcTransportError(`Ritual RPC returned HTTP ${response.status}.`);
+      }
+      return payload.result as T;
+    } catch (error) {
+      if (!(error instanceof RpcTransportError) && !(error instanceof TypeError)) throw error;
+      lastTransportError = error;
+      if (attempt + 1 < maxAttempts) await wait(250 * (attempt + 1));
+    }
+  }
+
+  throw new Error(
+    lastTransportError instanceof Error
+      ? `${lastTransportError.message} Refresh will retry automatically.`
+      : "Ritual RPC is temporarily unavailable. Refresh will retry automatically.",
+  );
 }
 
 function encodeUint256(value: number | bigint) {
@@ -5475,28 +5513,39 @@ function App() {
       setAgentHarnessState({ status: "ready", data });
       return data;
     } catch (error) {
-      setAgentHarnessState({
-        status: "error",
-        address: activeAddress,
-        data: cachedData,
-        error: error instanceof Error ? error.message : "Could not read the Sovereign Agent harness.",
-      });
+      setAgentHarnessState(
+        cachedData
+          ? { status: "ready", data: cachedData }
+          : {
+              status: "error",
+              address: activeAddress,
+              error: error instanceof Error ? error.message : "Could not read the Sovereign Agent harness.",
+            },
+      );
       return undefined;
     }
   }, [wallet.address]);
 
   const refreshAgentLifecycle = React.useCallback(async (configured = agentHarnessStatus?.configured ?? false) => {
-    setAgentLifecycleState({ status: "loading" });
+    let cachedLifecycle: AgentLifecycle | undefined;
+    setAgentLifecycleState((current) => {
+      cachedLifecycle = current.status === "ready" ? current.data : undefined;
+      return { status: "loading" };
+    });
     try {
       setAgentLifecycleState({
         status: "ready",
         data: await readAgentLifecycle(configured, rpc, agentHarnessAddress),
       });
     } catch (error) {
-      setAgentLifecycleState({
-        status: "error",
-        error: error instanceof Error ? error.message : "Could not read the Agent lifecycle events.",
-      });
+      setAgentLifecycleState(
+        cachedLifecycle
+          ? { status: "ready", data: cachedLifecycle }
+          : {
+              status: "error",
+              error: error instanceof Error ? error.message : "Could not read the Agent lifecycle events.",
+            },
+      );
     }
   }, [agentHarnessAddress, agentHarnessStatus?.configured]);
 
