@@ -28,6 +28,9 @@
   --danger-soft: rgba(255, 122, 102, 0.13);
   --violet: #a78bfa;
   --blue: #7dd3fc;
+  --z-sticky: 20;
+  --z-dropdown: 30;
+  --z-modal: 50;
   --mono:
     "Geist Mono",
     "SFMono-Regular",
@@ -95,7 +98,7 @@ a {
 .explorer-header {
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: var(--z-sticky);
   border-bottom: 1px solid var(--line);
   background: rgba(5, 5, 6, 0.82);
   backdrop-filter: blur(18px);
@@ -455,7 +458,7 @@ h2 {
 .wallet-picker-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1896,6 +1899,99 @@ select:focus {
 .executor-discovery-controls label {
   display: grid;
   gap: 5px;
+}
+
+.menu-select {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.menu-select > span {
+  color: var(--quiet);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.menu-select-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  padding: 8px 10px;
+  color: var(--ink);
+  font-size: 0.86rem;
+  text-align: left;
+}
+
+.menu-select-trigger:hover,
+.menu-select-trigger[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  background: var(--field-hover);
+}
+
+.menu-select-trigger:focus-visible {
+  outline: none;
+  border-color: rgba(52, 211, 153, 0.48);
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.08);
+}
+
+.menu-select-trigger svg {
+  flex: 0 0 auto;
+  color: var(--quiet);
+  transition: transform 160ms ease;
+}
+
+.menu-select-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.menu-select-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: var(--z-dropdown);
+  display: grid;
+  overflow-y: auto;
+  max-height: 270px;
+  gap: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #111116;
+  padding: 5px;
+}
+
+.menu-select-options button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 6px;
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.menu-select-options button:hover,
+.menu-select-options button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+.menu-select-options button[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 
 .executor-discovery-controls p {

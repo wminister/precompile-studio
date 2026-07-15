@@ -28,6 +28,8 @@ import {
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
   AGENT_MINIMUM_FUNDING,
+  agentExecutionBudget,
+  agentFundedCallCount,
   createAgentHarnessDeploymentTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
@@ -324,13 +326,17 @@ describe("Sovereign Agent harness", () => {
     expect(decoded[6]).toBe(predicted);
   });
 
-  it("rejects funding below the Scheduler requirement for the five-call window", () => {
+  it("sizes Agent funding per execution and allows partial window funding", () => {
     const draft = buildAgentDraft(
       recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
     );
     expect(() => createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING - 1n)).toThrow(
-      "at least 0.51 RITUAL",
+      "cover at least one scheduled call (0.01 RITUAL",
     );
+    expect(agentExecutionBudget()).toBe(10_000_000_000_000_000n);
+    expect(agentFundedCallCount(10_000_000_000_000_000n)).toBe(1);
+    expect(agentFundedCallCount(30_000_000_000_000_000n)).toBe(3);
+    expect(agentFundedCallCount(90_000_000_000_000_000n)).toBe(5);
   });
 
   it("reads ownership, schedule state, and sender lock from live-view calls", async () => {

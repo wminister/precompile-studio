@@ -34,9 +34,11 @@ import {
   encodeAbiParameters,
   encodeFunctionData,
   formatEther,
+  formatGwei,
   isAddress,
   keccak256,
   parseEther,
+  parseGwei,
   parseAbi,
   parseAbiParameters,
   stringToHex,
@@ -117,6 +119,7 @@ type RpcState = {
   status: "checking" | "online" | "offline";
   chainId?: number;
   block?: number;
+  gasPrice?: bigint;
   latency?: number;
   error?: string;
 };
@@ -453,6 +456,62 @@ function capabilityLabel(capabilityId: number) {
   return EXECUTOR_CAPABILITIES.find((capability) => capability.id === capabilityId)?.label ?? `Capability ${capabilityId}`;
 }
 
+function CapabilitySelect({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="menu-select" ref={rootRef}>
+      <span>Capability</span>
+      <button
+        className="menu-select-trigger"
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{capabilityLabel(value)}</span>
+        <ChevronDown size={14} />
+      </button>
+      {open ? (
+        <div className="menu-select-options" role="listbox" aria-label="Capability">
+          {EXECUTOR_CAPABILITIES.map((capability) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={capability.id === value}
+              key={capability.id}
+              onClick={() => {
+                onChange(capability.id);
+                setOpen(false);
+              }}
+            >
+              <span>{capability.label}</span>
+              {capability.id === value ? <Check size={13} /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export const HTTP_CALL_PRECOMPILE = "0x0000000000000000000000000000000000000801";
 const LLM_INFERENCE_PRECOMPILE = "0x0000000000000000000000000000000000000802";
 export const JQ_PRECOMPILE = "0x0000000000000000000000000000000000000803";
@@ -601,13 +660,35 @@ const JQ_DYNAMIC_OUTPUT_TYPES = new Set(["string", "int256[]", "uint256[]", "str
 
 const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
 const AGENT_CONFIGURE_SELECTOR = "0xb1906702";
-const AGENT_SCHEDULE = [5_000_000, 2_000, 500, 20_000_000_000n, 1_000_000_000n, 0n] as const;
+type AgentSchedule = readonly [number, number, number, bigint, bigint, bigint];
+type AgentRolling = readonly [number, number, number];
+const AGENT_SCHEDULER_GAS = 5_000_000;
+const AGENT_DEFAULT_MAX_FEE = 2_000_000_000n;
+const AGENT_PRIORITY_FEE = 1_000_000_000n;
+const AGENT_SCHEDULE: AgentSchedule = [
+  AGENT_SCHEDULER_GAS,
+  2_000,
+  500,
+  AGENT_DEFAULT_MAX_FEE,
+  AGENT_PRIORITY_FEE,
+  0n,
+];
 const AGENT_ROLLING = [5, 5_000, 1] as const;
 const AGENT_LOCK_BLOCKS = 100_000n;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
-export const AGENT_MINIMUM_FUNDING =
-  SCHEDULER_RESERVE +
-  (BigInt(AGENT_SCHEDULE[0]) * AGENT_SCHEDULE[3] + AGENT_SCHEDULE[5]) * BigInt(AGENT_ROLLING[0]);
+export function agentExecutionBudget(schedule: AgentSchedule = AGENT_SCHEDULE) {
+  return BigInt(schedule[0]) * schedule[3] + schedule[5];
+}
+export function agentFundedCallCount(
+  funding: bigint,
+  schedule: AgentSchedule = AGENT_SCHEDULE,
+  rolling: AgentRolling = AGENT_ROLLING,
+) {
+  const perCall = agentExecutionBudget(schedule);
+  if (perCall <= 0n || funding <= 0n) return 0;
+  return Math.min(rolling[0], Number(funding / perCall));
+}
+export const AGENT_MINIMUM_FUNDING = agentExecutionBudget();
 const AGENT_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.SovereignAgentHarness.blockNumber;
 const JOB_ADDED_TOPIC = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
 const PHASE1_SETTLED_TOPIC = keccak256(stringToHex("Phase1Settled(bytes32,address,uint256)"));
@@ -2223,6 +2304,8 @@ export function createAgentHarnessTransaction(
   schedulerFunding: bigint,
   lockDuration = AGENT_LOCK_BLOCKS,
   harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
+  schedule: AgentSchedule = AGENT_SCHEDULE,
+  rolling: AgentRolling = AGENT_ROLLING,
 ): WalletTransactionRequest {
   if (!draft.encodedInput || draft.errors.length || !draft.values) {
     throw new Error("Resolve the Sovereign Agent input before configuring the harness.");
@@ -2230,14 +2313,15 @@ export function createAgentHarnessTransaction(
   if (!isAddress(harnessAddress) || draft.callbackAddress.toLowerCase() !== harnessAddress.toLowerCase()) {
     throw new Error("Agent delivery target must be the active wallet-owned Sovereign Agent harness.");
   }
-  if (schedulerFunding < AGENT_MINIMUM_FUNDING) {
-    throw new Error(`Harness funding must be at least ${formatEther(AGENT_MINIMUM_FUNDING)} RITUAL for five scheduled calls.`);
+  const perCallBudget = agentExecutionBudget(schedule);
+  if (schedulerFunding < perCallBudget) {
+    throw new Error(`Harness funding must cover at least one scheduled call (${formatEther(perCallBudget)} RITUAL at this fee cap).`);
   }
 
   const encodedArgs = encodeAbiParameters(parseAbiParameters(AGENT_HARNESS_CONFIG_SIGNATURE), [
     draft.values,
-    AGENT_SCHEDULE,
-    AGENT_ROLLING,
+    schedule,
+    rolling,
     lockDuration,
   ] as never);
   return {
@@ -3464,6 +3548,7 @@ function App() {
   const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
   const [agentFundingAmount, setAgentFundingAmount] = React.useState(() => formatEther(AGENT_MINIMUM_FUNDING));
+  const [agentMaxFeeGwei, setAgentMaxFeeGwei] = React.useState(() => formatGwei(AGENT_DEFAULT_MAX_FEE));
   const [scheduledJqState, setScheduledJqState] = React.useState<ScheduledJqConsumerState>({ status: "idle" });
   const [schedulerTxState, setSchedulerTxState] = React.useState<SchedulerTransactionState>({ status: "idle" });
   const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
@@ -3687,6 +3772,35 @@ function App() {
       return 0n;
     }
   })();
+  const agentSchedulerMaxFee = (() => {
+    try {
+      return parseGwei(agentMaxFeeGwei || "0");
+    } catch {
+      return 0n;
+    }
+  })();
+  const agentSchedule = React.useMemo<AgentSchedule>(
+    () => [
+      AGENT_SCHEDULER_GAS,
+      AGENT_SCHEDULE[1],
+      AGENT_SCHEDULE[2],
+      agentSchedulerMaxFee,
+      AGENT_PRIORITY_FEE,
+      AGENT_SCHEDULE[5],
+    ],
+    [agentSchedulerMaxFee],
+  );
+  const agentPerCallFunding = agentExecutionBudget(agentSchedule);
+  const agentFundedCalls = agentFundedCallCount(agentFunding, agentSchedule);
+  const isAgentFeeCapSufficient =
+    agentSchedulerMaxFee >= (rpcState.gasPrice ?? AGENT_PRIORITY_FEE + 1n);
+  const agentFundingSummary = !isAgentFeeCapSufficient
+    ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
+    : agentFundedCalls === 0
+      ? `First call needs ${formatRitual(agentPerCallFunding)} RITUAL`
+      : agentFundedCalls >= AGENT_ROLLING[0]
+        ? `${AGENT_ROLLING[0]}-call window fully funded`
+        : `${agentFundedCalls} of ${AGENT_ROLLING[0]} calls funded at fee cap`;
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
@@ -3801,7 +3915,8 @@ function App() {
     Boolean(agentHarnessStatus) &&
     !agentHarnessStatus?.configured &&
     !agentHarnessStatus?.senderLocked &&
-    agentFunding >= AGENT_MINIMUM_FUNDING &&
+    agentFunding >= agentPerCallFunding &&
+    isAgentFeeCapSufficient &&
     !hasPendingAsyncTransaction &&
     agentTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
@@ -3967,7 +4082,7 @@ function App() {
           }
         : selectedRecipe.id === "agent"
           ? {
-              ok: agentHarnessState.status === "ready" && isAgentHarnessOwner,
+              ok: Boolean(agentHarnessStatus) && isAgentHarnessOwner,
               label:
                 wallet.status !== "connected"
                   ? "Connect for your Agent harness"
@@ -3981,10 +4096,10 @@ function App() {
                   ? "The deployer demo remains readable; connect to discover your deterministic harness."
                   : agentHarnessState.status === "missing"
                     ? `Factory predicts ${formatAddress(agentHarnessState.predictedAddress)} for this wallet.`
-                    : agentHarnessState.status !== "ready"
+                    : !agentHarnessStatus
                       ? "Reading the wallet-specific factory child."
                       : isAgentHarnessOwner
-                        ? `${formatRitual(agentFunding)} RITUAL will fund the harness Scheduler escrow when you start it.`
+                        ? `${formatRitual(agentFunding)} RITUAL covers at least ${agentFundedCalls} of ${AGENT_ROLLING[0]} scheduled calls at the selected fee cap.`
                         : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
             }
         : {
@@ -4005,6 +4120,19 @@ function App() {
                       } — deposit again with a longer lock (async calls need the escrow locked ~${RITUAL_ASYNC_LOCK_MARGIN}+ blocks ahead).`
                     : `${wallet.ritualWalletBalance ?? "0"} RITUAL, locked ${ritualLockRemaining ?? "?"} blocks ahead`,
           },
+      ...(selectedRecipe.id === "agent"
+        ? [{
+            ok: agentFunding >= agentPerCallFunding && isAgentFeeCapSufficient,
+            label: !isAgentFeeCapSufficient
+              ? "Raise Scheduler fee cap"
+              : agentFunding < agentPerCallFunding
+                ? "Fund the first Agent call"
+                : `${agentFundedCalls} of ${AGENT_ROLLING[0]} calls funded`,
+            help: !isAgentFeeCapSufficient
+              ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
+              : `One call needs up to ${formatRitual(agentPerCallFunding)} RITUAL at the selected fee cap.`,
+          }]
+        : []),
       {
         ok: Boolean(liveAbiDraft?.encodedInput) && (liveAbiDraft?.errors.length ?? 1) === 0,
         label:
@@ -4033,6 +4161,9 @@ function App() {
   }, [
     isRightChain,
     agentFunding,
+    agentFundedCalls,
+    agentPerCallFunding,
+    isAgentFeeCapSufficient,
     agentHarnessState.status,
     agentHarnessState.status === "missing" ? agentHarnessState.predictedAddress : undefined,
     agentHarnessStatus?.owner,
@@ -4045,6 +4176,7 @@ function App() {
     liveAbiDraft,
     liveRecipeLabel,
     rpcState.error,
+    rpcState.gasPrice,
     rpcState.status,
     sensitiveFieldLabels,
     selectedRecipe.name,
@@ -4265,14 +4397,16 @@ function App() {
     const startedAt = performance.now();
     setRpcState((current) => ({ ...current, status: "checking", error: undefined }));
     try {
-      const [chainHex, blockHex] = await Promise.all([
+      const [chainHex, blockHex, gasPriceHex] = await Promise.all([
         rpc<string>("eth_chainId"),
         rpc<string>("eth_blockNumber"),
+        rpc<string>("eth_gasPrice"),
       ]);
       setRpcState({
         status: "online",
         chainId: Number.parseInt(chainHex, 16),
         block: Number.parseInt(blockHex, 16),
+        gasPrice: BigInt(gasPriceHex),
         latency: Math.round(performance.now() - startedAt),
       });
     } catch (error) {
@@ -5375,10 +5509,17 @@ function App() {
       setAgentTxState({ status: "error", error: "This harness is already configured. Its active series cannot be configured twice." });
       return;
     }
-    if (agentFunding < AGENT_MINIMUM_FUNDING) {
+    if (!isAgentFeeCapSufficient) {
       setAgentTxState({
         status: "error",
-        error: `Enter at least ${formatEther(AGENT_MINIMUM_FUNDING)} RITUAL to cover the five scheduled calls.`,
+        error: `Set the Scheduler fee cap to at least the current RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei).`,
+      });
+      return;
+    }
+    if (agentFunding < agentPerCallFunding) {
+      setAgentTxState({
+        status: "error",
+        error: `Enter at least ${formatEther(agentPerCallFunding)} RITUAL to cover the first scheduled call at this fee cap.`,
       });
       return;
     }
@@ -5403,7 +5544,14 @@ function App() {
       }
       setFieldState((current) => ({ ...current, agent: nextFields }));
       const tx = await prepareWalletTransaction(
-        createAgentHarnessTransaction(wallet.address, nextDraft, agentFunding, AGENT_LOCK_BLOCKS, agentHarnessAddress),
+        createAgentHarnessTransaction(
+          wallet.address,
+          nextDraft,
+          agentFunding,
+          AGENT_LOCK_BLOCKS,
+          agentHarnessAddress,
+          agentSchedule,
+        ),
         "0x4c4b40",
       );
       const hash = await sendWalletTransaction(provider, tx);
@@ -5418,12 +5566,16 @@ function App() {
     }
   }, [
     agentFunding,
+    agentPerCallFunding,
     agentHarnessAddress,
     agentHarnessStatus?.configured,
+    agentSchedule,
     fieldState.agent,
     hasPendingAsyncTransaction,
     isAgentHarnessOwner,
+    isAgentFeeCapSufficient,
     refreshAgentReceipt,
+    rpcState.gasPrice,
     selectedDiscoveredExecutor?.publicKey,
     wallet.address,
   ]);
@@ -6340,23 +6492,37 @@ function App() {
                   </div>
                   <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
                     {agentHarnessState.status !== "missing" ? (
-                      <label>
-                        <span>Scheduler funding</span>
-                        <div className="agent-funding-input">
-                          <input
-                            name="agent-funding"
-                            inputMode="decimal"
-                            value={agentFundingAmount}
-                            onChange={(event) => setAgentFundingAmount(event.target.value)}
-                          />
-                          <small>RITUAL</small>
-                        </div>
-                      </label>
+                      <>
+                        <label>
+                          <span>Scheduler funding</span>
+                          <div className="agent-funding-input">
+                            <input
+                              name="agent-funding"
+                              inputMode="decimal"
+                              value={agentFundingAmount}
+                              onChange={(event) => setAgentFundingAmount(event.target.value)}
+                            />
+                            <small>RITUAL</small>
+                          </div>
+                        </label>
+                        <label>
+                          <span>Scheduler fee cap</span>
+                          <div className="agent-funding-input">
+                            <input
+                              name="agent-max-fee"
+                              inputMode="decimal"
+                              value={agentMaxFeeGwei}
+                              onChange={(event) => setAgentMaxFeeGwei(event.target.value)}
+                            />
+                            <small>GWEI</small>
+                          </div>
+                        </label>
+                      </>
                     ) : null}
                     <p>
                       {agentHarnessState.status === "missing"
                         ? "One factory transaction creates a deterministic contract owned by this wallet."
-                        : `Minimum ${formatEther(AGENT_MINIMUM_FUNDING)} RITUAL · 5 calls · every 2,000 blocks`}
+                        : `${agentFundingSummary} · every ${AGENT_SCHEDULE[1].toLocaleString()} blocks · ${AGENT_LOCK_BLOCKS.toLocaleString()}-block lock`}
                     </p>
                     <button
                       className="primary-action large"
@@ -6499,21 +6665,10 @@ function App() {
                     </button>
                   </div>
                   <div className="executor-discovery-controls">
-                    <label>
-                      <span>Capability</span>
-                      <select
-                        id="executor-capability"
-                        name="executor-capability"
-                        value={executorDiscovery.capabilityId}
-                        onChange={(event) => selectExecutorCapability(Number(event.target.value))}
-                      >
-                        {EXECUTOR_CAPABILITIES.map((capability) => (
-                          <option key={capability.id} value={capability.id}>
-                            {capability.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <CapabilitySelect
+                      value={executorDiscovery.capabilityId}
+                      onChange={selectExecutorCapability}
+                    />
                     <p>
                       {executorDiscovery.status === "ready"
                         ? `${executorDiscovery.total ?? executorDiscovery.executors.length} registered; showing ${executorDiscovery.executors.length}.`

@@ -137,7 +137,9 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("textbox", { name: "SCHEDULER FUNDING RITUAL" })).toHaveValue("0.51");
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FUNDING RITUAL" })).toHaveValue("0.01");
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("2");
+  await expect(launch.getByText("1 of 5 calls funded at fee cap", { exact: false })).toBeVisible();
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
@@ -147,6 +149,16 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await expect(page.getByText("Ready to launch", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("uses a dark capability menu instead of the native system picker", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "HTTP candidates", exact: true }).click();
+  const capabilityList = page.getByRole("listbox", { name: "Capability" });
+  await expect(capabilityList).toBeVisible();
+  await expect(capabilityList.getByRole("option", { name: "LLM candidates" })).toBeVisible();
+  await capabilityList.getByRole("option", { name: "LLM candidates" }).click();
+  await expect(page.getByRole("button", { name: "LLM candidates", exact: true })).toBeVisible();
 });
 
 test("reconciles the completed Scheduled JQ lifecycle without overflow", async ({ page }) => {
