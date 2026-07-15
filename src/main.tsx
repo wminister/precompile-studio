@@ -2351,6 +2351,21 @@ function schedulerOriginTransactionStorageKey(consumerAddress: string) {
   return `${SCHEDULER_ORIGIN_TX_STORAGE_PREFIX}:${consumerAddress.toLowerCase()}`;
 }
 
+const RITUAL_RPC_LOG_BLOCK_LIMIT = 100_000;
+
+async function recentLogRange(
+  deploymentBlock: number,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T>,
+) {
+  const latestBlock = Number(BigInt(await requester<string>("eth_blockNumber")));
+  const fromBlock = Math.max(deploymentBlock, latestBlock - (RITUAL_RPC_LOG_BLOCK_LIMIT - 1));
+  return {
+    fromBlock: `0x${fromBlock.toString(16)}`,
+    toBlock: `0x${latestBlock.toString(16)}`,
+    latestBlock,
+  };
+}
+
 export type AgentHarnessStatus = {
   address: string;
   owner: string;
@@ -2469,13 +2484,14 @@ export async function readSchedulerLifecycle(
 ): Promise<SchedulerLifecycleEntry[]> {
   if (callId === 0n) return [];
   const callIdTopic = encodeAbiParameters(parseAbiParameters("uint256"), [callId]);
+  const logRange = await recentLogRange(deploymentBlock, requester);
   // Ritual RPC currently returns an empty result for topic OR filters. Query
   // each lifecycle signature separately, then reconcile the small result set.
   const logGroups = await Promise.all(SCHEDULER_LIFECYCLE_TOPICS.map((topic) =>
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.Scheduler,
-      fromBlock: `0x${deploymentBlock.toString(16)}`,
-      toBlock: "latest",
+      fromBlock: logRange.fromBlock,
+      toBlock: logRange.toBlock,
       topics: [topic, callIdTopic],
     }]),
   ));
@@ -2536,9 +2552,8 @@ export async function readSchedulerLifecycle(
     }
     if (startBlock !== undefined && frequency !== undefined && numCalls !== undefined) {
       try {
-        const latestBlock = Number(BigInt(await requester<string>("eth_blockNumber")));
         const expectedBlocks = Array.from({ length: numCalls }, (_, index) => startBlock + frequency * index)
-          .filter((blockNumber) => blockNumber <= latestBlock);
+          .filter((blockNumber) => blockNumber <= logRange.latestBlock);
         const blocks = await Promise.all(expectedBlocks.map((blockNumber) =>
           requester<{ transactions?: Array<string | { hash?: string; to?: string; callId?: number | string; index?: number | string }> } | null>(
             "eth_getBlockByNumber",
@@ -2738,11 +2753,11 @@ export async function readAgentLifecycle(
   harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
   deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
 ): Promise<AgentLifecycle> {
-  const fromBlock = `0x${deploymentBlock.toString(16)}`;
+  const logRange = await recentLogRange(deploymentBlock, requester);
   const jobLogs = await requester<RpcLog[]>("eth_getLogs", [{
     address: SYSTEM_CONTRACTS.AsyncJobTracker,
-    fromBlock,
-    toBlock: "latest",
+    fromBlock: logRange.fromBlock,
+    toBlock: logRange.toBlock,
     topics: [JOB_ADDED_TOPIC, null, null, addressTopic(SOVEREIGN_AGENT_PRECOMPILE)],
   }]);
   const matchingJobs = jobLogs.filter((log) => {
@@ -2767,26 +2782,26 @@ export async function readAgentLifecycle(
   const [phase1Logs, resultLogs, removedLogs, harnessResultLogs] = await Promise.all([
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
-      fromBlock,
-      toBlock: "latest",
+      fromBlock: logRange.fromBlock,
+      toBlock: logRange.toBlock,
       topics: [PHASE1_SETTLED_TOPIC, jobId],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
-      fromBlock,
-      toBlock: "latest",
+      fromBlock: logRange.fromBlock,
+      toBlock: logRange.toBlock,
       topics: [RESULT_DELIVERED_TOPIC, jobId, addressTopic(harnessAddress)],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
-      fromBlock,
-      toBlock: "latest",
+      fromBlock: logRange.fromBlock,
+      toBlock: logRange.toBlock,
       topics: [JOB_REMOVED_TOPIC, null, jobId],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: harnessAddress,
-      fromBlock,
-      toBlock: "latest",
+      fromBlock: logRange.fromBlock,
+      toBlock: logRange.toBlock,
       topics: [SOVEREIGN_RESULT_TOPIC],
     }]),
   ]);

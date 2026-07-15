@@ -200,7 +200,11 @@ describe("Scheduled JQ consumer", () => {
       encodeAbiParameters(parseAbiParameters("bytes"), [encodeAbiParameters(parseAbiParameters("uint256"), [1979n])]),
     ];
     let index = 0;
-    const requester = async <T,>(method: string) => (method === "eth_getLogs" ? [] : responses[index++]) as T;
+    const requester = async <T,>(method: string) => {
+      if (method === "eth_blockNumber") return "0x2b4df20" as T;
+      if (method === "eth_getLogs") return [] as T;
+      return responses[index++] as T;
+    };
     await expect(readScheduledJqConsumerStatus(requester)).resolves.toMatchObject({
       owner: TEST_ADDRESS,
       balance: 400_000_000_000_000n,
@@ -247,8 +251,12 @@ describe("Scheduled JQ consumer", () => {
         transactionHash: TX_HASH,
       },
     ];
-    const requester = async <T,>(_method: string, params?: unknown[]) => {
+    const latestBlock = 46_140_866;
+    const requester = async <T,>(method: string, params?: unknown[]) => {
+      if (method === "eth_blockNumber") return `0x${latestBlock.toString(16)}` as T;
       const filter = params?.[0] as { topics?: string[] } | undefined;
+      expect(latestBlock - Number(BigInt((params?.[0] as { fromBlock: string }).fromBlock))).toBeLessThan(100_000);
+      expect((params?.[0] as { toBlock: string }).toBlock).toBe(`0x${latestBlock.toString(16)}`);
       return logs.filter((log) => log.topics[0] === filter?.topics?.[0]) as T;
     };
     await expect(readSchedulerLifecycle(callId, requester)).resolves.toMatchObject([
@@ -376,8 +384,10 @@ describe("Sovereign Agent harness", () => {
       transactionHash: TX_HASH,
     };
     const requester = async <T,>(method: string, params?: unknown[]) => {
+      if (method === "eth_blockNumber") return "0x2c00000" as T;
       expect(method).toBe("eth_getLogs");
-      const filter = params?.[0] as { address: string; topics: Array<string | null> };
+      const filter = params?.[0] as { address: string; fromBlock: string; toBlock: string; topics: Array<string | null> };
+      expect(Number(BigInt(filter.toBlock)) - Number(BigInt(filter.fromBlock))).toBeLessThan(100_000);
       if (filter.topics[0] === jobAddedTopic) return [jobLog] as T;
       if (filter.topics[0] === resultDeliveredTopic) return [trackerResultLog] as T;
       if (filter.topics[0] === sovereignResultTopic) return [harnessResultLog] as T;
