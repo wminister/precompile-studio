@@ -182,10 +182,11 @@ type AgentRun = {
 };
 
 type AgentHarnessState =
-  | { status: "idle" | "loading" }
+  | { status: "idle" }
+  | { status: "loading"; address?: string }
   | { status: "missing"; predictedAddress: string }
   | { status: "ready"; data: AgentHarnessStatus }
-  | { status: "error"; error: string };
+  | { status: "error"; error: string; address?: string };
 
 export type AgentLifecycle = {
   status: "idle" | "scheduled" | "committed" | "result-ready" | "settled" | "failed" | "expired";
@@ -3521,6 +3522,8 @@ function App() {
       ? agentHarnessState.data.address
       : agentHarnessState.status === "missing"
         ? agentHarnessState.predictedAddress
+        : (agentHarnessState.status === "loading" || agentHarnessState.status === "error") && agentHarnessState.address
+          ? agentHarnessState.address
         : SOVEREIGN_AGENT_HARNESS_ADDRESS;
   const agentDraft = React.useMemo(
     () => buildAgentDraft(fieldState.agent, agentHarnessAddress),
@@ -5222,7 +5225,18 @@ function App() {
   }, [canWithdrawScheduler, refreshScheduledJq, scheduledJqConsumerAddress, scheduledJqStatus, wallet.address]);
 
   const refreshAgentHarness = React.useCallback(async () => {
-    setAgentHarnessState({ status: "loading" });
+    let activeAddress: string | undefined;
+    setAgentHarnessState((current) => {
+      activeAddress =
+        current.status === "ready"
+          ? current.data.address
+          : current.status === "missing"
+            ? current.predictedAddress
+            : current.status === "loading" || current.status === "error"
+              ? current.address
+              : undefined;
+      return { status: "loading", address: activeAddress };
+    });
     try {
       let harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS;
       if (wallet.address) {
@@ -5240,6 +5254,7 @@ function App() {
     } catch (error) {
       setAgentHarnessState({
         status: "error",
+        address: activeAddress,
         error: error instanceof Error ? error.message : "Could not read the Sovereign Agent harness.",
       });
       return undefined;

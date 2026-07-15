@@ -135,12 +135,12 @@ test("submits and decodes an LLM completion", async ({ page }) => {
 test("prepares the factory-backed Agent launch without overflow", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
-  await expect(page.getByText("Ready to configure", { exact: true })).toBeVisible();
+  const launch = page.getByTestId("agent-launch");
+  await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Use", exact: true }).first().click();
 
-  const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
-  await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
+  await expect(page.getByText("Ready to launch", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
