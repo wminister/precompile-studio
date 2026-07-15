@@ -45,7 +45,7 @@ The importer accepts either:
 - [`examples/http-preset.json`](../examples/http-preset.json) stores a GET request for HTTP precompile `0x0801`.
 - [`examples/llm-preset.json`](../examples/llm-preset.json) stores a GLM-4.7 chat-completion draft for LLM precompile `0x0802`. Replace the zero executor with a registered TEE executor before encoding.
 - [`examples/jq-preset.json`](../examples/jq-preset.json) stores a synchronous JSON price extraction for JQ precompile `0x0803`.
-- [`examples/agent-preset.json`](../examples/agent-preset.json) stores a Sovereign Agent CLI run draft for precompile `0x080C`. Replace the zero executor and callback address before encoding.
+- [`examples/agent-preset.json`](../examples/agent-preset.json) stores a Sovereign Agent CLI run draft for precompile `0x080C`. Replace the zero executor; the studio replaces the example callback with the connected wallet's predicted factory child.
 - [`examples/scheduler-preset.json`](../examples/scheduler-preset.json) stores a Scheduled JQ price transform. The studio discovers or creates the connected wallet's consumer, calculates the Scheduler reserve and execution budget, and funds any escrow shortfall atomically when the owner submits it.
 
 ## Safety

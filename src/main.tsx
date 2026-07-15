@@ -175,6 +175,7 @@ type LlmRun = {
 type AgentRun = {
   hash: string;
   submittedAt: number;
+  action?: "create" | "start";
   status: ReceiptStatus;
   receipt?: RpcReceipt;
   error?: string;
@@ -182,6 +183,7 @@ type AgentRun = {
 
 type AgentHarnessState =
   | { status: "idle" | "loading" }
+  | { status: "missing"; predictedAddress: string }
   | { status: "ready"; data: AgentHarnessStatus }
   | { status: "error"; error: string };
 
@@ -483,6 +485,7 @@ const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpP
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
+export const SOVEREIGN_AGENT_USER_SALT = ritualTestnetDeployment.contracts.SovereignAgentHarness.userSalt as `0x${string}`;
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 const DEFAULT_LLM_EXECUTOR = "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b";
@@ -521,7 +524,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, and Scheduled JQ are publicly usable. The first Scheduled JQ use creates one deterministic consumer owned by the connected wallet. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion. The current Sovereign Agent harness remains owner-only.",
+      "HTTP, JQ, Scheduled JQ, and Sovereign Agent are publicly usable. Scheduled JQ and Sovereign Agent create deterministic contracts owned by the connected wallet before their first run. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -909,6 +912,29 @@ const sovereignHarnessStatusAbi = [
   { type: "function", name: "currentSeriesId", stateMutability: "view", inputs: [], outputs: [{ type: "uint64" }] },
 ] as const;
 
+const sovereignAgentFactoryAbi = [
+  {
+    type: "function",
+    name: "predictHarness",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "userSalt", type: "bytes32" },
+    ],
+    outputs: [
+      { name: "harness", type: "address" },
+      { name: "childSalt", type: "bytes32" },
+    ],
+  },
+  {
+    type: "function",
+    name: "deployHarness",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "userSalt", type: "bytes32" }],
+    outputs: [{ name: "harness", type: "address" }],
+  },
+] as const;
+
 export const recipes: Recipe[] = [
   {
     id: "http",
@@ -969,8 +995,8 @@ export const recipes: Recipe[] = [
     name: "Agent",
     label: "Factory-backed recipe",
     icon: Route,
-    status: "owner-only",
-    description: "Factory-backed ZeroClaw task with authenticated two-phase delivery through the deployed harness.",
+    status: "live",
+    description: "Wallet-owned ZeroClaw task with authenticated two-phase delivery through a deterministic factory harness.",
     fields: [
       { key: "executor", label: "Executor", value: zeroAddress },
       { key: "ttl", label: "TTL blocks", value: "500" },
@@ -2192,12 +2218,13 @@ export function createAgentHarnessTransaction(
   draft: ReturnType<typeof buildAgentDraft>,
   schedulerFunding: bigint,
   lockDuration = AGENT_LOCK_BLOCKS,
+  harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
 ): WalletTransactionRequest {
   if (!draft.encodedInput || draft.errors.length || !draft.values) {
     throw new Error("Resolve the Sovereign Agent input before configuring the harness.");
   }
-  if (draft.callbackAddress.toLowerCase() !== SOVEREIGN_AGENT_HARNESS_ADDRESS.toLowerCase()) {
-    throw new Error("Agent delivery target must be the deployed Sovereign Agent harness.");
+  if (!isAddress(harnessAddress) || draft.callbackAddress.toLowerCase() !== harnessAddress.toLowerCase()) {
+    throw new Error("Agent delivery target must be the active wallet-owned Sovereign Agent harness.");
   }
   if (schedulerFunding <= 0n) throw new Error("Harness funding must be greater than zero.");
 
@@ -2209,9 +2236,21 @@ export function createAgentHarnessTransaction(
   ] as never);
   return {
     from,
-    to: SOVEREIGN_AGENT_HARNESS_ADDRESS,
+    to: harnessAddress,
     value: `0x${schedulerFunding.toString(16)}`,
     data: concatHex([AGENT_CONFIGURE_SELECTOR, encodedArgs]),
+  };
+}
+
+export function createAgentHarnessDeploymentTransaction(from: string): WalletTransactionRequest {
+  return {
+    from,
+    to: SOVEREIGN_AGENT_FACTORY_ADDRESS,
+    data: encodeFunctionData({
+      abi: sovereignAgentFactoryAbi,
+      functionName: "deployHarness",
+      args: [SOVEREIGN_AGENT_USER_SALT],
+    }),
   };
 }
 
@@ -2312,6 +2351,7 @@ function schedulerOriginTransactionStorageKey(consumerAddress: string) {
 }
 
 export type AgentHarnessStatus = {
+  address: string;
   owner: string;
   configured: boolean;
   wakeMode: number;
@@ -2319,6 +2359,27 @@ export type AgentHarnessStatus = {
   currentSeriesId: string;
   senderLocked: boolean;
 };
+
+export type AgentHarnessDiscovery =
+  | { status: "ready"; address: string }
+  | { status: "missing"; predictedAddress: string };
+
+export async function readAgentHarnessDiscovery(
+  owner: string,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+): Promise<AgentHarnessDiscovery> {
+  const [predictedAddress] = await readViewFunction<readonly [string, `0x${string}`]>(
+    SOVEREIGN_AGENT_FACTORY_ADDRESS,
+    sovereignAgentFactoryAbi,
+    "predictHarness",
+    [owner, SOVEREIGN_AGENT_USER_SALT],
+    requester,
+  );
+  const code = await requester<string>("eth_getCode", [predictedAddress, "latest"]);
+  return code && code !== "0x"
+    ? { status: "ready", address: predictedAddress }
+    : { status: "missing", predictedAddress };
+}
 
 async function readViewFunction<T>(
   address: string,
@@ -2633,16 +2694,18 @@ export async function readScheduledJqConsumerStatus(
 
 export async function readAgentHarnessStatus(
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+  harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
 ): Promise<AgentHarnessStatus> {
   const [owner, configured, wakeMode, activeCallId, currentSeriesId, senderLocked] = await Promise.all([
-    readViewFunction<string>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "owner", [], requester),
-    readViewFunction<boolean>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "configured", [], requester),
-    readViewFunction<number>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "wakeMode", [], requester),
-    readViewFunction<bigint>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "activeCallId", [], requester),
-    readViewFunction<bigint>(SOVEREIGN_AGENT_HARNESS_ADDRESS, sovereignHarnessStatusAbi, "currentSeriesId", [], requester),
-    readViewFunction<boolean>(SYSTEM_CONTRACTS.AsyncJobTracker, asyncJobTrackerAbi, "hasPendingJobForSender", [SOVEREIGN_AGENT_HARNESS_ADDRESS], requester),
+    readViewFunction<string>(harnessAddress, sovereignHarnessStatusAbi, "owner", [], requester),
+    readViewFunction<boolean>(harnessAddress, sovereignHarnessStatusAbi, "configured", [], requester),
+    readViewFunction<number>(harnessAddress, sovereignHarnessStatusAbi, "wakeMode", [], requester),
+    readViewFunction<bigint>(harnessAddress, sovereignHarnessStatusAbi, "activeCallId", [], requester),
+    readViewFunction<bigint>(harnessAddress, sovereignHarnessStatusAbi, "currentSeriesId", [], requester),
+    readViewFunction<boolean>(SYSTEM_CONTRACTS.AsyncJobTracker, asyncJobTrackerAbi, "hasPendingJobForSender", [harnessAddress], requester),
   ]);
   return {
+    address: harnessAddress,
     owner,
     configured,
     wakeMode,
@@ -2671,8 +2734,10 @@ function newestLog(logs: RpcLog[]) {
 export async function readAgentLifecycle(
   configured: boolean,
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+  harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
+  deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
 ): Promise<AgentLifecycle> {
-  const fromBlock = `0x${AGENT_DEPLOYMENT_BLOCK.toString(16)}`;
+  const fromBlock = `0x${deploymentBlock.toString(16)}`;
   const jobLogs = await requester<RpcLog[]>("eth_getLogs", [{
     address: SYSTEM_CONTRACTS.AsyncJobTracker,
     fromBlock,
@@ -2685,7 +2750,7 @@ export async function readAgentLifecycle(
         parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
         log.data as `0x${string}`,
       );
-      return decoded[2].toLowerCase() === SOVEREIGN_AGENT_HARNESS_ADDRESS.toLowerCase();
+      return decoded[2].toLowerCase() === harnessAddress.toLowerCase();
     } catch {
       return false;
     }
@@ -2709,7 +2774,7 @@ export async function readAgentLifecycle(
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
       fromBlock,
       toBlock: "latest",
-      topics: [RESULT_DELIVERED_TOPIC, jobId, addressTopic(SOVEREIGN_AGENT_HARNESS_ADDRESS)],
+      topics: [RESULT_DELIVERED_TOPIC, jobId, addressTopic(harnessAddress)],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
@@ -2718,7 +2783,7 @@ export async function readAgentLifecycle(
       topics: [JOB_REMOVED_TOPIC, null, jobId],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
-      address: SOVEREIGN_AGENT_HARNESS_ADDRESS,
+      address: harnessAddress,
       fromBlock,
       toBlock: "latest",
       topics: [SOVEREIGN_RESULT_TOPIC],
@@ -3073,7 +3138,10 @@ export async function runJqCall(
   return { status: "success" as const, result: decodeJqOutput(raw, outputTypeKey) };
 }
 
-export function buildAgentDraft(fields: ComposerField[]) {
+export function buildAgentDraft(
+  fields: ComposerField[],
+  expectedHarnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
+) {
   const executor = fieldValue(fields, "executor").trim();
   const errors: string[] = [];
   const ttl = parseUintField(fieldValue(fields, "ttl"), "TTL", errors, { min: 1n });
@@ -3105,8 +3173,8 @@ export function buildAgentDraft(fields: ComposerField[]) {
   }
   if (!isAddress(callbackAddress) || callbackAddress.toLowerCase() === zeroAddress) {
     errors.push("Set the contract callback address for two-phase delivery.");
-  } else if (callbackAddress.toLowerCase() !== SOVEREIGN_AGENT_HARNESS_ADDRESS.toLowerCase()) {
-    errors.push("Callback target must be the deployed Sovereign Agent harness.");
+  } else if (!isAddress(expectedHarnessAddress) || callbackAddress.toLowerCase() !== expectedHarnessAddress.toLowerCase()) {
+    errors.push("Callback target must be the active wallet-owned Sovereign Agent harness.");
   }
   if (callbackSelector === "0x00000000") {
     errors.push("Callback selector should point to onSovereignAgentResult(bytes32,bytes).");
@@ -3448,7 +3516,16 @@ function App() {
   const httpDraft = React.useMemo(() => buildHttpDraft(fieldState.http), [fieldState.http]);
   const llmDraft = React.useMemo(() => buildLlmDraft(fieldState.llm), [fieldState.llm]);
   const jqDraft = React.useMemo(() => buildJqDraft(fieldState.jq), [fieldState.jq]);
-  const agentDraft = React.useMemo(() => buildAgentDraft(fieldState.agent), [fieldState.agent]);
+  const agentHarnessAddress =
+    agentHarnessState.status === "ready"
+      ? agentHarnessState.data.address
+      : agentHarnessState.status === "missing"
+        ? agentHarnessState.predictedAddress
+        : SOVEREIGN_AGENT_HARNESS_ADDRESS;
+  const agentDraft = React.useMemo(
+    () => buildAgentDraft(fieldState.agent, agentHarnessAddress),
+    [agentHarnessAddress, fieldState.agent],
+  );
   const scheduleDraft = React.useMemo(() => buildScheduleDraft(fieldState.scheduler), [fieldState.scheduler]);
   const sensitiveFieldLabels = React.useMemo(() => detectSensitiveFields(selectedFields), [selectedFields]);
   const liveAbiDraft =
@@ -3571,6 +3648,7 @@ function App() {
   );
   const agentHarnessStatus = agentHarnessState.status === "ready" ? agentHarnessState.data : undefined;
   const agentLifecycle = agentLifecycleState.status === "ready" ? agentLifecycleState.data : undefined;
+  const isAgentHarnessDemo = wallet.status !== "connected" || !wallet.address;
   const agentFunding = (() => {
     try {
       return parseEther(agentFundingAmount || "0");
@@ -3625,6 +3703,12 @@ function App() {
   const isAgentHarnessOwner =
     Boolean(wallet.address && agentHarnessStatus?.owner) &&
     wallet.address?.toLowerCase() === agentHarnessStatus?.owner.toLowerCase();
+  const canCreateAgentHarness =
+    selectedRecipe.id === "agent" &&
+    agentHarnessState.status === "missing" &&
+    wallet.status === "connected" &&
+    isRightChain &&
+    agentTxState.status !== "submitting";
   const executorStorageScope = wallet.address?.toLowerCase() ?? "local";
   const activeSavedExecutor = savedExecutors.find(
     (executor) => executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase(),
@@ -3850,6 +3934,28 @@ function App() {
                     : "Consumer escrow covers this schedule."
                   : `Owner is ${formatAddress(scheduledJqStatus?.owner)}.`,
           }
+        : selectedRecipe.id === "agent"
+          ? {
+              ok: agentHarnessState.status === "ready" && isAgentHarnessOwner,
+              label:
+                wallet.status !== "connected"
+                  ? "Connect for your Agent harness"
+                  : agentHarnessState.status === "missing"
+                    ? "Create Sovereign Agent harness"
+                    : isAgentHarnessOwner
+                      ? "Wallet-owned Agent harness ready"
+                      : "Harness ownership mismatch",
+              help:
+                wallet.status !== "connected"
+                  ? "The deployer demo remains readable; connect to discover your deterministic harness."
+                  : agentHarnessState.status === "missing"
+                    ? `Factory predicts ${formatAddress(agentHarnessState.predictedAddress)} for this wallet.`
+                    : agentHarnessState.status !== "ready"
+                      ? "Reading the wallet-specific factory child."
+                      : isAgentHarnessOwner
+                        ? `${formatRitual(agentFunding)} RITUAL will fund the harness Scheduler escrow when you start it.`
+                        : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
+            }
         : {
             ok: wallet.status === "connected" && isRitualWalletFunded,
             label: !hasRitualBalance
@@ -3895,6 +4001,11 @@ function App() {
     return selectedRecipe.id === "jq" ? checks.filter((_, index) => ![1, 2, 3].includes(index)) : checks;
   }, [
     isRightChain,
+    agentFunding,
+    agentHarnessState.status,
+    agentHarnessState.status === "missing" ? agentHarnessState.predictedAddress : undefined,
+    agentHarnessStatus?.owner,
+    isAgentHarnessOwner,
     isRitualWalletFunded,
     hasRitualBalance,
     isRitualLockSufficient,
@@ -3926,6 +4037,8 @@ function App() {
       ? "Ready to run"
       : selectedRecipe.id === "scheduler"
         ? "Ready to schedule"
+        : selectedRecipe.id === "agent"
+          ? "Ready to launch"
         : "Ready to copy";
   const contextLabel =
     selectedRecipe.id === "http"
@@ -4342,6 +4455,19 @@ function App() {
   }, [selectedPresetId, visibleRecipePresets]);
 
   React.useEffect(() => {
+    setFieldState((current) => {
+      const callback = fieldValue(current.agent, "callbackAddress");
+      if (callback.toLowerCase() === agentHarnessAddress.toLowerCase()) return current;
+      return {
+        ...current,
+        agent: current.agent.map((field) =>
+          field.key === "callbackAddress" ? { ...field, value: agentHarnessAddress } : field,
+        ),
+      };
+    });
+  }, [agentHarnessAddress]);
+
+  React.useEffect(() => {
     const provider = getProvider();
     if (!provider) return;
     providerRef.current = provider;
@@ -4384,6 +4510,12 @@ function App() {
               ? `Schedule through ${scheduledJqState.data.address}. Funding and scheduling use one wallet confirmation.`
               : "Connect a wallet to discover its Scheduled JQ consumer."
           : "Resolve Scheduled JQ field errors before submitting."
+      : selectedRecipe.id === "agent"
+        ? agentHarnessState.status === "missing"
+          ? `Create the Agent harness predicted for this wallet at ${agentHarnessState.predictedAddress}.`
+          : agentDraft.encodedInput
+            ? `Start the recurring Agent series through ${agentHarnessAddress}. Scheduler funding and configuration use one wallet confirmation.`
+            : "Resolve Sovereign Agent field errors before starting the harness."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
         : `Resolve ${selectedRecipe.name} field errors before copying ABI input.`;
@@ -5092,7 +5224,17 @@ function App() {
   const refreshAgentHarness = React.useCallback(async () => {
     setAgentHarnessState({ status: "loading" });
     try {
-      const data = await readAgentHarnessStatus();
+      let harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS;
+      if (wallet.address) {
+        const discovery = await readAgentHarnessDiscovery(wallet.address);
+        if (discovery.status === "missing") {
+          setAgentHarnessState({ status: "missing", predictedAddress: discovery.predictedAddress });
+          setAgentLifecycleState({ status: "ready", data: { status: "idle" } });
+          return undefined;
+        }
+        harnessAddress = discovery.address;
+      }
+      const data = await readAgentHarnessStatus(rpc, harnessAddress);
       setAgentHarnessState({ status: "ready", data });
       return data;
     } catch (error) {
@@ -5102,19 +5244,22 @@ function App() {
       });
       return undefined;
     }
-  }, []);
+  }, [wallet.address]);
 
   const refreshAgentLifecycle = React.useCallback(async (configured = agentHarnessStatus?.configured ?? false) => {
     setAgentLifecycleState({ status: "loading" });
     try {
-      setAgentLifecycleState({ status: "ready", data: await readAgentLifecycle(configured) });
+      setAgentLifecycleState({
+        status: "ready",
+        data: await readAgentLifecycle(configured, rpc, agentHarnessAddress),
+      });
     } catch (error) {
       setAgentLifecycleState({
         status: "error",
         error: error instanceof Error ? error.message : "Could not read the Agent lifecycle events.",
       });
     }
-  }, [agentHarnessStatus?.configured]);
+  }, [agentHarnessAddress, agentHarnessStatus?.configured]);
 
   const refreshAgentReceipt = React.useCallback(async (hash: string) => {
     try {
@@ -5135,6 +5280,32 @@ function App() {
       );
     }
   }, [refreshAgentHarness, refreshAgentLifecycle]);
+
+  const createAgentHarness = React.useCallback(async () => {
+    const provider = providerRef.current;
+    if (!provider || !wallet.address) {
+      setAgentTxState({ status: "error", error: "Connect a wallet before creating your Agent harness." });
+      return;
+    }
+    if (agentHarnessState.status !== "missing") return;
+
+    setAgentTxState({ status: "submitting" });
+    try {
+      const tx = await prepareWalletTransaction(
+        createAgentHarnessDeploymentTransaction(wallet.address),
+        "0xf4240",
+      );
+      const hash = await sendWalletTransaction(provider, tx);
+      setAgentTxState({ status: "submitted", hash });
+      setAgentRun({ hash, submittedAt: Date.now(), action: "create", status: "pending" });
+      window.setTimeout(() => refreshAgentReceipt(hash).catch(() => undefined), 2500);
+    } catch (error) {
+      setAgentTxState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Agent harness creation was rejected.",
+      });
+    }
+  }, [agentHarnessState.status, refreshAgentReceipt, wallet.address]);
 
   const startAgent = React.useCallback(async () => {
     const provider = providerRef.current;
@@ -5167,20 +5338,24 @@ function App() {
     try {
       const encryptedSecrets = await encryptAgentProviderSecret(selectedDiscoveredExecutor.publicKey);
       const nextFields = fieldState.agent.map((field) =>
-        field.key === "encryptedSecrets" ? { ...field, value: encryptedSecrets } : field,
+        field.key === "encryptedSecrets"
+          ? { ...field, value: encryptedSecrets }
+          : field.key === "callbackAddress"
+            ? { ...field, value: agentHarnessAddress }
+            : field,
       );
-      const nextDraft = buildAgentDraft(nextFields);
+      const nextDraft = buildAgentDraft(nextFields, agentHarnessAddress);
       if (!nextDraft.encodedInput || nextDraft.errors.length) {
         throw new Error(nextDraft.errors[0] ?? "Resolve the Sovereign Agent input before starting the harness.");
       }
       setFieldState((current) => ({ ...current, agent: nextFields }));
       const tx = await prepareWalletTransaction(
-        createAgentHarnessTransaction(wallet.address, nextDraft, agentFunding),
+        createAgentHarnessTransaction(wallet.address, nextDraft, agentFunding, AGENT_LOCK_BLOCKS, agentHarnessAddress),
         "0x4c4b40",
       );
       const hash = await sendWalletTransaction(provider, tx);
       setAgentTxState({ status: "submitted", hash });
-      setAgentRun({ hash, submittedAt: Date.now(), status: "pending" });
+      setAgentRun({ hash, submittedAt: Date.now(), action: "start", status: "pending" });
       window.setTimeout(() => refreshAgentReceipt(hash).catch(() => undefined), 2500);
     } catch (error) {
       setAgentTxState({
@@ -5190,6 +5365,7 @@ function App() {
     }
   }, [
     agentFunding,
+    agentHarnessAddress,
     agentHarnessStatus?.configured,
     fieldState.agent,
     hasPendingAsyncTransaction,
@@ -5341,7 +5517,7 @@ function App() {
     if (selectedRecipe.id !== "agent") return undefined;
     const refresh = async () => {
       const status = await refreshAgentHarness();
-      await refreshAgentLifecycle(status?.configured ?? false);
+      if (status) await refreshAgentLifecycle(status.configured);
     };
     refresh().catch(() => undefined);
     const timer = window.setInterval(() => refresh().catch(() => undefined), 15_000);
@@ -6048,6 +6224,8 @@ function App() {
                           ? "Reading onchain state"
                           : agentHarnessState.status === "error"
                             ? "Harness unavailable"
+                            : agentHarnessState.status === "missing"
+                              ? "Create your Agent harness"
                             : agentLifecycle?.status === "settled"
                               ? "Agent result delivered"
                               : agentLifecycle?.status === "failed" || agentLifecycle?.status === "expired"
@@ -6066,7 +6244,7 @@ function App() {
                       type="button"
                       onClick={() => {
                         refreshAgentHarness()
-                          .then((status) => refreshAgentLifecycle(status?.configured ?? false))
+                          .then((status) => status ? refreshAgentLifecycle(status.configured) : undefined)
                           .catch(() => undefined);
                       }}
                       disabled={agentHarnessState.status === "loading"}
@@ -6078,14 +6256,18 @@ function App() {
                   <div className="agent-launch-facts">
                     <div>
                       <span>Harness</span>
-                      <code>{formatAddress(SOVEREIGN_AGENT_HARNESS_ADDRESS)}</code>
+                      <code>{formatAddress(agentHarnessAddress)}</code>
                     </div>
                     <div className={isAgentHarnessOwner ? "ok" : "pending"}>
                       <span>Owner</span>
                       <strong>
-                        {agentHarnessStatus
+                        {agentHarnessState.status === "missing"
+                          ? "Created for you"
+                          : isAgentHarnessDemo
+                            ? "Read-only demo"
+                        : agentHarnessStatus
                           ? isAgentHarnessOwner
-                            ? "Connected"
+                            ? "Your wallet"
                             : formatAddress(agentHarnessStatus.owner)
                           : "Checking"}
                       </strong>
@@ -6103,24 +6285,37 @@ function App() {
                       </strong>
                     </div>
                   </div>
-                  <div className="agent-launch-controls">
-                    <label>
-                      <span>Scheduler funding</span>
-                      <div className="agent-funding-input">
-                        <input
-                          name="agent-funding"
-                          inputMode="decimal"
-                          value={agentFundingAmount}
-                          onChange={(event) => setAgentFundingAmount(event.target.value)}
-                        />
-                        <small>RITUAL</small>
-                      </div>
-                    </label>
-                    <p>5 calls · every 2,000 blocks · 100,000-block funding lock</p>
-                    <button className="primary-action large" type="button" onClick={startAgent} disabled={!canStartAgent}>
+                  <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
+                    {agentHarnessState.status !== "missing" ? (
+                      <label>
+                        <span>Scheduler funding</span>
+                        <div className="agent-funding-input">
+                          <input
+                            name="agent-funding"
+                            inputMode="decimal"
+                            value={agentFundingAmount}
+                            onChange={(event) => setAgentFundingAmount(event.target.value)}
+                          />
+                          <small>RITUAL</small>
+                        </div>
+                      </label>
+                    ) : null}
+                    <p>
+                      {agentHarnessState.status === "missing"
+                        ? "One factory transaction creates a deterministic contract owned by this wallet."
+                        : "5 calls · every 2,000 blocks · 100,000-block funding lock"}
+                    </p>
+                    <button
+                      className="primary-action large"
+                      type="button"
+                      onClick={agentHarnessState.status === "missing" ? createAgentHarness : startAgent}
+                      disabled={agentHarnessState.status === "missing" ? !canCreateAgentHarness : !canStartAgent}
+                    >
                       {agentTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Route size={16} />}
                       {agentTxState.status === "submitting"
                         ? "Confirming"
+                        : agentHarnessState.status === "missing"
+                          ? "Create Agent harness"
                         : agentHarnessStatus?.configured
                           ? "Agent active"
                           : "Start Agent"}
@@ -6131,7 +6326,13 @@ function App() {
                   {agentTxState.status === "error" ? <p className="agent-launch-message error">{agentTxState.error}</p> : null}
                   {agentRun ? (
                     <div className={`agent-run ${agentRun.status}`} aria-live="polite">
-                      <span>{agentRun.status === "pending" ? "Launch submitted" : agentRun.status === "confirmed" ? "Harness configured" : "Launch failed"}</span>
+                      <span>
+                        {agentRun.status === "pending"
+                          ? agentRun.action === "create" ? "Harness creation submitted" : "Launch submitted"
+                          : agentRun.status === "confirmed"
+                            ? agentRun.action === "create" ? "Harness created" : "Harness configured"
+                            : agentRun.action === "create" ? "Harness creation failed" : "Launch failed"}
+                      </span>
                       <a href={explorerTransactionUrl(agentRun.hash)} target="_blank" rel="noreferrer">
                         {formatHash(agentRun.hash)} <ArrowUpRight size={13} />
                       </a>

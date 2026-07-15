@@ -1,6 +1,6 @@
 # Precompile Studio Contracts
 
-The repository contains owned consumers for HTTP and non-streaming LLM inference, a per-wallet Scheduled JQ factory, and the factory-compatible Sovereign Agent harness.
+The repository contains owned consumers for HTTP and non-streaming LLM inference plus a per-wallet Scheduled JQ factory. Sovereign Agent children are deployed through Ritual's official `SovereignAgentFactory`; this repository integrates that factory ABI rather than duplicating the official harness source.
 
 ## HTTP Consumer
 

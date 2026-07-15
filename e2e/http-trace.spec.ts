@@ -14,6 +14,7 @@ const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
 const TEST_EXECUTOR = "0x2222222222222222222222222222222222222222";
 const SCHEDULER_CONSUMER = "0x7243c1A2cA1Ea555416951480B147c27b17eA668";
 const PREDICTED_SCHEDULER_CONSUMER = "0x3333333333333333333333333333333333333333";
+const PREDICTED_AGENT_HARNESS = "0x4444444444444444444444444444444444444444";
 const TEST_PUBLIC_KEY = `0x04${"33".repeat(64)}` as `0x${string}`;
 const ZERO_HASH = `0x${"0".repeat(64)}` as `0x${string}`;
 
@@ -61,6 +62,9 @@ test.beforeEach(async ({ page }, testInfo) => {
       }
       else if (call?.data?.startsWith(toFunctionSelector("predictConsumer(address)"))) {
         result = encodeAbiParameters(parseAbiParameters("address"), [PREDICTED_SCHEDULER_CONSUMER]);
+      }
+      else if (call?.data?.startsWith(toFunctionSelector("predictHarness(address,bytes32)"))) {
+        result = encodeAbiParameters(parseAbiParameters("address,bytes32"), [PREDICTED_AGENT_HARNESS, ZERO_HASH]);
       }
       else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
       else if (call?.data?.startsWith(toFunctionSelector("consumerBalance()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [400_000_000_000_000n]);
@@ -130,13 +134,13 @@ test("submits and decodes an LLM completion", async ({ page }) => {
 
 test("prepares the factory-backed Agent launch without overflow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Owner only recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   await expect(page.getByText("Ready to configure", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Use", exact: true }).first().click();
 
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
-  await expect(launch.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });

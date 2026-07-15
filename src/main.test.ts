@@ -15,7 +15,9 @@ import {
   LLM_PRECOMPILE_CONSUMER_ADDRESS,
   SCHEDULED_JQ_CONSUMER_ADDRESS,
   SCHEDULED_JQ_FACTORY_ADDRESS,
+  SOVEREIGN_AGENT_FACTORY_ADDRESS,
   SOVEREIGN_AGENT_HARNESS_ADDRESS,
+  SOVEREIGN_AGENT_USER_SALT,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
   buildHttpDraft,
@@ -25,6 +27,7 @@ import {
   createRitualDepositTransaction,
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
+  createAgentHarnessDeploymentTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
   decodeSovereignAgentResult,
@@ -37,6 +40,7 @@ import {
   prepareWalletTransaction,
   receiptStatus,
   readAgentHarnessStatus,
+  readAgentHarnessDiscovery,
   readAgentLifecycle,
   readSchedulerLifecycle,
   readScheduledJqConsumerStatus,
@@ -255,6 +259,38 @@ describe("Scheduled JQ consumer", () => {
 });
 
 describe("Sovereign Agent harness", () => {
+  it("creates a deterministic harness through Ritual's deployed factory", () => {
+    const tx = createAgentHarnessDeploymentTransaction(TEST_ADDRESS);
+    expect(tx).toMatchObject({ from: TEST_ADDRESS, to: SOVEREIGN_AGENT_FACTORY_ADDRESS });
+    const decoded = decodeFunctionData({
+      abi: [{
+        type: "function",
+        name: "deployHarness",
+        stateMutability: "nonpayable",
+        inputs: [{ name: "userSalt", type: "bytes32" }],
+        outputs: [{ name: "harness", type: "address" }],
+      }] as const,
+      data: tx.data as `0x${string}`,
+    });
+    expect(decoded.args).toEqual([SOVEREIGN_AGENT_USER_SALT]);
+  });
+
+  it("discovers the predicted wallet harness from code at its CREATE3 address", async () => {
+    const predicted = "0x2222222222222222222222222222222222222222";
+    const prediction = encodeAbiParameters(parseAbiParameters("address,bytes32"), [predicted, `0x${"12".repeat(32)}`]);
+    const missingRequester = async <T,>(method: string) => (method === "eth_getCode" ? "0x" : prediction) as T;
+    await expect(readAgentHarnessDiscovery(TEST_ADDRESS, missingRequester)).resolves.toEqual({
+      status: "missing",
+      predictedAddress: predicted,
+    });
+
+    const readyRequester = async <T,>(method: string) => (method === "eth_getCode" ? "0x6000" : prediction) as T;
+    await expect(readAgentHarnessDiscovery(TEST_ADDRESS, readyRequester)).resolves.toEqual({
+      status: "ready",
+      address: predicted,
+    });
+  });
+
   it("creates a payable configureFundAndStart transaction for the deployed harness", () => {
     const draft = buildAgentDraft(
       recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
@@ -264,6 +300,19 @@ describe("Sovereign Agent harness", () => {
     expect(tx.to).toBe(SOVEREIGN_AGENT_HARNESS_ADDRESS);
     expect(tx.value).toBe("0x5");
     expect(tx.data?.slice(0, 10)).toBe("0xb1906702");
+  });
+
+  it("targets the connected wallet's predicted harness in calldata and transaction routing", () => {
+    const predicted = "0x2222222222222222222222222222222222222222";
+    const draft = buildAgentDraft(
+      recipeFields("agent", { executor: TEST_ADDRESS, callbackAddress: predicted }),
+      predicted,
+    );
+    expect(draft.errors).toEqual([]);
+    const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, 5n, 100_000n, predicted);
+    expect(tx.to).toBe(predicted);
+    const decoded = decodeAbiParameters(parseAbiParameters(draft.abi), draft.encodedInput!);
+    expect(decoded[6]).toBe(predicted);
   });
 
   it("reads ownership, schedule state, and sender lock from live-view calls", async () => {
@@ -278,6 +327,7 @@ describe("Sovereign Agent harness", () => {
     let index = 0;
     const requester = async <T,>() => responses[index++] as T;
     await expect(readAgentHarnessStatus(requester)).resolves.toEqual({
+      address: SOVEREIGN_AGENT_HARNESS_ADDRESS,
       owner: TEST_ADDRESS,
       configured: false,
       wakeMode: 0,

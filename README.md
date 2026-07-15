@@ -28,7 +28,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ recipe examples
 - Live HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ calldata composers
-- Factory-backed Sovereign Agent launch with registry-key ECIES encryption, harness ownership checks, and lifecycle reconciliation
+- Per-wallet factory-backed Sovereign Agent launch with registry-key ECIES encryption and lifecycle reconciliation
 - Per-wallet Scheduled JQ consumers with atomic funding, scheduling, cancellation, withdrawal, and lifecycle evidence
 - Request preview with copy action
 - Copyable normalized call JSON for encoded live recipes
@@ -48,7 +48,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 
 Use MetaMask for Ritual testnet transaction submission. Rabby can connect and read state, but currently converts Ritual custom transactions to a legacy transaction type rejected by the Ritual RPC and does not provide the raw-signing fallback needed to broadcast the supported form. The studio reports this limitation directly instead of silently disconnecting or blocking Rabby.
 
-HTTP, JQ, and Scheduled JQ are publicly usable. Scheduled JQ creates one deterministic consumer per connected wallet. LLM submission is implemented but currently depends on a degraded Ritual executor path. The deployed Sovereign Agent harness remains owner-only; other visitors can inspect and compose that recipe but cannot launch it from a different address.
+HTTP, JQ, Scheduled JQ, and Sovereign Agent are publicly usable. Scheduled JQ and Sovereign Agent each discover or create one deterministic contract owned by the connected wallet. LLM submission is implemented but currently depends on a degraded Ritual executor path.
 
 ## Local Development
 
@@ -107,7 +107,9 @@ TEE executor addresses can also be saved locally from recipes that need an execu
 
 ## Sovereign Agent Harness
 
-The Agent recipe uses the factory-deployed harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe`. The studio discovers a capability-0 executor and its public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, and submits `configureFundAndStart` to the harness from its owner wallet.
+The Agent recipe uses Ritual's `SovereignAgentFactory` at `0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304`. The studio calls `predictHarness(owner,userSalt)` for the connected wallet, verifies whether code exists at that CREATE3 address, and offers `deployHarness(userSalt)` when it does not. The original harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe` remains a readable public demo while disconnected.
+
+After the wallet-owned child exists, the studio discovers a capability-0 executor and public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, sets two-phase delivery to that child, and submits `configureFundAndStart` from its owner wallet.
 
 The default launch funds five scheduled calls, runs every 2,000 blocks, and locks the harness funding for 100,000 blocks. The studio reads the harness owner, series state, and sender lock, then reconciles `JobAdded`, `Phase1Settled`, `ResultDelivered`, `JobRemoved`, and the harness callback event into user-facing lifecycle states. Scheduler funding and transaction gas are paid by the wallet that confirms the launch.
 

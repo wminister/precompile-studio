@@ -42,17 +42,17 @@ The connected user pays transaction gas and async precompile fees. A confirmed t
 
 The Studio submission and receipt decoder are live. Ritual's current executor path may return a certificate or registry infrastructure error; the UI should show that result without calling it a model completion.
 
-## Sovereign Agent: Deployed Owner Only
+## Sovereign Agent: Per-Wallet Harness
 
 1. Open **Agent**.
-2. Check the harness owner shown in **Sovereign Agent harness**.
-3. Connect that exact owner address. Other wallets can inspect and compose the recipe but cannot launch the owner-controlled harness.
+2. Connect MetaMask. The studio predicts a deterministic factory child for that wallet.
+3. If the panel shows **Create your Agent harness**, press **Create Agent harness** and confirm the one-time deployment transaction. After inclusion, the owner should read **Your wallet**.
 4. Select a discovered capability-0 executor and verify **Registry verified**.
-5. Review the prompt, model, schedule funding, and encrypted provider configuration.
-6. Press **Start Agent** and confirm the payable transaction.
+5. Review the prompt, model, and schedule funding. The studio encrypts the credential-free Ritual provider configuration to the selected executor in the browser.
+6. Press **Start Agent** and confirm the payable configuration transaction.
 7. Expect lifecycle states to move through scheduled, committed, result ready, and settled, or to show failed/expired with the on-chain evidence available.
 
-The harness was factory-deployed and its callback wiring is verified. Final Agent output still depends on Ritual's TEE and AsyncDelivery infrastructure.
+The callback target is always the connected wallet's predicted child, and the factory makes that wallet its owner. The first use therefore needs two confirmations: one to create the reusable harness, one to fund and start it. Final Agent output still depends on Ritual's TEE and AsyncDelivery infrastructure.
 
 ## Scheduled JQ: Per-Wallet Consumer
 
