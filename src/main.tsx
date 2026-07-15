@@ -183,10 +183,10 @@ type AgentRun = {
 
 type AgentHarnessState =
   | { status: "idle" }
-  | { status: "loading"; address?: string }
+  | { status: "loading"; address?: string; data?: AgentHarnessStatus }
   | { status: "missing"; predictedAddress: string }
   | { status: "ready"; data: AgentHarnessStatus }
-  | { status: "error"; error: string; address?: string };
+  | { status: "error"; error: string; address?: string; data?: AgentHarnessStatus };
 
 export type AgentLifecycle = {
   status: "idle" | "scheduled" | "committed" | "result-ready" | "settled" | "failed" | "expired";
@@ -604,6 +604,10 @@ const AGENT_CONFIGURE_SELECTOR = "0xb1906702";
 const AGENT_SCHEDULE = [5_000_000, 2_000, 500, 20_000_000_000n, 1_000_000_000n, 0n] as const;
 const AGENT_ROLLING = [5, 5_000, 1] as const;
 const AGENT_LOCK_BLOCKS = 100_000n;
+const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
+export const AGENT_MINIMUM_FUNDING =
+  SCHEDULER_RESERVE +
+  (BigInt(AGENT_SCHEDULE[0]) * AGENT_SCHEDULE[3] + AGENT_SCHEDULE[5]) * BigInt(AGENT_ROLLING[0]);
 const AGENT_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.SovereignAgentHarness.blockNumber;
 const JOB_ADDED_TOPIC = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
 const PHASE1_SETTLED_TOPIC = keccak256(stringToHex("Phase1Settled(bytes32,address,uint256)"));
@@ -612,7 +616,6 @@ const JOB_REMOVED_TOPIC = keccak256(stringToHex("JobRemoved(address,bytes32,bool
 const SOVEREIGN_RESULT_TOPIC = keccak256(stringToHex("SovereignResult(bytes32,bytes)"));
 export const SCHEDULED_JQ_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumer.address;
 export const SCHEDULED_JQ_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.address;
-const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 const SCHEDULER_LOCK_BLOCKS = 50_000n;
 const SCHEDULER_ORIGIN_TX_STORAGE_PREFIX = "precompile-studio:scheduler-origin-tx";
 const SCHEDULE_STATE_LABELS = ["Scheduled", "Executing", "Completed", "Cancelled", "Expired"] as const;
@@ -2227,7 +2230,9 @@ export function createAgentHarnessTransaction(
   if (!isAddress(harnessAddress) || draft.callbackAddress.toLowerCase() !== harnessAddress.toLowerCase()) {
     throw new Error("Agent delivery target must be the active wallet-owned Sovereign Agent harness.");
   }
-  if (schedulerFunding <= 0n) throw new Error("Harness funding must be greater than zero.");
+  if (schedulerFunding < AGENT_MINIMUM_FUNDING) {
+    throw new Error(`Harness funding must be at least ${formatEther(AGENT_MINIMUM_FUNDING)} RITUAL for five scheduled calls.`);
+  }
 
   const encodedArgs = encodeAbiParameters(parseAbiParameters(AGENT_HARNESS_CONFIG_SIGNATURE), [
     draft.values,
@@ -3458,7 +3463,7 @@ function App() {
   const [agentRun, setAgentRun] = React.useState<AgentRun | undefined>();
   const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
-  const [agentFundingAmount, setAgentFundingAmount] = React.useState("5");
+  const [agentFundingAmount, setAgentFundingAmount] = React.useState(() => formatEther(AGENT_MINIMUM_FUNDING));
   const [scheduledJqState, setScheduledJqState] = React.useState<ScheduledJqConsumerState>({ status: "idle" });
   const [schedulerTxState, setSchedulerTxState] = React.useState<SchedulerTransactionState>({ status: "idle" });
   const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
@@ -3669,7 +3674,10 @@ function App() {
   const selectedDiscoveredExecutor = executorDiscovery.executors.find(
     (executor) => executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase(),
   );
-  const agentHarnessStatus = agentHarnessState.status === "ready" ? agentHarnessState.data : undefined;
+  const agentHarnessStatus =
+    agentHarnessState.status === "ready" || agentHarnessState.status === "loading" || agentHarnessState.status === "error"
+      ? agentHarnessState.data
+      : undefined;
   const agentLifecycle = agentLifecycleState.status === "ready" ? agentLifecycleState.data : undefined;
   const isAgentHarnessDemo = wallet.status !== "connected" || !wallet.address;
   const agentFunding = (() => {
@@ -3790,10 +3798,10 @@ function App() {
     wallet.status === "connected" &&
     isRightChain &&
     isAgentHarnessOwner &&
-    agentHarnessState.status === "ready" &&
+    Boolean(agentHarnessStatus) &&
     !agentHarnessStatus?.configured &&
     !agentHarnessStatus?.senderLocked &&
-    agentFunding > 0n &&
+    agentFunding >= AGENT_MINIMUM_FUNDING &&
     !hasPendingAsyncTransaction &&
     agentTxState.status !== "submitting";
   const runnerSetupChecks = React.useMemo(
@@ -5247,7 +5255,12 @@ function App() {
 
   const refreshAgentHarness = React.useCallback(async () => {
     let activeAddress: string | undefined;
+    let cachedData: AgentHarnessStatus | undefined;
     setAgentHarnessState((current) => {
+      cachedData =
+        current.status === "ready" || current.status === "loading" || current.status === "error"
+          ? current.data
+          : undefined;
       activeAddress =
         current.status === "ready"
           ? current.data.address
@@ -5256,7 +5269,7 @@ function App() {
             : current.status === "loading" || current.status === "error"
               ? current.address
               : undefined;
-      return { status: "loading", address: activeAddress };
+      return { status: "loading", address: activeAddress, data: cachedData };
     });
     try {
       let harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS;
@@ -5276,6 +5289,7 @@ function App() {
       setAgentHarnessState({
         status: "error",
         address: activeAddress,
+        data: cachedData,
         error: error instanceof Error ? error.message : "Could not read the Sovereign Agent harness.",
       });
       return undefined;
@@ -5361,8 +5375,11 @@ function App() {
       setAgentTxState({ status: "error", error: "This harness is already configured. Its active series cannot be configured twice." });
       return;
     }
-    if (agentFunding <= 0n) {
-      setAgentTxState({ status: "error", error: "Enter a positive scheduler funding amount." });
+    if (agentFunding < AGENT_MINIMUM_FUNDING) {
+      setAgentTxState({
+        status: "error",
+        error: `Enter at least ${formatEther(AGENT_MINIMUM_FUNDING)} RITUAL to cover the five scheduled calls.`,
+      });
       return;
     }
     if (hasPendingAsyncTransaction) {
@@ -6256,7 +6273,7 @@ function App() {
                     <div>
                       <span>Sovereign Agent harness</span>
                       <strong>
-                        {agentHarnessState.status === "loading"
+                        {agentHarnessState.status === "loading" && !agentHarnessStatus
                           ? "Reading onchain state"
                           : agentHarnessState.status === "error"
                             ? "Harness unavailable"
@@ -6339,7 +6356,7 @@ function App() {
                     <p>
                       {agentHarnessState.status === "missing"
                         ? "One factory transaction creates a deterministic contract owned by this wallet."
-                        : "5 calls · every 2,000 blocks · 100,000-block funding lock"}
+                        : `Minimum ${formatEther(AGENT_MINIMUM_FUNDING)} RITUAL · 5 calls · every 2,000 blocks`}
                     </p>
                     <button
                       className="primary-action large"

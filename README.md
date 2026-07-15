@@ -111,7 +111,7 @@ The Agent recipe uses Ritual's `SovereignAgentFactory` at `0x9dC4C054e53bCc4Ce0A
 
 After the wallet-owned child exists, the studio discovers a capability-0 executor and public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, sets two-phase delivery to that child, and submits `configureFundAndStart` from its owner wallet.
 
-The default launch funds five scheduled calls, runs every 2,000 blocks, and locks the harness funding for 100,000 blocks. The studio reads the harness owner, series state, and sender lock, then reconciles `JobAdded`, `Phase1Settled`, `ResultDelivered`, `JobRemoved`, and the harness callback event into user-facing lifecycle states. Scheduler funding and transaction gas are paid by the wallet that confirms the launch.
+The default launch funds five scheduled calls, runs every 2,000 blocks, and locks the harness funding for 100,000 blocks. The minimum funding is calculated from the configured Scheduler budget: `0.01 RITUAL reserve + (5,000,000 gas x 20 gwei x 5 calls) = 0.51 RITUAL`. This is separate from the wallet's existing RitualWallet escrow because the wallet-owned harness has its own Scheduler escrow. The studio reads the harness owner, series state, and sender lock, then reconciles `JobAdded`, `Phase1Settled`, `ResultDelivered`, `JobRemoved`, and the harness callback event into user-facing lifecycle states. Scheduler funding and transaction gas are paid by the wallet that confirms the launch.
 
 ## Scheduled JQ Consumer
 

@@ -27,6 +27,7 @@ import {
   createRitualDepositTransaction,
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
+  AGENT_MINIMUM_FUNDING,
   createAgentHarnessDeploymentTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
@@ -303,10 +304,10 @@ describe("Sovereign Agent harness", () => {
     const draft = buildAgentDraft(
       recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
     );
-    const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, 5n);
+    const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING);
     expect(tx.from).toBe(TEST_ADDRESS);
     expect(tx.to).toBe(SOVEREIGN_AGENT_HARNESS_ADDRESS);
-    expect(tx.value).toBe("0x5");
+    expect(tx.value).toBe(`0x${AGENT_MINIMUM_FUNDING.toString(16)}`);
     expect(tx.data?.slice(0, 10)).toBe("0xb1906702");
   });
 
@@ -317,10 +318,19 @@ describe("Sovereign Agent harness", () => {
       predicted,
     );
     expect(draft.errors).toEqual([]);
-    const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, 5n, 100_000n, predicted);
+    const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING, 100_000n, predicted);
     expect(tx.to).toBe(predicted);
     const decoded = decodeAbiParameters(parseAbiParameters(draft.abi), draft.encodedInput!);
     expect(decoded[6]).toBe(predicted);
+  });
+
+  it("rejects funding below the Scheduler requirement for the five-call window", () => {
+    const draft = buildAgentDraft(
+      recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
+    );
+    expect(() => createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING - 1n)).toThrow(
+      "at least 0.51 RITUAL",
+    );
   });
 
   it("reads ownership, schedule state, and sender lock from live-view calls", async () => {

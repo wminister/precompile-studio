@@ -137,6 +137,10 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FUNDING RITUAL" })).toHaveValue("0.51");
+  await launch.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Use", exact: true }).first().click();
 
   await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
