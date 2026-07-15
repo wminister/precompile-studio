@@ -151,14 +151,23 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("uses a dark capability menu instead of the native system picker", async ({ page }) => {
+test("uses named dark menus instead of native system pickers", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "HTTP candidates", exact: true }).click();
-  const capabilityList = page.getByRole("listbox", { name: "Capability" });
+  await expect(page.locator("select")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Executor capability", exact: true }).click();
+  const capabilityList = page.getByRole("listbox", { name: "Executor capability" });
   await expect(capabilityList).toBeVisible();
-  await expect(capabilityList.getByRole("option", { name: "LLM candidates" })).toBeVisible();
-  await capabilityList.getByRole("option", { name: "LLM candidates" }).click();
-  await expect(page.getByRole("button", { name: "LLM candidates", exact: true })).toBeVisible();
+  await expect(capabilityList.getByRole("option", { name: "vLLM proxy (4)" })).toBeVisible();
+  await expect(capabilityList.getByRole("option", { name: "FHE / CKKS (10)" })).toBeVisible();
+  await capabilityList.getByRole("option", { name: "LLM inference (1)" }).click();
+  await expect(page.getByRole("button", { name: "Executor capability", exact: true })).toContainText("LLM inference (1)");
+
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+  await page.getByRole("button", { name: "Agent runtime", exact: true }).click();
+  const runtimeList = page.getByRole("listbox", { name: "Agent runtime" });
+  await expect(runtimeList.getByRole("option", { name: "ZeroClaw (recommended)" })).toBeVisible();
+  await expect(runtimeList.getByRole("option", { name: "Claude Code" })).toBeVisible();
 });
 
 test("reconciles the completed Scheduled JQ lifecycle without overflow", async ({ page }) => {

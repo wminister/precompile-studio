@@ -406,7 +406,7 @@ export type ComposerField = {
   label: string;
   value: string;
   type?: "text" | "textarea" | "select";
-  options?: string[];
+  options?: Array<string | { value: string; label: string }>;
 };
 
 export const RITUAL = {
@@ -435,17 +435,17 @@ export const SYSTEM_CONTRACTS = {
 } as const;
 
 const EXECUTOR_CAPABILITIES = [
-  { id: 0, label: "HTTP candidates", recipeIds: ["http"] as RecipeId[] },
-  { id: 1, label: "LLM candidates", recipeIds: ["llm"] as RecipeId[] },
-  { id: 3, label: "Streaming candidates", recipeIds: [] as RecipeId[] },
-  { id: 4, label: "Capability 4", recipeIds: [] as RecipeId[] },
-  { id: 5, label: "Capability 5", recipeIds: [] as RecipeId[] },
-  { id: 6, label: "Capability 6", recipeIds: [] as RecipeId[] },
-  { id: 7, label: "Capability 7", recipeIds: [] as RecipeId[] },
-  { id: 8, label: "Capability 8", recipeIds: [] as RecipeId[] },
-  { id: 9, label: "Capability 9", recipeIds: [] as RecipeId[] },
-  { id: 10, label: "Capability 10", recipeIds: [] as RecipeId[] },
-  { id: 12, label: "Capability 12", recipeIds: [] as RecipeId[] },
+  { id: 0, label: "HTTP & Agent (0)", recipeIds: ["http", "agent"] as RecipeId[] },
+  { id: 1, label: "LLM inference (1)", recipeIds: ["llm"] as RecipeId[] },
+  { id: 2, label: "Cross-chain query (2)", recipeIds: [] as RecipeId[] },
+  { id: 3, label: "Streaming LLM (3)", recipeIds: [] as RecipeId[] },
+  { id: 4, label: "vLLM proxy (4)", recipeIds: [] as RecipeId[] },
+  { id: 5, label: "ZK call (5)", recipeIds: [] as RecipeId[] },
+  { id: 6, label: "DKMS (6)", recipeIds: [] as RecipeId[] },
+  { id: 7, label: "Image generation (7)", recipeIds: [] as RecipeId[] },
+  { id: 8, label: "Audio generation (8)", recipeIds: [] as RecipeId[] },
+  { id: 9, label: "Video generation (9)", recipeIds: [] as RecipeId[] },
+  { id: 10, label: "FHE / CKKS (10)", recipeIds: [] as RecipeId[] },
 ];
 
 function defaultCapabilityForRecipe(recipeId: RecipeId) {
@@ -456,9 +456,25 @@ function capabilityLabel(capabilityId: number) {
   return EXECUTOR_CAPABILITIES.find((capability) => capability.id === capabilityId)?.label ?? `Capability ${capabilityId}`;
 }
 
-function CapabilitySelect({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+type MenuSelectOption = { value: string; label: string };
+
+function MenuSelect({
+  label,
+  ariaLabel,
+  value,
+  options,
+  onChange,
+}: {
+  label?: string;
+  ariaLabel: string;
+  value: string;
+  options: MenuSelectOption[];
+  onChange: (value: string) => void;
+}) {
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const listboxId = React.useId();
+  const selected = options.find((option) => option.value === value) ?? options[0];
 
   React.useEffect(() => {
     if (!open) return undefined;
@@ -478,37 +494,57 @@ function CapabilitySelect({ value, onChange }: { value: number; onChange: (value
 
   return (
     <div className="menu-select" ref={rootRef}>
-      <span>Capability</span>
+      {label ? <span>{label}</span> : null}
       <button
         className="menu-select-trigger"
         type="button"
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={listboxId}
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{capabilityLabel(value)}</span>
+        <span>{selected?.label ?? value}</span>
         <ChevronDown size={14} />
       </button>
       {open ? (
-        <div className="menu-select-options" role="listbox" aria-label="Capability">
-          {EXECUTOR_CAPABILITIES.map((capability) => (
+        <div className="menu-select-options" id={listboxId} role="listbox" aria-label={ariaLabel}>
+          {options.map((option) => (
             <button
               type="button"
               role="option"
-              aria-selected={capability.id === value}
-              key={capability.id}
+              aria-selected={option.value === value}
+              key={option.value}
               onClick={() => {
-                onChange(capability.id);
+                onChange(option.value);
                 setOpen(false);
               }}
             >
-              <span>{capability.label}</span>
-              {capability.id === value ? <Check size={13} /> : null}
+              <span>{option.label}</span>
+              {option.value === value ? <Check size={13} /> : null}
             </button>
           ))}
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CapabilitySelect({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <MenuSelect
+      label="Capability"
+      ariaLabel="Executor capability"
+      value={String(value)}
+      options={EXECUTOR_CAPABILITIES.map((capability) => ({ value: String(capability.id), label: capability.label }))}
+      onChange={(nextValue) => onChange(Number(nextValue))}
+    />
+  );
+}
+
+function composerSelectOptions(options: ComposerField["options"]): MenuSelectOption[] {
+  return (options ?? []).map((option) =>
+    typeof option === "string" ? { value: option, label: option } : option,
   );
 }
 
@@ -1069,7 +1105,16 @@ export const recipes: Recipe[] = [
       { key: "model", label: "Model", value: DEFAULT_LLM_MODEL },
       { key: "maxCompletionTokens", label: "Max completion tokens", value: "4096" },
       { key: "temperature", label: "Temperature", value: "0.7" },
-      { key: "stream", label: "Streaming", value: "false", type: "select", options: ["false", "true"] },
+      {
+        key: "stream",
+        label: "Streaming",
+        value: "false",
+        type: "select",
+        options: [
+          { value: "false", label: "Off" },
+          { value: "true", label: "On" },
+        ],
+      },
       { key: "historyPlatform", label: "History platform (optional)", value: "" },
       { key: "historyPath", label: "History path (optional)", value: "" },
       { key: "historyKeyRef", label: "History key ref (optional)", value: "" },
@@ -1093,7 +1138,17 @@ export const recipes: Recipe[] = [
       { key: "gasLimit", label: "Callback gas", value: "3000000" },
       { key: "maxFeePerGas", label: "Max fee wei", value: "20000000000" },
       { key: "maxPriorityFeePerGas", label: "Priority fee wei", value: "1000000000" },
-      { key: "cliType", label: "CLI type", value: "6", type: "select", options: ["6", "5", "0"] },
+      {
+        key: "cliType",
+        label: "Agent runtime",
+        value: "6",
+        type: "select",
+        options: [
+          { value: "6", label: "ZeroClaw (recommended)" },
+          { value: "5", label: "Crush" },
+          { value: "0", label: "Claude Code" },
+        ],
+      },
       {
         key: "prompt",
         label: "Prompt",
@@ -6017,21 +6072,18 @@ function App() {
                   <Clipboard size={15} />
                   Save preset
                 </button>
-                <label className="preset-select">
+                <div className="preset-select">
                   <span>Saved preset</span>
-                  <select
-                    name={`saved-preset-${selectedRecipe.id}`}
+                  <MenuSelect
+                    ariaLabel={`${selectedRecipe.name} saved preset`}
                     value={selectedPresetId}
-                    onChange={(event) => setSelectedPresetId(event.target.value)}
-                  >
-                    <option value="">Select preset</option>
-                    {visibleRecipePresets.map((preset) => (
-                      <option value={preset.id} key={preset.id}>
-                        {preset.source === "example" ? `${preset.label}` : preset.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={[
+                      { value: "", label: "Select preset" },
+                      ...visibleRecipePresets.map((preset) => ({ value: preset.id, label: preset.label })),
+                    ]}
+                    onChange={setSelectedPresetId}
+                  />
+                </div>
                 <button className="secondary-action" type="button" onClick={applyRecipePreset} disabled={!selectedPreset}>
                   <RefreshCw size={15} />
                   Load
@@ -6087,32 +6139,31 @@ function App() {
                 {selectedFields.map((field) => {
                   const isWideField = field.type === "textarea" || field.key === "url";
                   return (
-                    <label className={isWideField ? "field wide" : "field"} key={field.key}>
+                    <div className={isWideField ? "field wide" : "field"} key={field.key}>
                       <span>{field.label}</span>
                       {field.type === "textarea" ? (
                         <textarea
+                          aria-label={field.label}
                           name={`${selectedRecipe.id}-${field.key}`}
                           value={field.value}
                           onChange={(event) => updateField(field.key, event.target.value)}
                         />
                       ) : field.type === "select" ? (
-                        <select
-                          name={`${selectedRecipe.id}-${field.key}`}
+                        <MenuSelect
+                          ariaLabel={field.label}
                           value={field.value}
-                          onChange={(event) => updateField(field.key, event.target.value)}
-                        >
-                          {field.options?.map((option) => (
-                            <option key={option}>{option}</option>
-                          ))}
-                        </select>
+                          options={composerSelectOptions(field.options)}
+                          onChange={(nextValue) => updateField(field.key, nextValue)}
+                        />
                       ) : (
                         <input
+                          aria-label={field.label}
                           name={`${selectedRecipe.id}-${field.key}`}
                           value={field.value}
                           onChange={(event) => updateField(field.key, event.target.value)}
                         />
                       )}
-                    </label>
+                    </div>
                   );
                 })}
               </div>
