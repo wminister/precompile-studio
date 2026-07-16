@@ -139,7 +139,9 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FUNDING RITUAL" })).toHaveValue("0.01");
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("2");
-  await expect(launch.getByText("1 of 5 calls funded at fee cap", { exact: false })).toBeVisible();
+  await expect(launch.getByText("1-call window funded at fee cap", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
@@ -149,6 +151,40 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await expect(page.getByText("Ready to launch", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("discovers and restores an authorized wallet after reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    const account = "0x1111111111111111111111111111111111111111";
+    const announce = () => {
+      const provider = (accounts: string[]) => ({
+        request: async ({ method }: { method: string }) => {
+          if (method === "eth_accounts" || method === "eth_requestAccounts") return accounts;
+          if (method === "eth_chainId") return "0x7bb";
+          if (method === "eth_getBalance") return "0xde0b6b3a7640000";
+          return null;
+        },
+      });
+      window.dispatchEvent(new CustomEvent("eip6963:announceProvider", {
+        detail: {
+          info: { uuid: "rabby", name: "Rabby", icon: "", rdns: "io.rabby" },
+          provider: provider([]),
+        },
+      }));
+      window.dispatchEvent(new CustomEvent("eip6963:announceProvider", {
+        detail: {
+          info: { uuid: "metamask", name: "MetaMask", icon: "", rdns: "io.metamask" },
+          provider: provider([account]),
+        },
+      }));
+    };
+    window.addEventListener("eip6963:requestProvider", announce);
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "0x1111...1111", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "0x1111...1111", exact: true })).toBeVisible();
 });
 
 test("uses named dark menus instead of native system pickers", async ({ page }) => {

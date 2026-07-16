@@ -405,7 +405,7 @@ export type ComposerField = {
   key: string;
   label: string;
   value: string;
-  type?: "text" | "textarea" | "select";
+  type?: "text" | "textarea" | "select" | "generated";
   options?: Array<string | { value: string; label: string }>;
 };
 
@@ -577,6 +577,7 @@ const RUNNER_HISTORY_FILTERS: Array<{ key: RunnerHistoryFilter; label: string }>
   { key: "failed", label: "Failed" },
 ];
 const PRESET_STORAGE_KEY = "precompile-studio:recipe-presets";
+const WALLET_PROVIDER_STORAGE_KEY = "precompile-studio:wallet-provider-rdns";
 const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpPrecompileConsumer.address;
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
@@ -709,7 +710,10 @@ const AGENT_SCHEDULE: AgentSchedule = [
   AGENT_PRIORITY_FEE,
   0n,
 ];
-const AGENT_ROLLING = [5, 5_000, 1] as const;
+const AGENT_MAX_WINDOW_CALLS = 5;
+const AGENT_ROLLOVER_THRESHOLD_BPS = 5_000;
+const AGENT_ROLLOVER_RETRY_CALLS = 1;
+const AGENT_ROLLING = [AGENT_MAX_WINDOW_CALLS, AGENT_ROLLOVER_THRESHOLD_BPS, AGENT_ROLLOVER_RETRY_CALLS] as const;
 const AGENT_LOCK_BLOCKS = 100_000n;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 export function agentExecutionBudget(schedule: AgentSchedule = AGENT_SCHEDULE) {
@@ -723,6 +727,16 @@ export function agentFundedCallCount(
   const perCall = agentExecutionBudget(schedule);
   if (perCall <= 0n || funding <= 0n) return 0;
   return Math.min(rolling[0], Number(funding / perCall));
+}
+export function agentRollingForFunding(
+  funding: bigint,
+  schedule: AgentSchedule = AGENT_SCHEDULE,
+): AgentRolling {
+  return [
+    Math.max(1, agentFundedCallCount(funding, schedule)),
+    AGENT_ROLLOVER_THRESHOLD_BPS,
+    AGENT_ROLLOVER_RETRY_CALLS,
+  ];
 }
 export const AGENT_MINIMUM_FUNDING = agentExecutionBudget();
 const AGENT_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.SovereignAgentHarness.blockNumber;
@@ -1155,7 +1169,7 @@ export const recipes: Recipe[] = [
         value: "Explain what Ritual precompiles enable in two concise sentences.",
         type: "textarea",
       },
-      { key: "encryptedSecrets", label: "Encrypted secrets", value: "0x", type: "textarea" },
+      { key: "encryptedSecrets", label: "Provider credentials", value: "0x", type: "generated" },
       { key: "historyPlatform", label: "History platform (optional)", value: "" },
       { key: "historyPath", label: "History path (optional)", value: "" },
       { key: "historyKeyRef", label: "History key ref (optional)", value: "" },
@@ -2360,7 +2374,7 @@ export function createAgentHarnessTransaction(
   lockDuration = AGENT_LOCK_BLOCKS,
   harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
   schedule: AgentSchedule = AGENT_SCHEDULE,
-  rolling: AgentRolling = AGENT_ROLLING,
+  rolling: AgentRolling = agentRollingForFunding(schedulerFunding, schedule),
 ): WalletTransactionRequest {
   if (!draft.encodedInput || draft.errors.length || !draft.values) {
     throw new Error("Resolve the Sovereign Agent input before configuring the harness.");
@@ -2369,8 +2383,11 @@ export function createAgentHarnessTransaction(
     throw new Error("Agent delivery target must be the active wallet-owned Sovereign Agent harness.");
   }
   const perCallBudget = agentExecutionBudget(schedule);
-  if (schedulerFunding < perCallBudget) {
-    throw new Error(`Harness funding must cover at least one scheduled call (${formatEther(perCallBudget)} RITUAL at this fee cap).`);
+  const windowBudget = perCallBudget * BigInt(rolling[0]);
+  if (schedulerFunding < windowBudget) {
+    throw new Error(
+      `Harness funding must cover all ${rolling[0]} scheduled calls (${formatEther(windowBudget)} RITUAL at this fee cap).`,
+    );
   }
 
   const encodedArgs = encodeAbiParameters(parseAbiParameters(AGENT_HARNESS_CONFIG_SIGNATURE), [
@@ -3671,13 +3688,20 @@ function App() {
   const [injectedWallets, setInjectedWallets] = React.useState<EIP6963ProviderDetail[]>([]);
   const [showWalletPicker, setShowWalletPicker] = React.useState(false);
   const [pickedProvider, setPickedProvider] = React.useState<Eip1193Provider | undefined>(undefined);
+  const [preferredWalletRdns, setPreferredWalletRdns] = React.useState(
+    () => window.localStorage.getItem(WALLET_PROVIDER_STORAGE_KEY) ?? "",
+  );
   const providerRef = React.useRef<Eip1193Provider | undefined>(window.ethereum);
+  const walletRestoreInFlight = React.useRef(false);
 
   // Once the user connects a specific wallet, keep using it. Only fall back to
   // the auto-pick (Rabby, then MetaMask) before an explicit choice.
   const getProvider = React.useCallback(
-    () => pickedProvider ?? pickInjectedProvider(injectedWallets),
-    [pickedProvider, injectedWallets],
+    () =>
+      pickedProvider ??
+      injectedWallets.find((wallet) => wallet.info.rdns === preferredWalletRdns)?.provider ??
+      pickInjectedProvider(injectedWallets),
+    [injectedWallets, pickedProvider, preferredWalletRdns],
   );
 
   React.useEffect(() => {
@@ -3885,15 +3909,17 @@ function App() {
   );
   const agentPerCallFunding = agentExecutionBudget(agentSchedule);
   const agentFundedCalls = agentFundedCallCount(agentFunding, agentSchedule);
+  const agentRolling = React.useMemo<AgentRolling>(
+    () => agentRollingForFunding(agentFunding, agentSchedule),
+    [agentFunding, agentSchedule],
+  );
   const isAgentFeeCapSufficient =
     agentSchedulerMaxFee >= (rpcState.gasPrice ?? AGENT_PRIORITY_FEE + 1n);
   const agentFundingSummary = !isAgentFeeCapSufficient
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
     : agentFundedCalls === 0
       ? `First call needs ${formatRitual(agentPerCallFunding)} RITUAL`
-      : agentFundedCalls >= AGENT_ROLLING[0]
-        ? `${AGENT_ROLLING[0]}-call window fully funded`
-        : `${agentFundedCalls} of ${AGENT_ROLLING[0]} calls funded at fee cap`;
+      : `${agentFundedCalls}-call window funded at fee cap`;
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
@@ -4192,7 +4218,7 @@ function App() {
                     : !agentHarnessStatus
                       ? "Reading the wallet-specific factory child."
                       : isAgentHarnessOwner
-                        ? `${formatRitual(agentFunding)} RITUAL covers at least ${agentFundedCalls} of ${AGENT_ROLLING[0]} scheduled calls at the selected fee cap.`
+                        ? `${formatRitual(agentFunding)} RITUAL funds a ${agentFundedCalls}-call rolling window at the selected fee cap.`
                         : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
             }
         : {
@@ -4220,10 +4246,10 @@ function App() {
               ? "Raise Scheduler fee cap"
               : agentFunding < agentPerCallFunding
                 ? "Fund the first Agent call"
-                : `${agentFundedCalls} of ${AGENT_ROLLING[0]} calls funded`,
+                : `${agentFundedCalls}-call window funded`,
             help: !isAgentFeeCapSufficient
               ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
-              : `One call needs up to ${formatRitual(agentPerCallFunding)} RITUAL at the selected fee cap.`,
+              : `The launch will encode ${agentFundedCalls} of the ${AGENT_MAX_WINDOW_CALLS} maximum calls.`,
           }]
         : []),
       {
@@ -4570,11 +4596,56 @@ function App() {
     });
   }, []);
 
+  React.useEffect(() => {
+    if (pickedProvider || wallet.status === "connected" || wallet.status === "connecting" || walletRestoreInFlight.current) {
+      return;
+    }
+    if (!injectedWallets.length) return;
+
+    const preferred = injectedWallets.find((candidate) => candidate.info.rdns === preferredWalletRdns);
+    const ordered = [
+      preferred,
+      ...injectedWallets.filter((candidate) => candidate !== preferred && candidate.info.rdns === "io.metamask"),
+      ...injectedWallets.filter(
+        (candidate) => candidate !== preferred && candidate.info.rdns !== "io.metamask" && candidate.info.rdns !== "io.rabby",
+      ),
+      ...injectedWallets.filter((candidate) => candidate !== preferred && candidate.info.rdns === "io.rabby"),
+    ].filter((candidate): candidate is EIP6963ProviderDetail => Boolean(candidate));
+
+    let cancelled = false;
+    walletRestoreInFlight.current = true;
+    const restore = async () => {
+      try {
+        for (const candidate of ordered) {
+          const accounts = await candidate.provider.request<string[]>({ method: "eth_accounts" });
+          if (cancelled || !accounts?.[0]) continue;
+          window.localStorage.setItem(WALLET_PROVIDER_STORAGE_KEY, candidate.info.rdns);
+          setPreferredWalletRdns(candidate.info.rdns);
+          setPickedProvider(candidate.provider);
+          providerRef.current = candidate.provider;
+          await refreshWallet(candidate.provider, accounts[0]);
+          return;
+        }
+      } finally {
+        walletRestoreInFlight.current = false;
+      }
+    };
+    restore().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [injectedWallets, pickedProvider, preferredWalletRdns, refreshWallet, wallet.status]);
+
   const connectWithProvider = React.useCallback(
-    async (provider: Eip1193Provider | undefined) => {
+    async (provider: Eip1193Provider | undefined, rdns?: string) => {
       if (!provider) {
         setWallet({ status: "error", error: "No browser wallet found." });
         return;
+      }
+      const selectedRdns = rdns ?? injectedWallets.find((wallet) => wallet.provider === provider)?.info.rdns;
+      if (selectedRdns) {
+        window.localStorage.setItem(WALLET_PROVIDER_STORAGE_KEY, selectedRdns);
+        setPreferredWalletRdns(selectedRdns);
       }
       setPickedProvider(provider);
       providerRef.current = provider;
@@ -4586,7 +4657,7 @@ function App() {
         setWallet({ status: "error", error: walletErrorMessage(error, "Wallet connection failed.") });
       }
     },
-    [refreshWallet],
+    [injectedWallets, refreshWallet],
   );
 
   const connectWallet = React.useCallback(() => {
@@ -4596,13 +4667,14 @@ function App() {
       setShowWalletPicker(true);
       return;
     }
-    connectWithProvider(getProvider());
-  }, [connectWithProvider, getProvider, injectedWallets.length]);
+    const onlyWallet = injectedWallets[0];
+    connectWithProvider(onlyWallet?.provider ?? getProvider(), onlyWallet?.info.rdns);
+  }, [connectWithProvider, getProvider, injectedWallets]);
 
   const connectChosenWallet = React.useCallback(
     (detail: EIP6963ProviderDetail) => {
       setShowWalletPicker(false);
-      connectWithProvider(detail.provider);
+      connectWithProvider(detail.provider, detail.info.rdns);
     },
     [connectWithProvider],
   );
@@ -5646,7 +5718,6 @@ function App() {
       if (!nextDraft.encodedInput || nextDraft.errors.length) {
         throw new Error(nextDraft.errors[0] ?? "Resolve the Sovereign Agent input before starting the harness.");
       }
-      setFieldState((current) => ({ ...current, agent: nextFields }));
       const tx = await prepareWalletTransaction(
         createAgentHarnessTransaction(
           wallet.address,
@@ -5655,6 +5726,7 @@ function App() {
           AGENT_LOCK_BLOCKS,
           agentHarnessAddress,
           agentSchedule,
+          agentRolling,
         ),
         "0x4c4b40",
       );
@@ -5673,6 +5745,7 @@ function App() {
     agentPerCallFunding,
     agentHarnessAddress,
     agentHarnessStatus?.configured,
+    agentRolling,
     agentSchedule,
     fieldState.agent,
     hasPendingAsyncTransaction,
@@ -6190,7 +6263,12 @@ function App() {
                   return (
                     <div className={isWideField ? "field wide" : "field"} key={field.key}>
                       <span>{field.label}</span>
-                      {field.type === "textarea" ? (
+                      {field.type === "generated" ? (
+                        <div className="generated-field" aria-label={`${field.label}: encrypted at launch`}>
+                          <LockKeyhole size={15} />
+                          <span>Encrypted at launch</span>
+                        </div>
+                      ) : field.type === "textarea" ? (
                         <textarea
                           aria-label={field.label}
                           name={`${selectedRecipe.id}-${field.key}`}

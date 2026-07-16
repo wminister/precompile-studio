@@ -30,6 +30,7 @@ import {
   AGENT_MINIMUM_FUNDING,
   agentExecutionBudget,
   agentFundedCallCount,
+  agentRollingForFunding,
   createAgentHarnessDeploymentTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
@@ -331,12 +332,15 @@ describe("Sovereign Agent harness", () => {
       recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
     );
     expect(() => createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING - 1n)).toThrow(
-      "cover at least one scheduled call (0.01 RITUAL",
+      "cover all 1 scheduled calls (0.01 RITUAL",
     );
     expect(agentExecutionBudget()).toBe(10_000_000_000_000_000n);
     expect(agentFundedCallCount(10_000_000_000_000_000n)).toBe(1);
     expect(agentFundedCallCount(30_000_000_000_000_000n)).toBe(3);
     expect(agentFundedCallCount(90_000_000_000_000_000n)).toBe(5);
+    expect(agentRollingForFunding(10_000_000_000_000_000n)).toEqual([1, 5_000, 1]);
+    expect(agentRollingForFunding(30_000_000_000_000_000n)).toEqual([3, 5_000, 1]);
+    expect(agentRollingForFunding(90_000_000_000_000_000n)).toEqual([5, 5_000, 1]);
   });
 
   it("reads ownership, schedule state, and sender lock from live-view calls", async () => {
