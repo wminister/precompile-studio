@@ -27,6 +27,7 @@ import {
   createRitualDepositTransaction,
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
+  createDirectAgentTransaction,
   AGENT_MINIMUM_FUNDING,
   agentExecutionBudget,
   agentFundedCallCount,
@@ -314,6 +315,19 @@ describe("Sovereign Agent harness", () => {
     expect(agentTotalFunding(AGENT_MINIMUM_FUNDING)).toBe(20_000_000_000_000_000n);
     expect(tx.value).toBe("0x470de4df820000");
     expect(tx.data?.slice(0, 10)).toBe("0xb1906702");
+  });
+
+  it("creates a direct one-shot Agent transaction without Scheduler funding", () => {
+    const draft = buildAgentDraft(
+      recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
+    );
+    const tx = createDirectAgentTransaction(TEST_ADDRESS, draft);
+    expect(tx).toEqual({
+      from: TEST_ADDRESS,
+      to: "0x000000000000000000000000000000000000080c",
+      data: draft.encodedInput,
+    });
+    expect(tx.value).toBeUndefined();
   });
 
   it("targets the connected wallet's predicted harness in calldata and transaction routing", () => {

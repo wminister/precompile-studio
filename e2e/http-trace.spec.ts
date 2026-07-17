@@ -132,11 +132,17 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("prepares the factory-backed Agent launch without overflow", async ({ page }) => {
+test("prepares one-shot and recurring Agent launches without overflow", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: "Run once", exact: true })).toBeDisabled();
+
+  await launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true }).click();
+  await expect(launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveValue("0.01");
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("2");
   await expect(launch.getByText("1 call · 0.01 execution + 0.01 reserve = 0.02 RITUAL total", { exact: false })).toBeVisible();
@@ -148,8 +154,11 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await page.getByRole("button", { name: "Use", exact: true }).first().click();
 
   await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
-  await expect(page.getByText("Ready to launch", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("button", { name: "Start Agent", exact: true })).toBeEnabled();
+  await expect(page.getByText("Ready to schedule", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
+  await launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true }).click();
+  await expect(page.getByText("Ready to run", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Run once", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 

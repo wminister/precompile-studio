@@ -131,6 +131,7 @@ type WalletState = {
   balance?: string;
   ritualWalletBalance?: string;
   ritualLockUntil?: number;
+  asyncSenderLocked?: boolean;
   ritualWalletError?: string;
   error?: string;
 };
@@ -178,11 +179,13 @@ type LlmRun = {
 type AgentRun = {
   hash: string;
   submittedAt: number;
-  action?: "create" | "start";
+  action?: "create" | "once" | "schedule";
   status: ReceiptStatus;
   receipt?: RpcReceipt;
   error?: string;
 };
+
+type AgentLaunchMode = "once" | "scheduled";
 
 type AgentHarnessState =
   | { status: "idle" }
@@ -627,6 +630,11 @@ const FAQ_ITEMS = [
     question: "How does Scheduled JQ pay for future calls?",
     answer:
       "Each wallet gets its own Scheduled JQ consumer and contract-owned RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. The same wallet can cancel active calls or withdraw unused escrow after its lock expires.",
+  },
+  {
+    question: "Why does Agent offer Run once and Recurring?",
+    answer:
+      "Run once calls the Sovereign Agent precompile directly and uses the connected wallet's existing RitualWallet escrow, so there is no Scheduler reserve. Recurring configures the wallet-owned harness and adds Ritual's fixed 0.01 RITUAL Scheduler reserve to the execution funding selected by the user. Both modes deliver results to the same wallet-owned callback harness.",
   },
   {
     question: "What is stored by the app?",
@@ -2407,6 +2415,24 @@ export function createAgentHarnessTransaction(
   };
 }
 
+export function createDirectAgentTransaction(
+  from: string,
+  draft: ReturnType<typeof buildAgentDraft>,
+  harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
+): WalletTransactionRequest {
+  if (!draft.encodedInput || draft.errors.length) {
+    throw new Error("Resolve the Sovereign Agent input before running it.");
+  }
+  if (!isAddress(harnessAddress) || draft.callbackAddress.toLowerCase() !== harnessAddress.toLowerCase()) {
+    throw new Error("Agent delivery target must be the active wallet-owned Sovereign Agent harness.");
+  }
+  return {
+    from,
+    to: SOVEREIGN_AGENT_PRECOMPILE,
+    data: draft.encodedInput,
+  };
+}
+
 export function createAgentHarnessDeploymentTransaction(from: string): WalletTransactionRequest {
   return {
     from,
@@ -3660,6 +3686,7 @@ function App() {
   const [agentRun, setAgentRun] = React.useState<AgentRun | undefined>();
   const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
+  const [agentLaunchMode, setAgentLaunchMode] = React.useState<AgentLaunchMode>("once");
   const [agentFundingAmount, setAgentFundingAmount] = React.useState(() => formatEther(AGENT_MINIMUM_FUNDING));
   const [agentMaxFeeGwei, setAgentMaxFeeGwei] = React.useState(() => formatGwei(AGENT_DEFAULT_MAX_FEE));
   const [scheduledJqState, setScheduledJqState] = React.useState<ScheduledJqConsumerState>({ status: "idle" });
@@ -3819,8 +3846,8 @@ function App() {
     : scheduleDraft.requiredBalance;
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
   const directCallUnavailableReason =
-    selectedRecipe.id === "agent"
-      ? "Sovereign Agent calls are launched through the deployed factory harness."
+    selectedRecipe.id === "agent" && agentLaunchMode === "scheduled"
+      ? "Recurring Agent calls are launched through the wallet-owned Scheduler harness."
       : selectedRecipe.id === "scheduler" && scheduledJqState.status !== "ready"
         ? "Create your Scheduled JQ consumer before exporting a transaction."
       : undefined;
@@ -3913,6 +3940,17 @@ function App() {
   const agentPerCallFunding = agentExecutionBudget(agentSchedule);
   const agentLaunchTotal = agentTotalFunding(agentFunding);
   const agentFundedCalls = agentFundedCallCount(agentFunding, agentSchedule);
+  const agentCallbackBudget = agentDraft.values
+    ? BigInt(agentDraft.values[8]) * BigInt(agentDraft.values[9])
+    : 0n;
+  const agentEscrowBalance = (() => {
+    try {
+      return parseEther(wallet.ritualWalletBalance ?? "0");
+    } catch {
+      return 0n;
+    }
+  })();
+  const agentCallbackBudgetCovered = agentEscrowBalance >= agentCallbackBudget;
   const agentRolling = React.useMemo<AgentRolling>(
     () => agentRollingForFunding(agentFunding, agentSchedule),
     [agentFunding, agentSchedule],
@@ -3924,6 +3962,11 @@ function App() {
     : agentFundedCalls === 0
       ? `First call needs ${formatRitual(agentPerCallFunding)} RITUAL`
       : `${agentFundedCalls} call${agentFundedCalls === 1 ? "" : "s"} · ${formatRitual(agentFunding)} execution + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL total`;
+  const agentOneShotSummary = !hasRitualBalance
+    ? "Deposit RITUAL into RitualWallet before running"
+    : !isRitualLockSufficient
+      ? "Extend the RitualWallet lock before running"
+      : `${formatRitual(agentEscrowBalance)} RITUAL escrow · ${formatRitual(agentCallbackBudget)} RITUAL callback cap · no Scheduler reserve`;
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
@@ -4005,7 +4048,8 @@ function App() {
       : undefined;
   const hasPendingHttpTransaction = runnerRuns.some((run) => run.status === "pending");
   const hasPendingLlmTransaction = llmRun?.status === "pending";
-  const hasPendingAgentTransaction = agentRun?.status === "pending";
+  const hasPendingAgentTransaction =
+    agentRun?.status === "pending" || Boolean(wallet.asyncSenderLocked) || Boolean(agentHarnessStatus?.senderLocked);
   const hasPendingAsyncTransaction = hasPendingHttpTransaction || hasPendingLlmTransaction || hasPendingAgentTransaction;
   const llmEvidence = React.useMemo(() => {
     const spcCalls = Array.isArray(llmRun?.receipt?.spcCalls) ? llmRun.receipt.spcCalls.filter(isSpcCall) : [];
@@ -4028,7 +4072,19 @@ function App() {
     isRitualWalletFunded &&
     !hasPendingAsyncTransaction &&
     runnerTxState.status !== "submitting";
-  const canStartAgent =
+  const canRunAgentOnce =
+    selectedRecipe.id === "agent" &&
+    Boolean(agentDraft.encodedInput) &&
+    Boolean(selectedDiscoveredExecutor?.publicKey) &&
+    wallet.status === "connected" &&
+    isRightChain &&
+    isAgentHarnessOwner &&
+    Boolean(agentHarnessStatus) &&
+    isRitualWalletFunded &&
+    !wallet.asyncSenderLocked &&
+    !hasPendingAsyncTransaction &&
+    agentTxState.status !== "submitting";
+  const canScheduleAgent =
     selectedRecipe.id === "agent" &&
     Boolean(agentDraft.encodedInput) &&
     Boolean(selectedDiscoveredExecutor?.publicKey) &&
@@ -4042,6 +4098,7 @@ function App() {
     isAgentFeeCapSufficient &&
     !hasPendingAsyncTransaction &&
     agentTxState.status !== "submitting";
+  const canStartAgent = agentLaunchMode === "once" ? canRunAgentOnce : canScheduleAgent;
   const runnerSetupChecks = React.useMemo(
     () => [
       {
@@ -4222,7 +4279,9 @@ function App() {
                     : !agentHarnessStatus
                       ? "Reading the wallet-specific factory child."
                       : isAgentHarnessOwner
-                        ? `${formatRitual(agentFunding)} RITUAL funds a ${agentFundedCalls}-call rolling window at the selected fee cap.`
+                        ? agentLaunchMode === "once"
+                          ? "The harness will receive the one-shot callback."
+                          : `${formatRitual(agentFunding)} RITUAL funds a ${agentFundedCalls}-call rolling window at the selected fee cap.`
                         : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
             }
         : {
@@ -4244,17 +4303,35 @@ function App() {
                     : `${wallet.ritualWalletBalance ?? "0"} RITUAL, locked ${ritualLockRemaining ?? "?"} blocks ahead`,
           },
       ...(selectedRecipe.id === "agent"
-        ? [{
-            ok: agentFunding >= agentPerCallFunding && isAgentFeeCapSufficient,
-            label: !isAgentFeeCapSufficient
-              ? "Raise Scheduler fee cap"
-              : agentFunding < agentPerCallFunding
-                ? "Fund the first Agent call"
-                : `${agentFundedCalls}-call window funded`,
-            help: !isAgentFeeCapSufficient
-              ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
-              : `The launch will encode ${agentFundedCalls} of the ${AGENT_MAX_WINDOW_CALLS} maximum calls.`,
-          }]
+        ? agentLaunchMode === "once"
+          ? [{
+              ok: isRitualWalletFunded && !wallet.asyncSenderLocked,
+              label: wallet.asyncSenderLocked
+                ? "One-shot Agent already pending"
+                : !hasRitualBalance
+                  ? "Fund RitualWallet"
+                  : !isRitualLockSufficient
+                    ? "Extend RitualWallet lock"
+                    : "One-shot escrow ready",
+              help: wallet.asyncSenderLocked
+                ? "Wait for the current wallet-sent Agent job to settle or expire."
+                : wallet.status !== "connected"
+                  ? "Escrow and sender status are checked after wallet connection."
+                : agentCallbackBudgetCovered
+                  ? `${formatRitual(agentEscrowBalance)} RITUAL available; callback cap is ${formatRitual(agentCallbackBudget)} RITUAL.`
+                  : `${formatRitual(agentEscrowBalance)} RITUAL is below the ${formatRitual(agentCallbackBudget)} RITUAL callback cap; the call remains available because actual gas may be lower.`,
+            }]
+          : [{
+              ok: agentFunding >= agentPerCallFunding && isAgentFeeCapSufficient,
+              label: !isAgentFeeCapSufficient
+                ? "Raise Scheduler fee cap"
+                : agentFunding < agentPerCallFunding
+                  ? "Fund the first Agent call"
+                  : `${agentFundedCalls}-call window funded`,
+              help: !isAgentFeeCapSufficient
+                ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
+                : `The launch will encode ${agentFundedCalls} of the ${AGENT_MAX_WINDOW_CALLS} maximum calls.`,
+            }]
         : []),
       {
         ok: Boolean(liveAbiDraft?.encodedInput) && (liveAbiDraft?.errors.length ?? 1) === 0,
@@ -4285,7 +4362,11 @@ function App() {
     isRightChain,
     agentFunding,
     agentFundedCalls,
+    agentLaunchMode,
     agentPerCallFunding,
+    agentCallbackBudget,
+    agentCallbackBudgetCovered,
+    agentEscrowBalance,
     isAgentFeeCapSufficient,
     agentHarnessState.status,
     agentHarnessState.status === "missing" ? agentHarnessState.predictedAddress : undefined,
@@ -4314,6 +4395,7 @@ function App() {
     wallet.error,
     wallet.ritualWalletBalance,
     wallet.ritualWalletError,
+    wallet.asyncSenderLocked,
     wallet.status,
   ]);
   const openBlockers = blockingChecks.filter((check) => !check.ok);
@@ -4324,7 +4406,7 @@ function App() {
       : selectedRecipe.id === "scheduler"
         ? "Ready to schedule"
         : selectedRecipe.id === "agent"
-          ? "Ready to launch"
+          ? agentLaunchMode === "once" ? "Ready to run" : "Ready to schedule"
         : "Ready to copy";
   const contextLabel =
     selectedRecipe.id === "http"
@@ -4557,9 +4639,10 @@ function App() {
 
     let ritualWalletBalance: string | undefined;
     let ritualLockUntil: number | undefined;
+    let asyncSenderLocked: boolean | undefined;
     let ritualWalletError: string | undefined;
     try {
-      const [escrowHex, lockHex] = await Promise.all([
+      const [escrowHex, lockHex, pendingHex] = await Promise.all([
         rpc<string>("eth_call", [
           {
             to: SYSTEM_CONTRACTS.RitualWallet,
@@ -4582,9 +4665,21 @@ function App() {
           },
           "latest",
         ]),
+        rpc<string>("eth_call", [
+          {
+            to: SYSTEM_CONTRACTS.AsyncJobTracker,
+            data: encodeFunctionData({
+              abi: asyncJobTrackerAbi,
+              functionName: "hasPendingJobForSender",
+              args: [account as `0x${string}`],
+            }),
+          },
+          "latest",
+        ]),
       ]);
       ritualWalletBalance = formatEther(decodeUintHex(escrowHex));
       ritualLockUntil = Number(decodeUintHex(lockHex));
+      asyncSenderLocked = decodeUintHex(pendingHex) !== 0n;
     } catch (error) {
       ritualWalletError = error instanceof Error ? error.message : "Unable to read RitualWallet.";
     }
@@ -4596,6 +4691,7 @@ function App() {
       balance: formatBalance(balanceHex),
       ritualWalletBalance,
       ritualLockUntil,
+      asyncSenderLocked,
       ritualWalletError,
     });
   }, []);
@@ -4848,7 +4944,9 @@ function App() {
         ? agentHarnessState.status === "missing"
           ? `Create the Agent harness predicted for this wallet at ${agentHarnessState.predictedAddress}.`
           : agentDraft.encodedInput
-            ? `Start the recurring Agent series through ${agentHarnessAddress}. Scheduler funding and configuration use one wallet confirmation.`
+            ? agentLaunchMode === "once"
+              ? `Run once through 0x080C and receive the callback at ${agentHarnessAddress}. No Scheduler reserve is used.`
+              : `Start the recurring Agent series through ${agentHarnessAddress}. Scheduler funding and configuration use one wallet confirmation.`
             : "Resolve Sovereign Agent field errors before starting the harness."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
@@ -5636,6 +5734,8 @@ function App() {
       );
       const status = await refreshAgentHarness();
       await refreshAgentLifecycle(status?.configured ?? false);
+      const provider = providerRef.current;
+      if (provider) await refreshWallet(provider).catch(() => undefined);
     } catch (error) {
       setAgentRun((current) =>
         current?.hash.toLowerCase() === hash.toLowerCase()
@@ -5643,7 +5743,7 @@ function App() {
           : current,
       );
     }
-  }, [refreshAgentHarness, refreshAgentLifecycle]);
+  }, [refreshAgentHarness, refreshAgentLifecycle, refreshWallet]);
 
   const createAgentHarness = React.useCallback(async () => {
     const provider = providerRef.current;
@@ -5685,18 +5785,34 @@ function App() {
       setAgentTxState({ status: "error", error: "The connected wallet is not the owner of this Agent harness." });
       return;
     }
-    if (agentHarnessStatus?.configured) {
+    if (agentLaunchMode === "scheduled" && agentHarnessStatus?.configured) {
       setAgentTxState({ status: "error", error: "This harness is already configured. Its active series cannot be configured twice." });
       return;
     }
-    if (!isAgentFeeCapSufficient) {
+    if (agentLaunchMode === "once" && !isRitualWalletFunded) {
+      setAgentTxState({
+        status: "error",
+        error: !hasRitualBalance
+          ? "Deposit RITUAL into RitualWallet before running a one-shot Agent."
+          : "Extend the RitualWallet lock before running a one-shot Agent.",
+      });
+      return;
+    }
+    if (agentLaunchMode === "once" && wallet.asyncSenderLocked) {
+      setAgentTxState({
+        status: "error",
+        error: "This wallet already has a one-shot Agent job pending. Wait for it to settle or expire.",
+      });
+      return;
+    }
+    if (agentLaunchMode === "scheduled" && !isAgentFeeCapSufficient) {
       setAgentTxState({
         status: "error",
         error: `Set the Scheduler fee cap to at least the current RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei).`,
       });
       return;
     }
-    if (agentFunding < agentPerCallFunding) {
+    if (agentLaunchMode === "scheduled" && agentFunding < agentPerCallFunding) {
       setAgentTxState({
         status: "error",
         error: `Enter at least ${formatEther(agentPerCallFunding)} RITUAL to cover the first scheduled call at this fee cap.`,
@@ -5723,20 +5839,22 @@ function App() {
         throw new Error(nextDraft.errors[0] ?? "Resolve the Sovereign Agent input before starting the harness.");
       }
       const tx = await prepareWalletTransaction(
-        createAgentHarnessTransaction(
-          wallet.address,
-          nextDraft,
-          agentFunding,
-          AGENT_LOCK_BLOCKS,
-          agentHarnessAddress,
-          agentSchedule,
-          agentRolling,
-        ),
-        "0x4c4b40",
+        agentLaunchMode === "once"
+          ? createDirectAgentTransaction(wallet.address, nextDraft, agentHarnessAddress)
+          : createAgentHarnessTransaction(
+              wallet.address,
+              nextDraft,
+              agentFunding,
+              AGENT_LOCK_BLOCKS,
+              agentHarnessAddress,
+              agentSchedule,
+              agentRolling,
+            ),
+        agentLaunchMode === "once" ? "0x2dc6c0" : "0x4c4b40",
       );
       const hash = await sendWalletTransaction(provider, tx);
       setAgentTxState({ status: "submitted", hash });
-      setAgentRun({ hash, submittedAt: Date.now(), action: "start", status: "pending" });
+      setAgentRun({ hash, submittedAt: Date.now(), action: agentLaunchMode === "once" ? "once" : "schedule", status: "pending" });
       window.setTimeout(() => refreshAgentReceipt(hash).catch(() => undefined), 2500);
     } catch (error) {
       setAgentTxState({
@@ -5746,6 +5864,7 @@ function App() {
     }
   }, [
     agentFunding,
+    agentLaunchMode,
     agentPerCallFunding,
     agentHarnessAddress,
     agentHarnessStatus?.configured,
@@ -5753,12 +5872,15 @@ function App() {
     agentSchedule,
     fieldState.agent,
     hasPendingAsyncTransaction,
+    hasRitualBalance,
     isAgentHarnessOwner,
     isAgentFeeCapSufficient,
+    isRitualWalletFunded,
     refreshAgentReceipt,
     rpcState.gasPrice,
     selectedDiscoveredExecutor?.publicKey,
     wallet.address,
+    wallet.asyncSenderLocked,
   ]);
 
   const sendLlmTransaction = React.useCallback(async () => {
@@ -6664,16 +6786,42 @@ function App() {
                       <strong>{selectedDiscoveredExecutor?.publicKey ? "Registry verified" : "Select discovered"}</strong>
                     </div>
                     <div>
-                      <span>Series</span>
+                      <span>{agentLaunchMode === "once" ? "Launch" : "Series"}</span>
                       <strong>
-                        {!agentHarnessStatus?.currentSeriesId || agentHarnessStatus.currentSeriesId === "0"
+                        {agentLaunchMode === "once"
+                          ? "One-shot"
+                          : !agentHarnessStatus?.currentSeriesId || agentHarnessStatus.currentSeriesId === "0"
                           ? "Not started"
                           : `#${agentHarnessStatus.currentSeriesId}`}
                       </strong>
                     </div>
                   </div>
+                  {agentHarnessState.status !== "missing" ? (
+                    <div className="agent-mode-switch" role="group" aria-label="Agent launch mode">
+                      <button
+                        className={agentLaunchMode === "once" ? "active" : ""}
+                        type="button"
+                        onClick={() => setAgentLaunchMode("once")}
+                        aria-pressed={agentLaunchMode === "once"}
+                      >
+                        <Zap size={14} />
+                        <span>Run once</span>
+                        <small>No Scheduler reserve</small>
+                      </button>
+                      <button
+                        className={agentLaunchMode === "scheduled" ? "active" : ""}
+                        type="button"
+                        onClick={() => setAgentLaunchMode("scheduled")}
+                        aria-pressed={agentLaunchMode === "scheduled"}
+                      >
+                        <RefreshCw size={14} />
+                        <span>Recurring</span>
+                        <small>Scheduler-backed window</small>
+                      </button>
+                    </div>
+                  ) : null}
                   <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
-                    {agentHarnessState.status !== "missing" ? (
+                    {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
                         <label>
                           <span>Execution funding</span>
@@ -6704,7 +6852,9 @@ function App() {
                     <p>
                       {agentHarnessState.status === "missing"
                         ? "One factory transaction creates a deterministic contract owned by this wallet."
-                        : `${agentFundingSummary} · every ${AGENT_SCHEDULE[1].toLocaleString()} blocks · ${AGENT_LOCK_BLOCKS.toLocaleString()}-block lock`}
+                        : agentLaunchMode === "once"
+                          ? agentOneShotSummary
+                          : `${agentFundingSummary} · every ${AGENT_SCHEDULE[1].toLocaleString()} blocks · ${AGENT_LOCK_BLOCKS.toLocaleString()}-block lock`}
                     </p>
                     <button
                       className="primary-action large"
@@ -6717,9 +6867,9 @@ function App() {
                         ? "Confirming"
                         : agentHarnessState.status === "missing"
                           ? "Create Agent harness"
-                        : agentHarnessStatus?.configured
+                        : agentLaunchMode === "scheduled" && agentHarnessStatus?.configured
                           ? "Agent active"
-                          : "Start Agent"}
+                          : agentLaunchMode === "once" ? "Run once" : "Start recurring"}
                     </button>
                   </div>
                   {agentHarnessState.status === "error" ? <p className="agent-launch-message error">{agentHarnessState.error}</p> : null}
@@ -6729,10 +6879,10 @@ function App() {
                     <div className={`agent-run ${agentRun.status}`} aria-live="polite">
                       <span>
                         {agentRun.status === "pending"
-                          ? agentRun.action === "create" ? "Harness creation submitted" : "Launch submitted"
+                          ? agentRun.action === "create" ? "Harness creation submitted" : agentRun.action === "once" ? "One-shot submitted" : "Schedule submitted"
                           : agentRun.status === "confirmed"
-                            ? agentRun.action === "create" ? "Harness created" : "Harness configured"
-                            : agentRun.action === "create" ? "Harness creation failed" : "Launch failed"}
+                            ? agentRun.action === "create" ? "Harness created" : agentRun.action === "once" ? "One-shot accepted" : "Harness configured"
+                            : agentRun.action === "create" ? "Harness creation failed" : agentRun.action === "once" ? "One-shot failed" : "Launch failed"}
                       </span>
                       <a href={explorerTransactionUrl(agentRun.hash)} target="_blank" rel="noreferrer">
                         {formatHash(agentRun.hash)} <ArrowUpRight size={13} />
