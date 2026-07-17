@@ -137,9 +137,9 @@ test("prepares the factory-backed Agent launch without overflow", async ({ page 
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("textbox", { name: "SCHEDULER FUNDING RITUAL" })).toHaveValue("0.01");
+  await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveValue("0.01");
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("2");
-  await expect(launch.getByText("1-call window funded at fee cap", { exact: false })).toBeVisible();
+  await expect(launch.getByText("1 call · 0.01 execution + 0.01 reserve = 0.02 RITUAL total", { exact: false })).toBeVisible();
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();

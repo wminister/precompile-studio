@@ -719,6 +719,9 @@ const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 export function agentExecutionBudget(schedule: AgentSchedule = AGENT_SCHEDULE) {
   return BigInt(schedule[0]) * schedule[3] + schedule[5];
 }
+export function agentTotalFunding(executionFunding: bigint) {
+  return SCHEDULER_RESERVE + executionFunding;
+}
 export function agentFundedCallCount(
   funding: bigint,
   schedule: AgentSchedule = AGENT_SCHEDULE,
@@ -2370,11 +2373,11 @@ export function createLlmConsumerTransaction(
 export function createAgentHarnessTransaction(
   from: string,
   draft: ReturnType<typeof buildAgentDraft>,
-  schedulerFunding: bigint,
+  executionFunding: bigint,
   lockDuration = AGENT_LOCK_BLOCKS,
   harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
   schedule: AgentSchedule = AGENT_SCHEDULE,
-  rolling: AgentRolling = agentRollingForFunding(schedulerFunding, schedule),
+  rolling: AgentRolling = agentRollingForFunding(executionFunding, schedule),
 ): WalletTransactionRequest {
   if (!draft.encodedInput || draft.errors.length || !draft.values) {
     throw new Error("Resolve the Sovereign Agent input before configuring the harness.");
@@ -2384,7 +2387,7 @@ export function createAgentHarnessTransaction(
   }
   const perCallBudget = agentExecutionBudget(schedule);
   const windowBudget = perCallBudget * BigInt(rolling[0]);
-  if (schedulerFunding < windowBudget) {
+  if (executionFunding < windowBudget) {
     throw new Error(
       `Harness funding must cover all ${rolling[0]} scheduled calls (${formatEther(windowBudget)} RITUAL at this fee cap).`,
     );
@@ -2399,7 +2402,7 @@ export function createAgentHarnessTransaction(
   return {
     from,
     to: harnessAddress,
-    value: `0x${schedulerFunding.toString(16)}`,
+    value: `0x${agentTotalFunding(executionFunding).toString(16)}`,
     data: concatHex([AGENT_CONFIGURE_SELECTOR, encodedArgs]),
   };
 }
@@ -3908,6 +3911,7 @@ function App() {
     [agentSchedulerMaxFee],
   );
   const agentPerCallFunding = agentExecutionBudget(agentSchedule);
+  const agentLaunchTotal = agentTotalFunding(agentFunding);
   const agentFundedCalls = agentFundedCallCount(agentFunding, agentSchedule);
   const agentRolling = React.useMemo<AgentRolling>(
     () => agentRollingForFunding(agentFunding, agentSchedule),
@@ -3919,7 +3923,7 @@ function App() {
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
     : agentFundedCalls === 0
       ? `First call needs ${formatRitual(agentPerCallFunding)} RITUAL`
-      : `${agentFundedCalls}-call window funded at fee cap`;
+      : `${agentFundedCalls} call${agentFundedCalls === 1 ? "" : "s"} · ${formatRitual(agentFunding)} execution + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL total`;
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
@@ -6672,7 +6676,7 @@ function App() {
                     {agentHarnessState.status !== "missing" ? (
                       <>
                         <label>
-                          <span>Scheduler funding</span>
+                          <span>Execution funding</span>
                           <div className="agent-funding-input">
                             <input
                               name="agent-funding"

@@ -30,6 +30,7 @@ import {
   AGENT_MINIMUM_FUNDING,
   agentExecutionBudget,
   agentFundedCallCount,
+  agentTotalFunding,
   agentRollingForFunding,
   createAgentHarnessDeploymentTransaction,
   createSchedulerTransaction,
@@ -303,14 +304,15 @@ describe("Sovereign Agent harness", () => {
     });
   });
 
-  it("creates a payable configureFundAndStart transaction for the deployed harness", () => {
+  it("creates a payable configureFundAndStart transaction with the Scheduler reserve", () => {
     const draft = buildAgentDraft(
       recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
     );
     const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING);
     expect(tx.from).toBe(TEST_ADDRESS);
     expect(tx.to).toBe(SOVEREIGN_AGENT_HARNESS_ADDRESS);
-    expect(tx.value).toBe(`0x${AGENT_MINIMUM_FUNDING.toString(16)}`);
+    expect(agentTotalFunding(AGENT_MINIMUM_FUNDING)).toBe(20_000_000_000_000_000n);
+    expect(tx.value).toBe("0x470de4df820000");
     expect(tx.data?.slice(0, 10)).toBe("0xb1906702");
   });
 
