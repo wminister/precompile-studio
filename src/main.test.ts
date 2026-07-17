@@ -56,6 +56,7 @@ import {
   runJqCall,
   runnerTraceStages,
   sendWalletTransaction,
+  sovereignAgentResultError,
   type ComposerField,
   type Eip1193Provider,
   type RecipeId,
@@ -389,6 +390,23 @@ describe("Sovereign Agent harness", () => {
     expect(decodeSovereignAgentResult(encoded).text).toBe("Ritual result");
   });
 
+  it("treats an upstream provider error as a failed Agent result", () => {
+    const encoded = encodeAbiParameters(
+      parseAbiParameters("bool, string, string, (string,string,string), (string,string,string), (string,string,string)[]"),
+      [
+        true,
+        "",
+        "Error: All providers/models failed. Attempts: registry lookup failed after 3 retries",
+        ["", "", ""],
+        ["", "", ""],
+        [],
+      ],
+    );
+    expect(sovereignAgentResultError(decodeSovereignAgentResult(encoded))).toBe(
+      "The selected executor could not reach its verified model provider after three retries.",
+    );
+  });
+
   it("reconciles a delivered Agent result from tracker and harness logs", async () => {
     const jobId = `0x${"12".repeat(32)}`;
     const jobAddedTopic = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
@@ -433,6 +451,49 @@ describe("Sovereign Agent harness", () => {
       status: "settled",
       jobId,
       result: { success: true, text: "Delivered text" },
+    });
+  });
+
+  it("marks a delivered callback as failed when the Agent payload reports provider failure", async () => {
+    const jobId = `0x${"34".repeat(32)}`;
+    const jobAddedTopic = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
+    const resultDeliveredTopic = keccak256(stringToHex("ResultDelivered(bytes32,address,bool)"));
+    const sovereignResultTopic = keccak256(stringToHex("SovereignResult(bytes32,bytes)"));
+    const innerResult = encodeAbiParameters(
+      parseAbiParameters("bool, string, string, (string,string,string), (string,string,string), (string,string,string)[]"),
+      [true, "", "Error: All providers/models failed after retries", ["", "", ""], ["", "", ""], []],
+    );
+    const jobLog = {
+      topics: [jobAddedTopic, `0x${"0".repeat(24)}${TEST_ADDRESS.slice(2)}`, jobId, `0x${"0".repeat(64)}`],
+      data: encodeAbiParameters(
+        parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
+        [100n, "0x", SOVEREIGN_AGENT_HARNESS_ADDRESS as `0x${string}`, `0x${"0".repeat(64)}` as `0x${string}`, 99n, 1n, 500n, 1n] as const,
+      ),
+      blockNumber: "0x64",
+      transactionHash: TX_HASH,
+    };
+    const requester = async <T,>(method: string, params?: unknown[]) => {
+      if (method === "eth_blockNumber") return "0x2c00000" as T;
+      const filter = params?.[0] as { topics: Array<string | null> };
+      if (filter.topics[0] === jobAddedTopic) return [jobLog] as T;
+      if (filter.topics[0] === resultDeliveredTopic) return [{
+        topics: [resultDeliveredTopic, jobId, `0x${"0".repeat(24)}${SOVEREIGN_AGENT_HARNESS_ADDRESS.slice(2).toLowerCase()}`],
+        data: encodeAbiParameters(parseAbiParameters("bool"), [true]),
+        blockNumber: "0x66",
+        transactionHash: TX_HASH,
+      }] as T;
+      if (filter.topics[0] === sovereignResultTopic) return [{
+        topics: [sovereignResultTopic, jobId],
+        data: encodeAbiParameters(parseAbiParameters("bytes"), [innerResult]),
+        blockNumber: "0x66",
+        transactionHash: TX_HASH,
+      }] as T;
+      return [] as T;
+    };
+    await expect(readAgentLifecycle(true, requester, SOVEREIGN_AGENT_HARNESS_ADDRESS, 0, jobId)).resolves.toMatchObject({
+      status: "failed",
+      jobId,
+      error: "Every provider/model attempt failed before the Agent produced a result.",
     });
   });
 });

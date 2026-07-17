@@ -182,6 +182,8 @@ type AgentRun = {
   action?: "create" | "once" | "schedule";
   status: ReceiptStatus;
   receipt?: RpcReceipt;
+  escrowBefore?: bigint;
+  escrowAfter?: bigint;
   error?: string;
 };
 
@@ -2929,6 +2931,21 @@ export function decodeSovereignAgentResult(result: `0x${string}`) {
   return { success, error, text, convoHistory, output, artifacts };
 }
 
+export function sovereignAgentResultError(result: ReturnType<typeof decodeSovereignAgentResult>) {
+  const explicitError = result.error.trim();
+  if (explicitError) return explicitError;
+
+  const text = result.text.trim();
+  const providerFailure = /all providers\/models failed/i.test(text);
+  const errorText = /^(?:error|failed)\s*:/i.test(text);
+  if (result.success && !providerFailure && !errorText) return undefined;
+  if (providerFailure && /registry lookup failed/i.test(text)) {
+    return "The selected executor could not reach its verified model provider after three retries.";
+  }
+  if (providerFailure) return "Every provider/model attempt failed before the Agent produced a result.";
+  return text || "The Agent reported that the task failed.";
+}
+
 function addressTopic(address: string) {
   return `0x${address.slice(2).toLowerCase().padStart(64, "0")}`;
 }
@@ -2942,6 +2959,7 @@ export async function readAgentLifecycle(
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
   harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
   deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
+  expectedJobId?: string,
 ): Promise<AgentLifecycle> {
   const logRange = await recentLogRange(deploymentBlock, requester);
   const jobLogs = await requester<RpcLog[]>("eth_getLogs", [{
@@ -2951,6 +2969,7 @@ export async function readAgentLifecycle(
     topics: [JOB_ADDED_TOPIC, null, null, addressTopic(SOVEREIGN_AGENT_PRECOMPILE)],
   }]);
   const matchingJobs = jobLogs.filter((log) => {
+    if (expectedJobId && log.topics?.[2]?.toLowerCase() !== expectedJobId.toLowerCase()) return false;
     try {
       const decoded = decodeAbiParameters(
         parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
@@ -3021,6 +3040,7 @@ export async function readAgentLifecycle(
       decodeError = "The callback arrived, but its Agent result tuple could not be decoded.";
     }
   }
+  const resultError = decodedResult ? sovereignAgentResultError(decodedResult) : undefined;
 
   const base = {
     jobId,
@@ -3028,14 +3048,14 @@ export async function readAgentLifecycle(
     commitBlock: Number(commitBlock),
     transactionHash: harnessResultLog?.transactionHash ?? resultLog?.transactionHash ?? jobLog.transactionHash,
     result: decodedResult,
-    error: decodeError,
+    error: decodeError ?? resultError,
   };
   if (removedLog?.topics?.[3] && BigInt(removedLog.topics[3]) === 0n) return { ...base, status: "expired" };
   if (resultLog?.data) {
     const [success] = decodeAbiParameters(parseAbiParameters("bool"), resultLog.data as `0x${string}`);
-    return { ...base, status: success && decodedResult?.success !== false ? "settled" : "failed" };
+    return { ...base, status: success && !resultError ? "settled" : "failed" };
   }
-  if (decodedResult) return { ...base, status: decodedResult.success ? "settled" : "failed" };
+  if (decodedResult) return { ...base, status: resultError ? "failed" : "settled" };
   if (phase1Log?.data) {
     const [settledBlock] = decodeAbiParameters(parseAbiParameters("uint256"), phase1Log.data as `0x${string}`);
     return { ...base, status: "result-ready", settledBlock: Number(settledBlock) };
@@ -3966,7 +3986,37 @@ function App() {
     ? "Deposit RITUAL into RitualWallet before running"
     : !isRitualLockSufficient
       ? "Extend the RitualWallet lock before running"
-      : `${formatRitual(agentEscrowBalance)} RITUAL available · callback costs up to ${formatRitual(agentCallbackBudget)} RITUAL; actual charge depends on gas used · no Scheduler reserve`;
+      : `${formatRitual(agentEscrowBalance)} RITUAL available · executor/model price is not quoted before submission · callback gas is capped at ${formatRitual(agentCallbackBudget)} RITUAL and unused callback budget is refunded`;
+  const currentOneShotLifecycle =
+    agentRun?.action === "once" &&
+    agentLifecycle?.jobId?.toLowerCase() === agentRun.hash.toLowerCase()
+      ? agentLifecycle
+      : undefined;
+  const agentEscrowSpent =
+    agentRun?.escrowBefore !== undefined &&
+    agentRun.escrowAfter !== undefined &&
+    agentRun.escrowBefore >= agentRun.escrowAfter
+      ? agentRun.escrowBefore - agentRun.escrowAfter
+      : undefined;
+  const agentHarnessHeadline = (() => {
+    if (currentOneShotLifecycle?.status === "committed") return "Agent processing";
+    if (currentOneShotLifecycle?.status === "result-ready") return "Delivering Agent result";
+    if (currentOneShotLifecycle?.status === "settled") return "One-shot complete";
+    if (currentOneShotLifecycle?.status === "failed") return "One-shot failed";
+    if (currentOneShotLifecycle?.status === "expired") return "One-shot expired";
+    if (agentRun?.action === "once" && agentRun.status === "confirmed") return "Locating Agent job";
+    if (agentHarnessState.status === "loading" && !agentHarnessStatus) return "Reading onchain state";
+    if (agentHarnessState.status === "error") return "Harness unavailable";
+    if (agentHarnessState.status === "missing") return "Create your Agent harness";
+    if (agentLifecycle?.status === "settled") return "Agent result delivered";
+    if (agentLifecycle?.status === "failed") return "Agent job failed";
+    if (agentLifecycle?.status === "expired") return "Agent job expired";
+    if (agentLifecycle?.status === "result-ready") return "TEE result ready";
+    if (agentHarnessStatus?.configured) {
+      return agentHarnessStatus.senderLocked ? "Agent job processing" : "Recurring series active";
+    }
+    return "Ready to configure";
+  })();
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
@@ -4625,7 +4675,7 @@ function App() {
   const refreshWallet = React.useCallback(async (provider: Eip1193Provider, address?: string) => {
     const accounts = address ? [address] : await provider.request<string[]>({ method: "eth_accounts" });
     const account = accounts[0];
-    if (!account) return;
+    if (!account) return undefined;
     // Fetch these sequentially (not batched) and treat the balance read as
     // non-fatal: some wallet RPCs 4xx on eth_getBalance/batched calls, and a
     // flaky balance must not abort an otherwise successful connection.
@@ -4684,7 +4734,7 @@ function App() {
       ritualWalletError = error instanceof Error ? error.message : "Unable to read RitualWallet.";
     }
 
-    setWallet({
+    const nextWallet: WalletState = {
       status: "connected",
       address: account,
       chainId: Number.parseInt(chainHex, 16),
@@ -4693,7 +4743,9 @@ function App() {
       ritualLockUntil,
       asyncSenderLocked,
       ritualWalletError,
-    });
+    };
+    setWallet(nextWallet);
+    return nextWallet;
   }, []);
 
   React.useEffect(() => {
@@ -5700,17 +5752,19 @@ function App() {
     }
   }, [wallet.address]);
 
-  const refreshAgentLifecycle = React.useCallback(async (configured = agentHarnessStatus?.configured ?? false) => {
+  const refreshAgentLifecycle = React.useCallback(async (
+    configured = agentHarnessStatus?.configured ?? false,
+    expectedJobId?: string,
+  ) => {
     let cachedLifecycle: AgentLifecycle | undefined;
     setAgentLifecycleState((current) => {
       cachedLifecycle = current.status === "ready" ? current.data : undefined;
-      return { status: "loading" };
+      return current.status === "ready" ? current : { status: "loading" };
     });
     try {
-      setAgentLifecycleState({
-        status: "ready",
-        data: await readAgentLifecycle(configured, rpc, agentHarnessAddress),
-      });
+      const data = await readAgentLifecycle(configured, rpc, agentHarnessAddress, AGENT_DEPLOYMENT_BLOCK, expectedJobId);
+      setAgentLifecycleState({ status: "ready", data });
+      return data;
     } catch (error) {
       setAgentLifecycleState(
         cachedLifecycle
@@ -5720,6 +5774,7 @@ function App() {
               error: error instanceof Error ? error.message : "Could not read the Agent lifecycle events.",
             },
       );
+      return cachedLifecycle;
     }
   }, [agentHarnessAddress, agentHarnessStatus?.configured]);
 
@@ -5854,7 +5909,13 @@ function App() {
       );
       const hash = await sendWalletTransaction(provider, tx);
       setAgentTxState({ status: "submitted", hash });
-      setAgentRun({ hash, submittedAt: Date.now(), action: agentLaunchMode === "once" ? "once" : "schedule", status: "pending" });
+      setAgentRun({
+        hash,
+        submittedAt: Date.now(),
+        action: agentLaunchMode === "once" ? "once" : "schedule",
+        status: "pending",
+        escrowBefore: agentLaunchMode === "once" ? agentEscrowBalance : undefined,
+      });
       window.setTimeout(() => refreshAgentReceipt(hash).catch(() => undefined), 2500);
     } catch (error) {
       setAgentTxState({
@@ -5863,6 +5924,7 @@ function App() {
       });
     }
   }, [
+    agentEscrowBalance,
     agentFunding,
     agentLaunchMode,
     agentPerCallFunding,
@@ -6025,12 +6087,40 @@ function App() {
     if (selectedRecipe.id !== "agent") return undefined;
     const refresh = async () => {
       const status = await refreshAgentHarness();
-      if (status) await refreshAgentLifecycle(status.configured);
+      if (!status) return;
+      const expectedJobId = agentRun?.action === "once" ? agentRun.hash : undefined;
+      const lifecycle = await refreshAgentLifecycle(status.configured, expectedJobId);
+      const terminal = lifecycle && ["settled", "failed", "expired"].includes(lifecycle.status);
+      if (terminal && agentRun?.action === "once" && agentRun.escrowAfter === undefined) {
+        const provider = providerRef.current;
+        if (!provider) return;
+        const nextWallet = await refreshWallet(provider).catch(() => undefined);
+        if (!nextWallet?.ritualWalletBalance) return;
+        const escrowAfter = parseEther(nextWallet.ritualWalletBalance);
+        setAgentRun((current) =>
+          current?.hash.toLowerCase() === agentRun.hash.toLowerCase()
+            ? { ...current, escrowAfter }
+            : current,
+        );
+      }
     };
     refresh().catch(() => undefined);
-    const timer = window.setInterval(() => refresh().catch(() => undefined), 15_000);
+    const isActiveOneShot =
+      agentRun?.action === "once" &&
+      !["settled", "failed", "expired"].includes(currentOneShotLifecycle?.status ?? "committed");
+    const timer = window.setInterval(() => refresh().catch(() => undefined), isActiveOneShot ? 8_000 : 15_000);
     return () => window.clearInterval(timer);
-  }, [refreshAgentHarness, refreshAgentLifecycle, selectedRecipe.id, wallet.address]);
+  }, [
+    agentRun?.action,
+    agentRun?.escrowAfter,
+    agentRun?.hash,
+    currentOneShotLifecycle?.status,
+    refreshAgentHarness,
+    refreshAgentLifecycle,
+    refreshWallet,
+    selectedRecipe.id,
+    wallet.address,
+  ]);
 
   React.useEffect(() => {
     if (!agentRun || agentRun.status !== "pending") return undefined;
@@ -6728,25 +6818,7 @@ function App() {
                   <div className="agent-launch-head">
                     <div>
                       <span>Sovereign Agent harness</span>
-                      <strong>
-                        {agentHarnessState.status === "loading" && !agentHarnessStatus
-                          ? "Reading onchain state"
-                          : agentHarnessState.status === "error"
-                            ? "Harness unavailable"
-                            : agentHarnessState.status === "missing"
-                              ? "Create your Agent harness"
-                            : agentLifecycle?.status === "settled"
-                              ? "Agent result delivered"
-                              : agentLifecycle?.status === "failed" || agentLifecycle?.status === "expired"
-                                ? agentLifecycle.status === "expired" ? "Agent job expired" : "Agent job failed"
-                                : agentLifecycle?.status === "result-ready"
-                                  ? "TEE result ready"
-                                  : agentHarnessStatus?.configured
-                                    ? agentHarnessStatus.senderLocked
-                                      ? "Agent job processing"
-                                      : "Recurring series active"
-                              : "Ready to configure"}
-                      </strong>
+                      <strong>{agentHarnessHeadline}</strong>
                     </div>
                     <button
                       className="section-toggle"
@@ -6876,12 +6948,22 @@ function App() {
                   {agentLifecycleState.status === "error" ? <p className="agent-launch-message error">{agentLifecycleState.error}</p> : null}
                   {agentTxState.status === "error" ? <p className="agent-launch-message error">{agentTxState.error}</p> : null}
                   {agentRun ? (
-                    <div className={`agent-run ${agentRun.status}`} aria-live="polite">
+                    <div className={`agent-run ${currentOneShotLifecycle?.status ?? agentRun.status}`} aria-live="polite">
                       <span>
                         {agentRun.status === "pending"
                           ? agentRun.action === "create" ? "Harness creation submitted" : agentRun.action === "once" ? "One-shot submitted" : "Schedule submitted"
                           : agentRun.status === "confirmed"
-                            ? agentRun.action === "create" ? "Harness created" : agentRun.action === "once" ? "One-shot accepted" : "Harness configured"
+                            ? agentRun.action === "create"
+                              ? "Harness created"
+                              : agentRun.action === "once"
+                                ? currentOneShotLifecycle?.status === "settled"
+                                  ? "Agent completed"
+                                  : currentOneShotLifecycle?.status === "failed"
+                                    ? "Agent task failed"
+                                    : currentOneShotLifecycle?.status === "expired"
+                                      ? "Agent job expired"
+                                      : "Request accepted · Agent processing"
+                                : "Harness configured"
                             : agentRun.action === "create" ? "Harness creation failed" : agentRun.action === "once" ? "One-shot failed" : "Launch failed"}
                       </span>
                       <a href={explorerTransactionUrl(agentRun.hash)} target="_blank" rel="noreferrer">
@@ -6891,6 +6973,9 @@ function App() {
                         <small>block {Number(BigInt(agentRun.receipt.blockNumber)).toLocaleString()}</small>
                       ) : null}
                       {agentRun.error ? <small>{agentRun.error}</small> : null}
+                      {agentEscrowSpent !== undefined ? (
+                        <small>{formatRitual(agentEscrowSpent)} RITUAL deducted from RitualWallet</small>
+                      ) : null}
                     </div>
                   ) : null}
                   {agentLifecycle?.jobId ? (
@@ -6911,9 +6996,14 @@ function App() {
                       </div>
                       <code>{formatHash(agentLifecycle.jobId)}</code>
                       {agentLifecycle.executor ? <small>executor {formatAddress(agentLifecycle.executor)}</small> : null}
-                      {agentLifecycle.result?.text ? <p>{agentLifecycle.result.text}</p> : null}
-                      {agentLifecycle.result?.error ? <p className="error">{agentLifecycle.result.error}</p> : null}
+                      {agentLifecycle.status === "settled" && agentLifecycle.result?.text ? <p>{agentLifecycle.result.text}</p> : null}
                       {agentLifecycle.error ? <p className="error">{agentLifecycle.error}</p> : null}
+                      {agentLifecycle.status === "failed" && agentLifecycle.result?.text ? (
+                        <details className="agent-result-raw">
+                          <summary>Technical details</summary>
+                          <pre>{agentLifecycle.result.text}</pre>
+                        </details>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

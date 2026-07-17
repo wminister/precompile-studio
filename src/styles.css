@@ -1632,6 +1632,10 @@ textarea:focus {
   color: #ff9a89;
 }
 
+.agent-run.expired > span {
+  color: #ffb36b;
+}
+
 .agent-run a {
   display: inline-flex;
   align-items: center;
@@ -1693,6 +1697,32 @@ textarea:focus {
 
 .agent-lifecycle p {
   overflow-wrap: anywhere;
+}
+
+.agent-result-raw {
+  grid-column: 1 / -1;
+  color: var(--quiet);
+  font-size: 0.72rem;
+}
+
+.agent-result-raw summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.agent-result-raw pre {
+  overflow: auto;
+  max-height: 180px;
+  margin: 8px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.24);
+  padding: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .llm-result-body > a {
