@@ -139,6 +139,7 @@ test("prepares one-shot and recurring Agent launches without overflow", async ({
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
+  await expect(launch.getByText(/RITUAL available · callback costs up to .* actual charge depends on gas used · no Scheduler reserve/)).toBeVisible();
   await expect(launch.getByRole("button", { name: "Run once", exact: true })).toBeDisabled();
 
   await launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true }).click();

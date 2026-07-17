@@ -3966,7 +3966,7 @@ function App() {
     ? "Deposit RITUAL into RitualWallet before running"
     : !isRitualLockSufficient
       ? "Extend the RitualWallet lock before running"
-      : `${formatRitual(agentEscrowBalance)} RITUAL escrow · ${formatRitual(agentCallbackBudget)} RITUAL callback cap · no Scheduler reserve`;
+      : `${formatRitual(agentEscrowBalance)} RITUAL available · callback costs up to ${formatRitual(agentCallbackBudget)} RITUAL; actual charge depends on gas used · no Scheduler reserve`;
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
     wallet.address?.toLowerCase() === scheduledJqStatus?.owner.toLowerCase();
@@ -4318,8 +4318,8 @@ function App() {
                 : wallet.status !== "connected"
                   ? "Escrow and sender status are checked after wallet connection."
                 : agentCallbackBudgetCovered
-                  ? `${formatRitual(agentEscrowBalance)} RITUAL available; callback cap is ${formatRitual(agentCallbackBudget)} RITUAL.`
-                  : `${formatRitual(agentEscrowBalance)} RITUAL is below the ${formatRitual(agentCallbackBudget)} RITUAL callback cap; the call remains available because actual gas may be lower.`,
+                  ? `${formatRitual(agentEscrowBalance)} RITUAL available. The callback can cost up to ${formatRitual(agentCallbackBudget)} RITUAL, but the actual charge depends on gas used.`
+                  : `${formatRitual(agentEscrowBalance)} RITUAL available is below the ${formatRitual(agentCallbackBudget)} RITUAL callback limit. You can still run because the actual cost may be lower.`,
             }]
           : [{
               ok: agentFunding >= agentPerCallFunding && isAgentFeeCapSufficient,
