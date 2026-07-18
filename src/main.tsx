@@ -588,6 +588,9 @@ export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
 export const SOVEREIGN_AGENT_USER_SALT = ritualTestnetDeployment.contracts.SovereignAgentHarness.userSalt as `0x${string}`;
+export const AGENT_LIVE_EXECUTION_ENABLED = false;
+const AGENT_COST_INCIDENT_REQUEST_TX = "0x8f196bb31e0589f5ed1a111e7eb8cce3bf51f211e9a80dfe620e55b27b2feb3b";
+const AGENT_COST_INCIDENT_CALLBACK_TX = "0x491df16b00eb4c3b49d7252b3c5d466f1fab3f0976659c501518cba1829cae95";
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 const DEFAULT_LLM_EXECUTOR = "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b";
@@ -626,7 +629,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, Scheduled JQ, and Sovereign Agent are publicly usable. Scheduled JQ and Sovereign Agent create deterministic contracts owned by the connected wallet before their first run. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion.",
+      "HTTP, JQ, and Scheduled JQ are publicly usable. Sovereign Agent composition, registry discovery, calldata export, and trace inspection remain available, while live Agent submission is paused until the executor/model charge can be quoted reliably before signing. LLM submission is implemented, but Ritual's current executor path may return an infrastructure error instead of a completion.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -3982,11 +3985,13 @@ function App() {
     : agentFundedCalls === 0
       ? `First call needs ${formatRitual(agentPerCallFunding)} RITUAL`
       : `${agentFundedCalls} call${agentFundedCalls === 1 ? "" : "s"} · ${formatRitual(agentFunding)} execution + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL total`;
-  const agentOneShotSummary = !hasRitualBalance
-    ? "Deposit RITUAL into RitualWallet before running"
-    : !isRitualLockSufficient
-      ? "Extend the RitualWallet lock before running"
-      : `${formatRitual(agentEscrowBalance)} RITUAL available · executor/model price is not quoted before submission · callback gas is capped at ${formatRitual(agentCallbackBudget)} RITUAL and unused callback budget is refunded`;
+  const agentOneShotSummary = !AGENT_LIVE_EXECUTION_ENABLED
+    ? "Composer, registry discovery, calldata export, and trace inspection remain available without submission."
+    : !hasRitualBalance
+      ? "Deposit RITUAL into RitualWallet before running"
+      : !isRitualLockSufficient
+        ? "Extend the RitualWallet lock before running"
+        : `${formatRitual(agentEscrowBalance)} RITUAL available · executor/model price is not quoted before submission · callback gas is capped at ${formatRitual(agentCallbackBudget)} RITUAL and unused callback budget is refunded`;
   const currentOneShotLifecycle =
     agentRun?.action === "once" &&
     agentLifecycle?.jobId?.toLowerCase() === agentRun.hash.toLowerCase()
@@ -4015,6 +4020,7 @@ function App() {
     if (agentHarnessStatus?.configured) {
       return agentHarnessStatus.senderLocked ? "Agent job processing" : "Recurring series active";
     }
+    if (!AGENT_LIVE_EXECUTION_ENABLED) return "Live execution paused";
     return "Ready to configure";
   })();
   const isScheduledJqOwner =
@@ -4065,6 +4071,7 @@ function App() {
     Boolean(wallet.address && agentHarnessStatus?.owner) &&
     wallet.address?.toLowerCase() === agentHarnessStatus?.owner.toLowerCase();
   const canCreateAgentHarness =
+    AGENT_LIVE_EXECUTION_ENABLED &&
     selectedRecipe.id === "agent" &&
     agentHarnessState.status === "missing" &&
     wallet.status === "connected" &&
@@ -4123,6 +4130,7 @@ function App() {
     !hasPendingAsyncTransaction &&
     runnerTxState.status !== "submitting";
   const canRunAgentOnce =
+    AGENT_LIVE_EXECUTION_ENABLED &&
     selectedRecipe.id === "agent" &&
     Boolean(agentDraft.encodedInput) &&
     Boolean(selectedDiscoveredExecutor?.publicKey) &&
@@ -4135,6 +4143,7 @@ function App() {
     !hasPendingAsyncTransaction &&
     agentTxState.status !== "submitting";
   const canScheduleAgent =
+    AGENT_LIVE_EXECUTION_ENABLED &&
     selectedRecipe.id === "agent" &&
     Boolean(agentDraft.encodedInput) &&
     Boolean(selectedDiscoveredExecutor?.publicKey) &&
@@ -6868,6 +6877,26 @@ function App() {
                       </strong>
                     </div>
                   </div>
+                  {!AGENT_LIVE_EXECUTION_ENABLED ? (
+                    <div className="agent-cost-circuit" role="status">
+                      <AlertCircle size={16} />
+                      <div>
+                        <strong>Live Agent transactions are paused</strong>
+                        <p>
+                          Ritual did not expose the selected executor/model charge before signing. A provider-failed test
+                          charged 0.50784 RITUAL, so launch stays disabled until a reliable onchain quote can be verified.
+                        </p>
+                        <div>
+                          <a href={explorerTransactionUrl(AGENT_COST_INCIDENT_REQUEST_TX)} target="_blank" rel="noreferrer">
+                            Request tx <ArrowUpRight size={12} />
+                          </a>
+                          <a href={explorerTransactionUrl(AGENT_COST_INCIDENT_CALLBACK_TX)} target="_blank" rel="noreferrer">
+                            Callback tx <ArrowUpRight size={12} />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   {agentHarnessState.status !== "missing" ? (
                     <div className="agent-mode-switch" role="group" aria-label="Agent launch mode">
                       <button
@@ -6937,6 +6966,8 @@ function App() {
                       {agentTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Route size={16} />}
                       {agentTxState.status === "submitting"
                         ? "Confirming"
+                        : !AGENT_LIVE_EXECUTION_ENABLED
+                          ? "Live launch paused"
                         : agentHarnessState.status === "missing"
                           ? "Create Agent harness"
                         : agentLaunchMode === "scheduled" && agentHarnessStatus?.configured

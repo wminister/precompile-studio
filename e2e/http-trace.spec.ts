@@ -139,8 +139,10 @@ test("prepares one-shot and recurring Agent launches without overflow", async ({
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText(/RITUAL available · executor\/model price is not quoted before submission · callback gas is capped at .* unused callback budget is refunded/)).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run once", exact: true })).toBeDisabled();
+  await expect(launch.getByText("Composer, registry discovery, calldata export, and trace inspection remain available without submission.", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Live Agent transactions are paused", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("link", { name: "Request tx", exact: true })).toHaveAttribute("href", /8f196bb3/);
+  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
 
   await launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true }).click();
   await expect(launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -150,16 +152,16 @@ test("prepares one-shot and recurring Agent launches without overflow", async ({
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Live execution paused", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Use", exact: true }).first().click();
 
   await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
-  await expect(page.getByText("Ready to schedule", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
+  await expect(page.getByText("Live execution paused", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
   await launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true }).click();
-  await expect(page.getByText("Ready to run", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run once", exact: true })).toBeEnabled();
+  await expect(page.getByText("Live execution paused", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
