@@ -6,7 +6,7 @@
     "label": "Ritual ZeroClaw agent",
     "updatedAt": 1783110000000,
     "fields": [
-      { "key": "executor", "value": "0x0000000000000000000000000000000000000000" },
+      { "key": "executor", "value": "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C" },
       { "key": "ttl", "value": "500" },
       { "key": "pollInterval", "value": "5" },
       { "key": "maxPollBlock", "value": "6000" },
@@ -14,8 +14,8 @@
       { "key": "callbackAddress", "value": "0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe" },
       { "key": "callbackSelector", "value": "0x8ca12055" },
       { "key": "gasLimit", "value": "3000000" },
-      { "key": "maxFeePerGas", "value": "20000000000" },
-      { "key": "maxPriorityFeePerGas", "value": "1000000000" },
+      { "key": "maxFeePerGas", "value": "1000000000" },
+      { "key": "maxPriorityFeePerGas", "value": "100000000" },
       { "key": "cliType", "value": "6" },
       {
         "key": "prompt",

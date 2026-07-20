@@ -11,7 +11,7 @@ const RPC_URL = "https://rpc.ritualfoundation.org";
 const TX_HASH = FIXTURE_TX_HASH;
 const CONSUMER = FIXTURE_CONSUMER_ADDRESS;
 const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
-const TEST_EXECUTOR = "0x2222222222222222222222222222222222222222";
+const TEST_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
 const SCHEDULER_CONSUMER = "0x7243c1A2cA1Ea555416951480B147c27b17eA668";
 const PREDICTED_SCHEDULER_CONSUMER = "0x3333333333333333333333333333333333333333";
 const PREDICTED_AGENT_HARNESS = "0x4444444444444444444444444444444444444444";
@@ -132,36 +132,25 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("prepares one-shot and recurring Agent launches without overflow", async ({ page }) => {
+test("prepares only the capped registry-valid, GLM-tested Agent launch without overflow", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(launch.getByRole("button", { name: /Run once/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText("Composer, registry discovery, calldata export, and trace inspection remain available without submission.", { exact: true })).toBeVisible();
-  await expect(launch.getByText("Live Agent transactions are paused", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Registry-valid, GLM-tested route", { exact: true })).toBeVisible();
+  await expect(launch.getByText("0.02 RITUAL", { exact: true })).toBeVisible();
   await expect(launch.getByRole("link", { name: "Request tx", exact: true })).toHaveAttribute("href", /8f196bb3/);
-  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
-
-  await launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true }).click();
-  await expect(launch.getByRole("button", { name: "Recurring Scheduler-backed window", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveValue("0.01");
-  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("2");
-  await expect(launch.getByText("1 call · 0.01 execution + 0.01 reserve = 0.02 RITUAL total", { exact: false })).toBeVisible();
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("1.1");
+  await expect(launch.getByText(/1 GLM run .* 0\.02 RITUAL maximum sent/)).toBeVisible();
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(launch.getByText("Live execution paused", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Use", exact: true }).first().click();
-
-  await expect(launch.getByText("Registry verified", { exact: true })).toBeVisible();
-  await expect(page.getByText("Live execution paused", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
-  await launch.getByRole("button", { name: "Run once No Scheduler reserve", exact: true }).click();
-  await expect(page.getByText("Live execution paused", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
+  await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 

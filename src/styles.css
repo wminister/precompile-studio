@@ -1522,11 +1522,11 @@ textarea:focus {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  border: 1px solid rgba(255, 179, 107, 0.2);
+  border: 1px solid rgba(75, 224, 170, 0.2);
   border-radius: 7px;
-  background: rgba(255, 179, 107, 0.045);
+  background: rgba(75, 224, 170, 0.045);
   padding: 10px 12px;
-  color: #ffb36b;
+  color: var(--accent-ink);
 }
 
 .agent-cost-circuit > div {
@@ -1559,7 +1559,7 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: #ffca98;
+  color: var(--accent-ink);
   font-family: var(--mono);
   font-size: 0.68rem;
 }
@@ -1621,6 +1621,31 @@ textarea:focus {
   display: grid;
   width: 180px;
   gap: 5px;
+}
+
+.agent-fixed-funding {
+  display: grid;
+  min-width: 190px;
+  gap: 3px;
+}
+
+.agent-fixed-funding > span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-fixed-funding strong {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.agent-fixed-funding small {
+  color: var(--quiet);
+  font-size: 0.68rem;
 }
 
 .agent-funding-input {
@@ -3536,7 +3561,7 @@ pre {
   }
 }
 
-@media (max-width: 430px) {
+@media (max-width: 600px) {
   .composer-intro {
     align-items: flex-start;
     flex-direction: column;
@@ -3666,6 +3691,10 @@ pre {
   }
 
   .agent-launch-controls label {
+    width: 100%;
+  }
+
+  .agent-fixed-funding {
     width: 100%;
   }
 

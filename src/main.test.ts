@@ -29,6 +29,11 @@ import {
   createAgentHarnessTransaction,
   createDirectAgentTransaction,
   AGENT_MINIMUM_FUNDING,
+  AGENT_ONE_SHOT_EXECUTION_ENABLED,
+  AGENT_RECURRING_EXECUTION_ENABLED,
+  VERIFIED_AGENT_EXECUTION_FUNDING,
+  VERIFIED_AGENT_LAUNCH_CEILING,
+  TESTED_NATIVE_AGENT_EXECUTOR,
   agentExecutionBudget,
   agentFundedCallCount,
   agentTotalFunding,
@@ -274,6 +279,19 @@ describe("Scheduled JQ consumer", () => {
 });
 
 describe("Sovereign Agent harness", () => {
+  it("defaults to the capped, registry-valid native GLM profile with successful history", () => {
+    const fields = Object.fromEntries(recipeFields("agent").map((field) => [field.key, field.value]));
+    expect(fields.executor).toBe(TESTED_NATIVE_AGENT_EXECUTOR);
+    expect(fields.model).toBe("zai-org/GLM-4.7-FP8");
+    expect(fields.cliType).toBe("6");
+    expect(fields.maxFeePerGas).toBe("1000000000");
+    expect(fields.maxPriorityFeePerGas).toBe("100000000");
+    expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(true);
+    expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(false);
+    expect(VERIFIED_AGENT_EXECUTION_FUNDING).toBe(10_000_000_000_000_000n);
+    expect(VERIFIED_AGENT_LAUNCH_CEILING).toBe(20_000_000_000_000_000n);
+  });
+
   it("creates a deterministic harness through Ritual's deployed factory", () => {
     const tx = createAgentHarnessDeploymentTransaction(TEST_ADDRESS);
     expect(tx).toMatchObject({ from: TEST_ADDRESS, to: SOVEREIGN_AGENT_FACTORY_ADDRESS });
