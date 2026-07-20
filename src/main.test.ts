@@ -49,6 +49,7 @@ import {
   ensureRitualChain,
   parseRunnerRuns,
   prepareWalletTransaction,
+  recommendedEip1559MaxFee,
   receiptStatus,
   readAgentHarnessStatus,
   readAgentHarnessDiscovery,
@@ -779,9 +780,10 @@ describe("mocked EIP-1193 wallet flows", () => {
   });
 
   it("prepares an EIP-1559 transaction with the configured gas floor", async () => {
-    const responses = new Map([
+    const responses = new Map<string, unknown>([
       ["eth_maxPriorityFeePerGas", "0x3b9aca00"],
       ["eth_gasPrice", "0x77359400"],
+      ["eth_getBlockByNumber", { baseFeePerGas: "0x3b9aca00" }],
       ["eth_getTransactionCount", "0x2"],
       ["eth_estimateGas", "0x186a0"],
     ]);
@@ -798,7 +800,13 @@ describe("mocked EIP-1193 wallet flows", () => {
       "0x1e8480",
     );
     expect(tx).toMatchObject({ chainId: RITUAL.chainHex, type: "0x2", nonce: "0x2", gas: "0x1e8480" });
+    expect(tx.maxFeePerGas).toBe("0xb2d05e00");
     expect(tx.gasPrice).toBeUndefined();
+  });
+
+  it("derives the Ritual fee cap from base and priority fees without a flat surcharge", () => {
+    expect(recommendedEip1559MaxFee(1_000_000_007n, 1_000_000_000n, 7n)).toBe(1_000_000_014n);
+    expect(recommendedEip1559MaxFee(2_000_000_000n, 1_000_000_000n)).toBe(2_000_000_000n);
   });
 
   it("retries a temporary non-JSON RPC upstream response", async () => {

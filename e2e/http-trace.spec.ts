@@ -40,6 +40,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     let result: unknown = "0x0";
     if (payload.method === "eth_chainId") result = "0x7bb";
     if (payload.method === "eth_blockNumber") result = "0x2a10000";
+    if (payload.method === "eth_getBlockByNumber") result = { baseFeePerGas: "0x7" };
     if (payload.method === "eth_getCode") result = "0x60006000";
     if (payload.method === "eth_maxPriorityFeePerGas" || payload.method === "eth_gasPrice") result = "0x3b9aca00";
     if (payload.method === "eth_getTransactionCount") result = "0x1";
@@ -140,7 +141,10 @@ test("prepares only the capped registry-valid, GLM-tested Agent launch without o
   await expect(launch.getByRole("button", { name: /Run once/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
   await expect(launch.getByText("Registry-valid, GLM-tested route", { exact: true })).toBeVisible();
-  await expect(launch.getByText("0.02 RITUAL", { exact: true })).toBeVisible();
+  await expect(launch.locator(".agent-fixed-funding").getByText("0.02 RITUAL", { exact: true })).toBeVisible();
+  const preflight = page.getByLabel("Agent pre-sign cost check");
+  await expect(preflight.getByText("0.025 RITUAL", { exact: true })).toBeVisible();
+  await expect(preflight.getByText(/general RitualWallet escrow is not used/)).toBeVisible();
   await expect(launch.getByRole("link", { name: "Request tx", exact: true })).toHaveAttribute("href", /8f196bb3/);
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("1.1");
   await expect(launch.getByText(/1 GLM run .* 0\.02 RITUAL maximum sent/)).toBeVisible();

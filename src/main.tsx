@@ -121,6 +121,9 @@ type RpcState = {
   chainId?: number;
   block?: number;
   gasPrice?: bigint;
+  baseFeePerGas?: bigint;
+  priorityFeePerGas?: bigint;
+  maxFeePerGas?: bigint;
   latency?: number;
   error?: string;
 };
@@ -130,6 +133,7 @@ type WalletState = {
   address?: string;
   chainId?: number;
   balance?: string;
+  balanceWei?: bigint;
   ritualWalletBalance?: string;
   ritualLockUntil?: number;
   asyncSenderLocked?: boolean;
@@ -731,6 +735,8 @@ const AGENT_ROLLOVER_THRESHOLD_BPS = 5_000;
 const AGENT_ROLLOVER_RETRY_CALLS = 1;
 const AGENT_ROLLING = [AGENT_MAX_WINDOW_CALLS, AGENT_ROLLOVER_THRESHOLD_BPS, AGENT_ROLLOVER_RETRY_CALLS] as const;
 const AGENT_LOCK_BLOCKS = 100_000n;
+const AGENT_CONFIGURE_GAS_LIMIT = 5_000_000n;
+const AGENT_OBSERVED_CONFIGURE_GAS = 3_178_666n;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 export const VERIFIED_AGENT_EXECUTION_FUNDING = 10_000_000_000_000_000n;
 export const VERIFIED_AGENT_LAUNCH_CEILING = SCHEDULER_RESERVE + VERIFIED_AGENT_EXECUTION_FUNDING;
@@ -742,6 +748,17 @@ export function agentExecutionBudget(schedule: AgentSchedule = AGENT_SCHEDULE) {
 }
 export function agentTotalFunding(executionFunding: bigint) {
   return SCHEDULER_RESERVE + executionFunding;
+}
+
+export function recommendedEip1559MaxFee(
+  gasPrice: bigint,
+  priorityFeePerGas: bigint,
+  baseFeePerGas?: bigint,
+) {
+  const marketFeeCap = baseFeePerGas === undefined
+    ? gasPrice
+    : baseFeePerGas * 2n + priorityFeePerGas;
+  return marketFeeCap > gasPrice ? marketFeeCap : gasPrice;
 }
 export function agentFundedCallCount(
   funding: bigint,
@@ -3642,20 +3659,25 @@ export async function prepareWalletTransaction(
   gasFloor: string,
   gasCeiling?: string,
 ): Promise<WalletTransactionRequest> {
-  const [maxPriorityFeePerGas, gasPrice, nonce] = await Promise.all([
+  const [maxPriorityFeePerGas, gasPrice, latestBlock, nonce] = await Promise.all([
     rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
     rpc<string>("eth_gasPrice"),
+    rpc<{ baseFeePerGas?: string }>("eth_getBlockByNumber", ["latest", false]).catch(() => undefined),
     rpc<string>("eth_getTransactionCount", [tx.from, "pending"]),
   ]);
   const priorityFee = maxPriorityFeePerGas ?? gasPrice;
-  const feeCap = `0x${(BigInt(gasPrice) + BigInt(priorityFee) + 20_000_000_000n).toString(16)}`;
+  const feeCap = recommendedEip1559MaxFee(
+    BigInt(gasPrice),
+    BigInt(priorityFee),
+    latestBlock?.baseFeePerGas ? BigInt(latestBlock.baseFeePerGas) : undefined,
+  );
   const feeTx: WalletTransactionRequest = {
     ...tx,
     chainId: RITUAL.chainHex,
     type: "0x2",
     value: tx.value ?? "0x0",
     nonce,
-    maxFeePerGas: feeCap,
+    maxFeePerGas: `0x${feeCap.toString(16)}`,
     maxPriorityFeePerGas: priorityFee,
   };
   delete feeTx.gasPrice;
@@ -3978,6 +4000,12 @@ function App() {
   );
   const agentPerCallFunding = agentExecutionBudget(agentSchedule);
   const agentLaunchTotal = agentTotalFunding(agentFunding);
+  const agentOuterMaxFeePerGas = rpcState.maxFeePerGas ?? rpcState.gasPrice ?? 0n;
+  const agentEstimatedNetworkFee = AGENT_OBSERVED_CONFIGURE_GAS * (rpcState.gasPrice ?? 0n);
+  const agentMaximumNetworkFee = AGENT_CONFIGURE_GAS_LIMIT * agentOuterMaxFeePerGas;
+  const agentMaximumWalletDebit = agentLaunchTotal + agentMaximumNetworkFee;
+  const agentLaunchBalanceKnown = wallet.balanceWei !== undefined;
+  const agentLaunchBalanceCovered = !agentLaunchBalanceKnown || wallet.balanceWei! >= agentMaximumWalletDebit;
   const agentFundedCalls = agentFunding === VERIFIED_AGENT_EXECUTION_FUNDING ? 1 : 0;
   const agentCallbackBudget = agentDraft.values
     ? BigInt(agentDraft.values[8]) * BigInt(agentDraft.values[9])
@@ -4172,6 +4200,8 @@ function App() {
     !agentHarnessStatus?.senderLocked &&
     agentFunding === VERIFIED_AGENT_EXECUTION_FUNDING &&
     agentLaunchTotal === VERIFIED_AGENT_LAUNCH_CEILING &&
+    agentOuterMaxFeePerGas > 0n &&
+    agentLaunchBalanceCovered &&
     isAgentFeeCapSufficient &&
     !hasPendingAsyncTransaction &&
     agentTxState.status !== "submitting";
@@ -4679,16 +4709,24 @@ function App() {
     const startedAt = performance.now();
     setRpcState((current) => ({ ...current, status: "checking", error: undefined }));
     try {
-      const [chainHex, blockHex, gasPriceHex] = await Promise.all([
+      const [chainHex, blockHex, gasPriceHex, priorityFeeHex, latestBlock] = await Promise.all([
         rpc<string>("eth_chainId"),
         rpc<string>("eth_blockNumber"),
         rpc<string>("eth_gasPrice"),
+        rpc<string>("eth_maxPriorityFeePerGas").catch(() => undefined),
+        rpc<{ baseFeePerGas?: string }>("eth_getBlockByNumber", ["latest", false]).catch(() => undefined),
       ]);
+      const gasPrice = BigInt(gasPriceHex);
+      const priorityFeePerGas = BigInt(priorityFeeHex ?? gasPriceHex);
+      const baseFeePerGas = latestBlock?.baseFeePerGas ? BigInt(latestBlock.baseFeePerGas) : undefined;
       setRpcState({
         status: "online",
         chainId: Number.parseInt(chainHex, 16),
         block: Number.parseInt(blockHex, 16),
-        gasPrice: BigInt(gasPriceHex),
+        gasPrice,
+        baseFeePerGas,
+        priorityFeePerGas,
+        maxFeePerGas: recommendedEip1559MaxFee(gasPrice, priorityFeePerGas, baseFeePerGas),
         latency: Math.round(performance.now() - startedAt),
       });
     } catch (error) {
@@ -4707,12 +4745,10 @@ function App() {
     // non-fatal: some wallet RPCs 4xx on eth_getBalance/batched calls, and a
     // flaky balance must not abort an otherwise successful connection.
     const chainHex = await provider.request<string>({ method: "eth_chainId" });
-    let balanceHex = "0x0";
+    let balanceHex: string | undefined;
     try {
       balanceHex = await provider.request<string>({ method: "eth_getBalance", params: [account, "latest"] });
-    } catch {
-      balanceHex = "0x0";
-    }
+    } catch {}
 
     let ritualWalletBalance: string | undefined;
     let ritualLockUntil: number | undefined;
@@ -4766,6 +4802,7 @@ function App() {
       address: account,
       chainId: Number.parseInt(chainHex, 16),
       balance: formatBalance(balanceHex),
+      balanceWei: balanceHex ? BigInt(balanceHex) : undefined,
       ritualWalletBalance,
       ritualLockUntil,
       asyncSenderLocked,
@@ -5900,6 +5937,13 @@ function App() {
       });
       return;
     }
+    if (wallet.balanceWei !== undefined && wallet.balanceWei < agentMaximumWalletDebit) {
+      setAgentTxState({
+        status: "error",
+        error: `Keep at least ${formatRitual(agentMaximumWalletDebit)} liquid RITUAL in the wallet for the 0.02 transfer and maximum network fee. General RitualWallet escrow is not used.`,
+      });
+      return;
+    }
     if (hasPendingAsyncTransaction) {
       setAgentTxState({ status: "error", error: "An async transaction is already pending. Wait for it to settle before starting the Agent." });
       return;
@@ -5930,6 +5974,7 @@ function App() {
           agentRolling,
         ),
         "0x4c4b40",
+        "0x4c4b40",
       );
       const hash = await sendWalletTransaction(provider, tx);
       setAgentTxState({ status: "submitted", hash });
@@ -5950,6 +5995,7 @@ function App() {
     agentEscrowBalance,
     agentFunding,
     agentLaunchTotal,
+    agentMaximumWalletDebit,
     agentLaunchMode,
     agentPerCallFunding,
     agentHarnessAddress,
@@ -5968,6 +6014,7 @@ function App() {
     selectedDiscoveredExecutor?.publicKey,
     wallet.address,
     wallet.asyncSenderLocked,
+    wallet.balanceWei,
   ]);
 
   const sendLlmTransaction = React.useCallback(async () => {
@@ -6913,6 +6960,45 @@ function App() {
                         </div>
                       </div>
                     </div>
+                  {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
+                    <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
+                      <header>
+                        <div>
+                          <ShieldCheck size={15} />
+                          <strong>Pre-sign cost check</strong>
+                        </div>
+                        <span>{agentLaunchBalanceKnown ? `${formatRitual(wallet.balanceWei!)} RITUAL liquid` : "Wallet balance unavailable"}</span>
+                      </header>
+                      <dl>
+                        <div>
+                          <dt>Amount sent</dt>
+                          <dd>{formatRitual(agentLaunchTotal)} RITUAL</dd>
+                        </div>
+                        <div>
+                          <dt>Observed gas</dt>
+                          <dd>{AGENT_OBSERVED_CONFIGURE_GAS.toLocaleString()}</dd>
+                        </div>
+                        <div>
+                          <dt>Estimated network</dt>
+                          <dd>{formatRitual(agentEstimatedNetworkFee)} RITUAL</dd>
+                        </div>
+                        <div>
+                          <dt>Maximum network</dt>
+                          <dd>{formatRitual(agentMaximumNetworkFee)} RITUAL</dd>
+                        </div>
+                        <div>
+                          <dt>Maximum wallet debit</dt>
+                          <dd>{formatRitual(agentMaximumWalletDebit)} RITUAL</dd>
+                        </div>
+                      </dl>
+                      <p>
+                        Gas is capped at {AGENT_CONFIGURE_GAS_LIMIT.toLocaleString()} and unused gas is not charged. The 0.02 RITUAL transfer funds the harness directly; general RitualWallet escrow is not used.
+                      </p>
+                      {!agentLaunchBalanceCovered ? (
+                        <p className="warning">The liquid wallet balance does not cover this maximum. Move funds to the wallet balance, not escrow, before signing.</p>
+                      ) : null}
+                    </section>
+                  ) : null}
                   <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
                     {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
