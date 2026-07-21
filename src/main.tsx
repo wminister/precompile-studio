@@ -607,7 +607,10 @@ const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpP
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
-export const SOVEREIGN_AGENT_USER_SALT = ritualTestnetDeployment.contracts.SovereignAgentHarness.userSalt as `0x${string}`;
+// v1's single Scheduler call aged out without executing and its strict cancel
+// path now prevents stop/restart. A versioned salt gives each wallet a clean,
+// deterministic harness while preserving the old deployment as chain history.
+export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v2"));
 export const AGENT_RECURRING_EXECUTION_ENABLED = true;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
@@ -737,7 +740,7 @@ const AGENT_DEFAULT_MAX_FEE = 1_100_000_000n;
 const AGENT_PRIORITY_FEE = 100_000_000n;
 const AGENT_SCHEDULE: AgentSchedule = [
   AGENT_SCHEDULER_GAS,
-  2_000,
+  500,
   500,
   AGENT_DEFAULT_MAX_FEE,
   AGENT_PRIORITY_FEE,
@@ -803,6 +806,7 @@ export const SCHEDULED_JQ_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.S
 export const SCHEDULED_JQ_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.address;
 const SCHEDULER_LOCK_BLOCKS = 50_000n;
 const SCHEDULER_ORIGIN_TX_STORAGE_PREFIX = "precompile-studio:scheduler-origin-tx";
+const AGENT_ORIGIN_TX_STORAGE_PREFIX = "precompile-studio:agent-origin-tx";
 const SCHEDULE_STATE_LABELS = ["Scheduled", "Executing", "Completed", "Cancelled", "Expired"] as const;
 const SCHEDULED_JQ_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.ScheduledJqConsumer.blockNumber;
 const SCHEDULED_JQ_FACTORY_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.blockNumber;
@@ -2584,6 +2588,10 @@ function schedulerOriginTransactionStorageKey(consumerAddress: string) {
   return `${SCHEDULER_ORIGIN_TX_STORAGE_PREFIX}:${consumerAddress.toLowerCase()}`;
 }
 
+function agentOriginTransactionStorageKey(harnessAddress: string) {
+  return `${AGENT_ORIGIN_TX_STORAGE_PREFIX}:${harnessAddress.toLowerCase()}`;
+}
+
 const RITUAL_RPC_LOG_BLOCK_LIMIT = 100_000;
 
 async function recentLogRange(
@@ -3022,7 +3030,7 @@ export function describeAgentSeries(
       lifecycle,
     };
   }
-  if (status.wakeMode === 1) {
+  if (status.wakeMode === 0) {
     const stoppedLifecycle = lifecycle.some((entry) => entry.kind === "stopped")
       ? lifecycle
       : [...lifecycle, {
@@ -3040,11 +3048,11 @@ export function describeAgentSeries(
       lifecycle: stoppedLifecycle,
     };
   }
-  if (status.wakeMode === 2) {
+  if (status.wakeMode !== 1) {
     return {
       status: "configured",
-      label: "Configured, not armed",
-      detail: "The harness saved its Agent configuration but is not currently armed for Scheduler execution.",
+      label: "Unknown wake mode",
+      detail: `The harness reports unsupported wake mode ${status.wakeMode}; only NONE (0) and ROLLING_FIXED_WINDOW (1) are documented.`,
       tone: "warning",
       callId,
       lifecycle,
@@ -3066,12 +3074,13 @@ export async function readAgentSeriesEvidence(
   status: AgentHarnessStatus,
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
   deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
+  originTransactionHash?: string,
 ): Promise<AgentSeriesEvidence> {
   if (!status.configured || status.activeCallId === "0") return describeAgentSeries(status);
   const lifecycle = await readSchedulerLifecycle(
     BigInt(status.activeCallId),
     requester,
-    undefined,
+    originTransactionHash,
     status.address,
     deploymentBlock,
   );
@@ -5975,7 +5984,10 @@ function App() {
       return { status: "loading", data: cachedData };
     });
     try {
-      const data = await readAgentSeriesEvidence(status);
+      const originTransactionHash = window.localStorage.getItem(
+        agentOriginTransactionStorageKey(status.address),
+      ) ?? undefined;
+      const data = await readAgentSeriesEvidence(status, rpc, AGENT_DEPLOYMENT_BLOCK, originTransactionHash);
       if (requestId !== agentSeriesRequestRef.current) return data;
       setAgentSeriesState({ status: "ready", data });
       return data;
@@ -6158,6 +6170,7 @@ function App() {
         "0x4c4b40",
       );
       const hash = await sendWalletTransaction(provider, tx);
+      window.localStorage.setItem(agentOriginTransactionStorageKey(agentHarnessAddress), hash);
       setAgentTxState({ status: "submitted", hash });
       setAgentRun({
         hash,

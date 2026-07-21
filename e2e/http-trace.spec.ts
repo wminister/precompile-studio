@@ -75,7 +75,7 @@ test.beforeEach(async ({ page }, testInfo) => {
       }
       else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
       else if (call?.data?.startsWith(toFunctionSelector("configured()"))) result = encodeAbiParameters(parseAbiParameters("bool"), [stoppedAgentSeries]);
-      else if (call?.data?.startsWith(toFunctionSelector("wakeMode()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [stoppedAgentSeries ? 1 : 0]);
+      else if (call?.data?.startsWith(toFunctionSelector("wakeMode()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [0]);
       else if (call?.data?.startsWith(toFunctionSelector("activeCallId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 3_259_797n : 0n]);
       else if (call?.data?.startsWith(toFunctionSelector("currentSeriesId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 1n : 0n]);
       else if (call?.data?.startsWith(toFunctionSelector("hasPendingJobForSender(address)"))) result = encodeAbiParameters(parseAbiParameters("bool"), [false]);

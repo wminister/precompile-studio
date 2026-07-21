@@ -281,12 +281,12 @@ describe("Scheduled JQ consumer", () => {
 });
 
 describe("Sovereign Agent harness", () => {
-  it("reports a configured stopped harness as stopped instead of active", () => {
+  it("reports wake mode NONE as stopped", () => {
     const series = describeAgentSeries({
       address: SOVEREIGN_AGENT_HARNESS_ADDRESS,
       owner: TEST_ADDRESS,
       configured: true,
-      wakeMode: 1,
+      wakeMode: 0,
       activeCallId: "3259797",
       currentSeriesId: "1",
       senderLocked: false,
@@ -307,6 +307,24 @@ describe("Sovereign Agent harness", () => {
     expect(series.lifecycle[series.lifecycle.length - 1]).toMatchObject({
       kind: "stopped",
       tone: "warning",
+    });
+  });
+
+  it("reports Ritual's rolling fixed-window wake mode as active", () => {
+    const series = describeAgentSeries({
+      address: SOVEREIGN_AGENT_HARNESS_ADDRESS,
+      owner: TEST_ADDRESS,
+      configured: true,
+      wakeMode: 1,
+      activeCallId: "3259797",
+      currentSeriesId: "1",
+      senderLocked: false,
+    });
+
+    expect(series).toMatchObject({
+      status: "active",
+      label: "Series scheduled",
+      callId: "3259797",
     });
   });
 
