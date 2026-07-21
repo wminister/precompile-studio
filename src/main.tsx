@@ -607,10 +607,10 @@ const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpP
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
-// v1's single Scheduler call aged out without executing and its strict cancel
-// path now prevents stop/restart. A versioned salt gives each wallet a clean,
-// deterministic harness while preserving the old deployment as chain history.
-export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v2"));
+// Earlier harness versions stored Scheduler gas limits that proved insufficient
+// for wakeUp on the live chain. Version the deterministic child so those
+// immutable schedules remain history instead of being presented for reuse.
+export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v3"));
 export const AGENT_RECURRING_EXECUTION_ENABLED = true;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
@@ -735,7 +735,7 @@ const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
 const AGENT_CONFIGURE_SELECTOR = "0xb1906702";
 type AgentSchedule = readonly [number, number, number, bigint, bigint, bigint];
 type AgentRolling = readonly [number, number, number];
-const AGENT_SCHEDULER_GAS = 800_000;
+export const AGENT_SCHEDULER_GAS = 1_200_000;
 const AGENT_DEFAULT_MAX_FEE = 1_100_000_000n;
 const AGENT_PRIORITY_FEE = 100_000_000n;
 const AGENT_SCHEDULE: AgentSchedule = [
@@ -2859,8 +2859,45 @@ export async function readSchedulerLifecycle(
   const recoveredWithoutDuplicates = recoveredEntries.filter((recovered) => !decodedEntries.some((decoded) =>
     decoded.kind === recovered.kind && decoded.blockNumber === recovered.blockNumber,
   ));
-  return [...decodedEntries, ...recoveredWithoutDuplicates]
+  const lifecycle = [...decodedEntries, ...recoveredWithoutDuplicates]
     .sort((a, b) => (a.blockNumber ?? 0) - (b.blockNumber ?? 0));
+  const scheduledWindow = logs.flatMap((log) => {
+    try {
+      const decoded = decodeEventLog({
+        abi: schedulerLifecycleAbi,
+        data: (log.data ?? "0x") as `0x${string}`,
+        topics: (log.topics ?? []) as [`0x${string}`, ...`0x${string}`[]],
+      });
+      if (decoded.eventName !== "CallScheduled") return [];
+      const args = decoded.args as Record<string, unknown>;
+      return [{ startBlock: Number(args.startBlock), ttl: Number(args.ttl) }];
+    } catch {
+      return [];
+    }
+  })[0];
+  const hasExecutionOutcome = lifecycle.some((entry) => [
+    "executed",
+    "completed",
+    "failed",
+    "skipped-funds",
+    "skipped-ttl",
+    "expired",
+    "cancelled",
+  ].includes(entry.kind));
+  if (
+    scheduledWindow &&
+    !hasExecutionOutcome &&
+    logRange.latestBlock > scheduledWindow.startBlock + scheduledWindow.ttl
+  ) {
+    lifecycle.push({
+      kind: "skipped-ttl",
+      label: "Execution window missed",
+      detail: `No Scheduler execution or terminal event was recorded before block ${(scheduledWindow.startBlock + scheduledWindow.ttl).toLocaleString()}. The scheduled callback was not dispatched.`,
+      tone: "bad",
+      blockNumber: scheduledWindow.startBlock + scheduledWindow.ttl,
+    });
+  }
+  return lifecycle;
 }
 
 export async function readScheduledJqConsumerStatus(
@@ -7161,7 +7198,7 @@ function App() {
                         </p>
                       </div>
                     </div> : null}
-                  {agentHarnessState.status === "ready" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
+                  {!isAgentHarnessResolving && agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
                     <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
                       <header>
                         <div>

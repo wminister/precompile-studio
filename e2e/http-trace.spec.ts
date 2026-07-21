@@ -169,6 +169,7 @@ test("prepares only the capped registry-valid, GLM-tested Agent launch without o
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(preflight).toBeVisible();
   await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();

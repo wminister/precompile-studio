@@ -29,6 +29,7 @@ import {
   createAgentHarnessTransaction,
   createDirectAgentTransaction,
   AGENT_MINIMUM_FUNDING,
+  AGENT_SCHEDULER_GAS,
   AGENT_ONE_SHOT_EXECUTION_ENABLED,
   AGENT_RECURRING_EXECUTION_ENABLED,
   VERIFIED_AGENT_EXECUTION_FUNDING,
@@ -278,6 +279,46 @@ describe("Scheduled JQ consumer", () => {
       { kind: "completed", label: "Schedule completed", tone: "ok" },
     ]);
   });
+
+  it("reports a silent Scheduler miss after the TTL window", async () => {
+    const callId = 3_272_430n;
+    const addressTopic = `0x${"0".repeat(24)}${SOVEREIGN_AGENT_HARNESS_ADDRESS.slice(2).toLowerCase()}`;
+    const callIdTopic = encodeAbiParameters(parseAbiParameters("uint256"), [callId]);
+    const startBlock = 48_889_801;
+    const ttl = 500;
+    const scheduledLog = {
+      address: SYSTEM_CONTRACTS.Scheduler,
+      topics: [
+        keccak256(stringToHex("CallScheduled(uint256,address,address,uint32,uint32,uint32,uint32,uint32,uint256,uint256,uint256,bytes)")),
+        callIdTopic,
+        addressTopic,
+        addressTopic,
+      ],
+      data: encodeAbiParameters(
+        parseAbiParameters("uint32,uint32,uint32,uint32,uint32,uint256,uint256,uint256,bytes"),
+        [startBlock, 1, 500, 800_000, ttl, 1_100_000_000n, 100_000_000n, 0n, "0x1234"],
+      ),
+      blockNumber: `0x${(startBlock - 500).toString(16)}`,
+      transactionHash: TX_HASH,
+    };
+    const requester = async <T,>(method: string, params?: unknown[]) => {
+      if (method === "eth_blockNumber") return `0x${(startBlock + ttl + 1).toString(16)}` as T;
+      if (method === "eth_getTransactionReceipt") return { logs: [scheduledLog] } as T;
+      if (method === "eth_getBlockByNumber") return { transactions: [] } as T;
+      const filter = params?.[0] as { topics?: string[] } | undefined;
+      return (filter?.topics?.[0] === scheduledLog.topics[0] ? [scheduledLog] : []) as T;
+    };
+
+    await expect(readSchedulerLifecycle(callId, requester, TX_HASH)).resolves.toMatchObject([
+      { kind: "scheduled", label: "Schedule created" },
+      {
+        kind: "skipped-ttl",
+        label: "Execution window missed",
+        tone: "bad",
+        blockNumber: startBlock + ttl,
+      },
+    ]);
+  });
 });
 
 describe("Sovereign Agent harness", () => {
@@ -337,6 +378,7 @@ describe("Sovereign Agent harness", () => {
     expect(fields.maxPriorityFeePerGas).toBe("100000000");
     expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(true);
     expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(false);
+    expect(AGENT_SCHEDULER_GAS).toBe(1_200_000);
     expect(VERIFIED_AGENT_EXECUTION_FUNDING).toBe(10_000_000_000_000_000n);
     expect(VERIFIED_AGENT_LAUNCH_CEILING).toBe(20_000_000_000_000_000n);
   });
