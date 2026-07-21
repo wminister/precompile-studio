@@ -214,8 +214,22 @@ export type AgentLifecycle = {
 
 type AgentLifecycleState =
   | { status: "idle" | "loading" }
-  | { status: "ready"; data: AgentLifecycle }
+  | { status: "ready"; data: AgentLifecycle; history: AgentLifecycle[] }
   | { status: "error"; error: string };
+
+export type AgentSeriesEvidence = {
+  status: "idle" | "configured" | "active" | "processing" | "completed" | "stopped" | "failed" | "expired";
+  label: string;
+  detail: string;
+  tone: "neutral" | "ok" | "warning" | "bad";
+  callId?: string;
+  lifecycle: SchedulerLifecycleEntry[];
+};
+
+type AgentSeriesState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; data: AgentSeriesEvidence }
+  | { status: "error"; error: string; data?: AgentSeriesEvidence };
 
 export type ScheduledJqConsumerStatus = {
   address: string;
@@ -233,7 +247,7 @@ export type ScheduledJqConsumerStatus = {
 };
 
 export type SchedulerLifecycleEntry = {
-  kind: "scheduled" | "executed" | "completed" | "failed" | "skipped-funds" | "skipped-ttl" | "expired" | "cancelled";
+  kind: "scheduled" | "executed" | "completed" | "failed" | "skipped-funds" | "skipped-ttl" | "expired" | "cancelled" | "stopped";
   label: string;
   detail: string;
   tone: "neutral" | "ok" | "warning" | "bad";
@@ -596,8 +610,6 @@ export const SOVEREIGN_AGENT_USER_SALT = ritualTestnetDeployment.contracts.Sover
 export const AGENT_RECURRING_EXECUTION_ENABLED = true;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
-const AGENT_COST_INCIDENT_REQUEST_TX = "0x8f196bb31e0589f5ed1a111e7eb8cce3bf51f211e9a80dfe620e55b27b2feb3b";
-const AGENT_COST_INCIDENT_CALLBACK_TX = "0x491df16b00eb4c3b49d7252b3c5d466f1fab3f0976659c501518cba1829cae95";
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 const DEFAULT_LLM_EXECUTOR = "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b";
@@ -2634,10 +2646,11 @@ function schedulerLifecycleDetail(eventName: string, args: Record<string, unknow
     case "CallScheduled": {
       const numCalls = Number(args.numCalls);
       const frequency = Number(args.frequency);
+      const callbackGas = Number(args.gas);
       return {
         kind: "scheduled" as const,
         label: "Schedule created",
-        detail: `${numCalls} ${numCalls === 1 ? "execution" : "executions"}, first at block ${Number(args.startBlock).toLocaleString()}${numCalls > 1 ? ` and every ${frequency.toLocaleString()} blocks` : ""}.`,
+        detail: `${numCalls} ${numCalls === 1 ? "execution" : "executions"}, first at block ${Number(args.startBlock).toLocaleString()}${numCalls > 1 ? ` and every ${frequency.toLocaleString()} blocks` : ""}; ${callbackGas.toLocaleString()} callback gas.`,
         tone: "neutral" as const,
       };
     }
@@ -2951,6 +2964,119 @@ export async function readAgentHarnessStatus(
   };
 }
 
+export function describeAgentSeries(
+  status: AgentHarnessStatus,
+  lifecycle: SchedulerLifecycleEntry[] = [],
+): AgentSeriesEvidence {
+  const callId = status.activeCallId === "0" ? undefined : status.activeCallId;
+  const terminal = [...lifecycle].reverse().find((entry) =>
+    ["completed", "failed", "skipped-funds", "skipped-ttl", "expired", "cancelled"].includes(entry.kind),
+  );
+  if (terminal?.kind === "completed") {
+    return {
+      status: "completed",
+      label: "Series completed",
+      detail: terminal.detail,
+      tone: "ok",
+      callId,
+      lifecycle,
+    };
+  }
+  if (terminal?.kind === "expired") {
+    return {
+      status: "expired",
+      label: "Series expired",
+      detail: terminal.detail,
+      tone: "bad",
+      callId,
+      lifecycle,
+    };
+  }
+  if (terminal && terminal.kind !== "cancelled") {
+    return {
+      status: "failed",
+      label: "Series did not complete",
+      detail: terminal.detail,
+      tone: terminal.tone === "bad" ? "bad" : "warning",
+      callId,
+      lifecycle,
+    };
+  }
+  if (status.senderLocked) {
+    return {
+      status: "processing",
+      label: "Agent job processing",
+      detail: "The harness has a pending two-phase Agent job and is waiting for its callback.",
+      tone: "neutral",
+      callId,
+      lifecycle,
+    };
+  }
+  if (!status.configured) {
+    return {
+      status: "idle",
+      label: "Ready to configure",
+      detail: "No Agent series has been configured for this harness.",
+      tone: "neutral",
+      lifecycle,
+    };
+  }
+  if (status.wakeMode === 1) {
+    const stoppedLifecycle = lifecycle.some((entry) => entry.kind === "stopped")
+      ? lifecycle
+      : [...lifecycle, {
+          kind: "stopped" as const,
+          label: "Series stopped",
+          detail: "The harness reports stopped and has no pending Agent job. No successful Agent callback was found for this series.",
+          tone: "warning" as const,
+        }];
+    return {
+      status: "stopped",
+      label: "Series stopped",
+      detail: "The harness is configured, but its Scheduler series is no longer active.",
+      tone: "warning",
+      callId,
+      lifecycle: stoppedLifecycle,
+    };
+  }
+  if (status.wakeMode === 2) {
+    return {
+      status: "configured",
+      label: "Configured, not armed",
+      detail: "The harness saved its Agent configuration but is not currently armed for Scheduler execution.",
+      tone: "warning",
+      callId,
+      lifecycle,
+    };
+  }
+  return {
+    status: "active",
+    label: "Series scheduled",
+    detail: callId
+      ? `Scheduler call #${callId} is armed. This status does not mean an Agent result has been delivered yet.`
+      : "The harness reports an armed configuration. This status does not mean an Agent result has been delivered yet.",
+    tone: "neutral",
+    callId,
+    lifecycle,
+  };
+}
+
+export async function readAgentSeriesEvidence(
+  status: AgentHarnessStatus,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+  deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
+): Promise<AgentSeriesEvidence> {
+  if (!status.configured || status.activeCallId === "0") return describeAgentSeries(status);
+  const lifecycle = await readSchedulerLifecycle(
+    BigInt(status.activeCallId),
+    requester,
+    undefined,
+    status.address,
+    deploymentBlock,
+  );
+  return describeAgentSeries(status, lifecycle);
+}
+
 export function decodeSovereignAgentResult(result: `0x${string}`) {
   const [success, error, text, convoHistory, output, artifacts] = decodeAbiParameters(
     parseAbiParameters("bool, string, string, (string,string,string), (string,string,string), (string,string,string)[]"),
@@ -2982,13 +3108,14 @@ function newestLog(logs: RpcLog[]) {
   return [...logs].sort((a, b) => Number(BigInt(b.blockNumber ?? "0x0") - BigInt(a.blockNumber ?? "0x0")))[0];
 }
 
-export async function readAgentLifecycle(
+export async function readAgentHistory(
   configured: boolean,
   requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
   harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
   deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
   expectedJobId?: string,
-): Promise<AgentLifecycle> {
+  limit = 5,
+): Promise<AgentLifecycle[]> {
   const logRange = await recentLogRange(deploymentBlock, requester);
   const jobLogs = await requester<RpcLog[]>("eth_getLogs", [{
     address: SYSTEM_CONTRACTS.AsyncJobTracker,
@@ -3008,32 +3135,28 @@ export async function readAgentLifecycle(
       return false;
     }
   });
-  const jobLog = newestLog(matchingJobs);
-  const jobId = jobLog?.topics?.[2];
-  if (!jobLog || !jobId) return { status: configured ? "scheduled" : "idle" };
-
-  const [commitBlock] = decodeAbiParameters(
-    parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
-    jobLog.data as `0x${string}`,
-  );
+  const orderedJobs = [...matchingJobs]
+    .sort((a, b) => Number(BigInt(b.blockNumber ?? "0x0") - BigInt(a.blockNumber ?? "0x0")))
+    .slice(0, limit);
+  if (!orderedJobs.length) return [];
   const [phase1Logs, resultLogs, removedLogs, harnessResultLogs] = await Promise.all([
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
       fromBlock: logRange.fromBlock,
       toBlock: logRange.toBlock,
-      topics: [PHASE1_SETTLED_TOPIC, jobId],
+      topics: [PHASE1_SETTLED_TOPIC],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
       fromBlock: logRange.fromBlock,
       toBlock: logRange.toBlock,
-      topics: [RESULT_DELIVERED_TOPIC, jobId, addressTopic(harnessAddress)],
+      topics: [RESULT_DELIVERED_TOPIC, null, addressTopic(harnessAddress)],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
       fromBlock: logRange.fromBlock,
       toBlock: logRange.toBlock,
-      topics: [JOB_REMOVED_TOPIC, null, jobId],
+      topics: [JOB_REMOVED_TOPIC],
     }]),
     requester<RpcLog[]>("eth_getLogs", [{
       address: harnessAddress,
@@ -3042,53 +3165,70 @@ export async function readAgentLifecycle(
       topics: [SOVEREIGN_RESULT_TOPIC],
     }]),
   ]);
-  const phase1Log = newestLog(phase1Logs);
-  const resultLog = newestLog(resultLogs);
-  const removedLog = newestLog(removedLogs);
-  const harnessResultLog = newestLog(harnessResultLogs.filter((log) => {
-    if (log.topics?.[1]?.toLowerCase() === jobId.toLowerCase()) return true;
-    if (log.topics?.length !== 1 || !log.data) return false;
-    try {
-      const [decodedJobId] = decodeAbiParameters(parseAbiParameters("bytes32, bytes"), log.data as `0x${string}`);
-      return decodedJobId.toLowerCase() === jobId.toLowerCase();
-    } catch {
-      return false;
-    }
-  }));
+  return orderedJobs.map((jobLog): AgentLifecycle => {
+    const jobId = jobLog.topics![2];
+    const [commitBlock] = decodeAbiParameters(
+      parseAbiParameters("uint256, bytes, address, bytes32, uint256, uint256, uint256, uint256"),
+      jobLog.data as `0x${string}`,
+    );
+    const phase1Log = newestLog(phase1Logs.filter((log) => log.topics?.[1]?.toLowerCase() === jobId.toLowerCase()));
+    const resultLog = newestLog(resultLogs.filter((log) => log.topics?.[1]?.toLowerCase() === jobId.toLowerCase()));
+    const removedLog = newestLog(removedLogs.filter((log) => log.topics?.[2]?.toLowerCase() === jobId.toLowerCase()));
+    const harnessResultLog = newestLog(harnessResultLogs.filter((log) => {
+      if (log.topics?.[1]?.toLowerCase() === jobId.toLowerCase()) return true;
+      if (log.topics?.length !== 1 || !log.data) return false;
+      try {
+        const [decodedJobId] = decodeAbiParameters(parseAbiParameters("bytes32, bytes"), log.data as `0x${string}`);
+        return decodedJobId.toLowerCase() === jobId.toLowerCase();
+      } catch {
+        return false;
+      }
+    }));
 
-  let decodedResult: ReturnType<typeof decodeSovereignAgentResult> | undefined;
-  let decodeError: string | undefined;
-  if (harnessResultLog?.data) {
-    try {
-      const resultBytes = harnessResultLog.topics?.length === 1
-        ? decodeAbiParameters(parseAbiParameters("bytes32, bytes"), harnessResultLog.data as `0x${string}`)[1]
-        : decodeAbiParameters(parseAbiParameters("bytes"), harnessResultLog.data as `0x${string}`)[0];
-      decodedResult = decodeSovereignAgentResult(resultBytes);
-    } catch {
-      decodeError = "The callback arrived, but its Agent result tuple could not be decoded.";
+    let decodedResult: ReturnType<typeof decodeSovereignAgentResult> | undefined;
+    let decodeError: string | undefined;
+    if (harnessResultLog?.data) {
+      try {
+        const resultBytes = harnessResultLog.topics?.length === 1
+          ? decodeAbiParameters(parseAbiParameters("bytes32, bytes"), harnessResultLog.data as `0x${string}`)[1]
+          : decodeAbiParameters(parseAbiParameters("bytes"), harnessResultLog.data as `0x${string}`)[0];
+        decodedResult = decodeSovereignAgentResult(resultBytes);
+      } catch {
+        decodeError = "The callback arrived, but its Agent result tuple could not be decoded.";
+      }
     }
-  }
-  const resultError = decodedResult ? sovereignAgentResultError(decodedResult) : undefined;
+    const resultError = decodedResult ? sovereignAgentResultError(decodedResult) : undefined;
+    const base = {
+      jobId,
+      executor: jobLog.topics?.[1] ? `0x${jobLog.topics[1].slice(-40)}` : undefined,
+      commitBlock: Number(commitBlock),
+      transactionHash: harnessResultLog?.transactionHash ?? resultLog?.transactionHash ?? jobLog.transactionHash,
+      result: decodedResult,
+      error: decodeError ?? resultError,
+    };
+    if (removedLog?.topics?.[3] && BigInt(removedLog.topics[3]) === 0n) return { ...base, status: "expired" };
+    if (resultLog?.data) {
+      const [success] = decodeAbiParameters(parseAbiParameters("bool"), resultLog.data as `0x${string}`);
+      return { ...base, status: success && !resultError ? "settled" : "failed" };
+    }
+    if (decodedResult) return { ...base, status: resultError ? "failed" : "settled" };
+    if (phase1Log?.data) {
+      const [settledBlock] = decodeAbiParameters(parseAbiParameters("uint256"), phase1Log.data as `0x${string}`);
+      return { ...base, status: "result-ready", settledBlock: Number(settledBlock) };
+    }
+    return { ...base, status: "committed" };
+  });
+}
 
-  const base = {
-    jobId,
-    executor: jobLog.topics?.[1] ? `0x${jobLog.topics[1].slice(-40)}` : undefined,
-    commitBlock: Number(commitBlock),
-    transactionHash: harnessResultLog?.transactionHash ?? resultLog?.transactionHash ?? jobLog.transactionHash,
-    result: decodedResult,
-    error: decodeError ?? resultError,
-  };
-  if (removedLog?.topics?.[3] && BigInt(removedLog.topics[3]) === 0n) return { ...base, status: "expired" };
-  if (resultLog?.data) {
-    const [success] = decodeAbiParameters(parseAbiParameters("bool"), resultLog.data as `0x${string}`);
-    return { ...base, status: success && !resultError ? "settled" : "failed" };
-  }
-  if (decodedResult) return { ...base, status: resultError ? "failed" : "settled" };
-  if (phase1Log?.data) {
-    const [settledBlock] = decodeAbiParameters(parseAbiParameters("uint256"), phase1Log.data as `0x${string}`);
-    return { ...base, status: "result-ready", settledBlock: Number(settledBlock) };
-  }
-  return { ...base, status: "committed" };
+export async function readAgentLifecycle(
+  configured: boolean,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+  harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS,
+  deploymentBlock = AGENT_DEPLOYMENT_BLOCK,
+  expectedJobId?: string,
+): Promise<AgentLifecycle> {
+  const history = await readAgentHistory(configured, requester, harnessAddress, deploymentBlock, expectedJobId, 1);
+  return history[0] ?? { status: configured ? "scheduled" : "idle" };
 }
 
 function storageRefFromFields(fields: ComposerField[], prefix: string): StorageRefTuple {
@@ -3739,6 +3879,7 @@ function App() {
   const [agentRun, setAgentRun] = React.useState<AgentRun | undefined>();
   const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
+  const [agentSeriesState, setAgentSeriesState] = React.useState<AgentSeriesState>({ status: "idle" });
   const [agentLaunchMode] = React.useState<AgentLaunchMode>("scheduled");
   const [agentFundingAmount] = React.useState(() => formatEther(VERIFIED_AGENT_EXECUTION_FUNDING));
   const [agentMaxFeeGwei, setAgentMaxFeeGwei] = React.useState(() => formatGwei(AGENT_DEFAULT_MAX_FEE));
@@ -3972,6 +4113,10 @@ function App() {
       ? agentHarnessState.data
       : undefined;
   const agentLifecycle = agentLifecycleState.status === "ready" ? agentLifecycleState.data : undefined;
+  const agentHistory = agentLifecycleState.status === "ready" ? agentLifecycleState.history : [];
+  const agentSeries = agentSeriesState.status === "ready" || agentSeriesState.status === "error"
+    ? agentSeriesState.data
+    : undefined;
   const isAgentHarnessDemo = wallet.status !== "connected" || !wallet.address;
   const agentFunding = (() => {
     try {
@@ -4061,9 +4206,8 @@ function App() {
     if (agentLifecycle?.status === "failed") return "Agent job failed";
     if (agentLifecycle?.status === "expired") return "Agent job expired";
     if (agentLifecycle?.status === "result-ready") return "TEE result ready";
-    if (agentHarnessStatus?.configured) {
-      return agentHarnessStatus.senderLocked ? "Agent job processing" : "Recurring series active";
-    }
+    if (agentSeries) return agentSeries.label;
+    if (agentHarnessStatus?.configured) return "Reading series state";
     if (!isTestedNativeAgentProfile) return "Tested GLM route required";
     return "Ready to configure";
   })();
@@ -5794,7 +5938,8 @@ function App() {
         const discovery = await readAgentHarnessDiscovery(wallet.address);
         if (discovery.status === "missing") {
           setAgentHarnessState({ status: "missing", predictedAddress: discovery.predictedAddress });
-          setAgentLifecycleState({ status: "ready", data: { status: "idle" } });
+          setAgentLifecycleState({ status: "ready", data: { status: "idle" }, history: [] });
+          setAgentSeriesState({ status: "idle" });
           return undefined;
         }
         harnessAddress = discovery.address;
@@ -5816,23 +5961,47 @@ function App() {
     }
   }, [wallet.address]);
 
+  const refreshAgentSeries = React.useCallback(async (status: AgentHarnessStatus) => {
+    let cachedData: AgentSeriesEvidence | undefined;
+    setAgentSeriesState((current) => {
+      cachedData = current.status === "ready" || current.status === "error" ? current.data : undefined;
+      return { status: "loading" };
+    });
+    try {
+      const data = await readAgentSeriesEvidence(status);
+      setAgentSeriesState({ status: "ready", data });
+      return data;
+    } catch (error) {
+      const fallback = describeAgentSeries(status);
+      setAgentSeriesState({
+        status: "error",
+        data: cachedData ?? fallback,
+        error: error instanceof Error ? error.message : "Could not read the Agent Scheduler lifecycle.",
+      });
+      return cachedData ?? fallback;
+    }
+  }, []);
+
   const refreshAgentLifecycle = React.useCallback(async (
     configured = agentHarnessStatus?.configured ?? false,
     expectedJobId?: string,
   ) => {
     let cachedLifecycle: AgentLifecycle | undefined;
+    let cachedHistory: AgentLifecycle[] = [];
     setAgentLifecycleState((current) => {
       cachedLifecycle = current.status === "ready" ? current.data : undefined;
+      cachedHistory = current.status === "ready" ? current.history : [];
       return current.status === "ready" ? current : { status: "loading" };
     });
     try {
-      const data = await readAgentLifecycle(configured, rpc, agentHarnessAddress, AGENT_DEPLOYMENT_BLOCK, expectedJobId);
-      setAgentLifecycleState({ status: "ready", data });
+      const history = await readAgentHistory(configured, rpc, agentHarnessAddress, AGENT_DEPLOYMENT_BLOCK, expectedJobId);
+      const data = history[0] ?? { status: configured ? "scheduled" as const : "idle" as const };
+      setAgentLifecycleState({ status: "ready", data, history });
       return data;
     } catch (error) {
       setAgentLifecycleState(
         cachedLifecycle
-          ? { status: "ready", data: cachedLifecycle }
+          ? { status: "ready", data: cachedLifecycle, history: cachedHistory }
           : {
               status: "error",
               error: error instanceof Error ? error.message : "Could not read the Agent lifecycle events.",
@@ -5852,7 +6021,10 @@ function App() {
           : current,
       );
       const status = await refreshAgentHarness();
-      await refreshAgentLifecycle(status?.configured ?? false);
+      if (status) await Promise.all([
+        refreshAgentLifecycle(status.configured),
+        refreshAgentSeries(status),
+      ]);
       const provider = providerRef.current;
       if (provider) await refreshWallet(provider).catch(() => undefined);
     } catch (error) {
@@ -5862,7 +6034,7 @@ function App() {
           : current,
       );
     }
-  }, [refreshAgentHarness, refreshAgentLifecycle, refreshWallet]);
+  }, [refreshAgentHarness, refreshAgentLifecycle, refreshAgentSeries, refreshWallet]);
 
   const createAgentHarness = React.useCallback(async () => {
     const provider = providerRef.current;
@@ -6161,7 +6333,10 @@ function App() {
       const status = await refreshAgentHarness();
       if (!status) return;
       const expectedJobId = agentRun?.action === "once" ? agentRun.hash : undefined;
-      const lifecycle = await refreshAgentLifecycle(status.configured, expectedJobId);
+      const [lifecycle] = await Promise.all([
+        refreshAgentLifecycle(status.configured, expectedJobId),
+        refreshAgentSeries(status),
+      ]);
       const terminal = lifecycle && ["settled", "failed", "expired"].includes(lifecycle.status);
       if (terminal && agentRun?.action === "once" && agentRun.escrowAfter === undefined) {
         const provider = providerRef.current;
@@ -6189,6 +6364,7 @@ function App() {
     currentOneShotLifecycle?.status,
     refreshAgentHarness,
     refreshAgentLifecycle,
+    refreshAgentSeries,
     refreshWallet,
     selectedRecipe.id,
     wallet.address,
@@ -6897,7 +7073,9 @@ function App() {
                       type="button"
                       onClick={() => {
                         refreshAgentHarness()
-                          .then((status) => status ? refreshAgentLifecycle(status.configured) : undefined)
+                          .then((status) => status
+                            ? Promise.all([refreshAgentLifecycle(status.configured), refreshAgentSeries(status)])
+                            : undefined)
                           .catch(() => undefined);
                       }}
                       disabled={agentHarnessState.status === "loading"}
@@ -6950,17 +7128,9 @@ function App() {
                           most 0.02 RITUAL. Direct one-shot remains disabled because it can draw from existing wallet escrow
                           without a reliable quote.
                         </p>
-                        <div>
-                          <a href={explorerTransactionUrl(AGENT_COST_INCIDENT_REQUEST_TX)} target="_blank" rel="noreferrer">
-                            Request tx <ArrowUpRight size={12} />
-                          </a>
-                          <a href={explorerTransactionUrl(AGENT_COST_INCIDENT_CALLBACK_TX)} target="_blank" rel="noreferrer">
-                            Callback tx <ArrowUpRight size={12} />
-                          </a>
-                        </div>
                       </div>
                     </div>
-                  {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
+                  {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
                     <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
                       <header>
                         <div>
@@ -6999,7 +7169,24 @@ function App() {
                       ) : null}
                     </section>
                   ) : null}
-                  <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
+                  {agentHarnessStatus?.configured && agentSeries ? (
+                    <div className={`agent-series-status ${agentSeries.tone}`} role="status" aria-live="polite">
+                      <span className="agent-series-status-icon" aria-hidden="true">
+                        {agentSeries.status === "completed"
+                          ? <Check size={15} />
+                          : agentSeries.status === "processing" || agentSeries.status === "active"
+                            ? <Activity size={15} />
+                            : <AlertCircle size={15} />}
+                      </span>
+                      <div>
+                        <span>Current series</span>
+                        <strong>{agentSeries.label}</strong>
+                        <p>{agentSeries.detail}</p>
+                      </div>
+                      {agentSeries.callId ? <code>Call #{Number(agentSeries.callId).toLocaleString()}</code> : null}
+                    </div>
+                  ) : (
+                    <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
                     {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
                         <div className="agent-fixed-funding">
@@ -7041,12 +7228,12 @@ function App() {
                           ? "Live launch paused"
                         : agentHarnessState.status === "missing"
                           ? "Create Agent harness"
-                        : agentLaunchMode === "scheduled" && agentHarnessStatus?.configured
-                          ? "Agent active"
-                          : agentLaunchMode === "once" ? "Run once" : "Start recurring"}
+                        : agentLaunchMode === "once" ? "Run once" : "Start recurring"}
                     </button>
-                  </div>
+                    </div>
+                  )}
                   {agentHarnessState.status === "error" ? <p className="agent-launch-message error">{agentHarnessState.error}</p> : null}
+                  {agentSeriesState.status === "error" ? <p className="agent-launch-message error">Series history temporarily unavailable: {agentSeriesState.error}</p> : null}
                   {agentLifecycleState.status === "error" ? <p className="agent-launch-message error">{agentLifecycleState.error}</p> : null}
                   {agentTxState.status === "error" ? <p className="agent-launch-message error">{agentTxState.error}</p> : null}
                   {agentRun ? (
@@ -7080,32 +7267,60 @@ function App() {
                       ) : null}
                     </div>
                   ) : null}
-                  {agentLifecycle?.jobId ? (
-                    <div className={`agent-lifecycle ${agentLifecycle.status}`} aria-live="polite">
-                      <div>
-                        <span>Latest Agent job</span>
-                        <strong>
-                          {agentLifecycle.status === "committed"
-                            ? "TEE processing"
-                            : agentLifecycle.status === "result-ready"
-                              ? "Awaiting callback"
-                              : agentLifecycle.status === "settled"
-                                ? "Result delivered"
-                                : agentLifecycle.status === "expired"
-                                  ? "Job expired"
-                                  : "Job failed"}
-                        </strong>
+                  {agentSeries?.lifecycle.length ? (
+                    <div className="scheduler-lifecycle agent-series-lifecycle" aria-label="Current Agent series lifecycle">
+                      <div className="scheduler-lifecycle-head">
+                        <span>Series history</span>
+                        <strong>{agentSeries.callId ? `Call #${Number(agentSeries.callId).toLocaleString()}` : "Current series"}</strong>
                       </div>
-                      <code>{formatHash(agentLifecycle.jobId)}</code>
-                      {agentLifecycle.executor ? <small>executor {formatAddress(agentLifecycle.executor)}</small> : null}
-                      {agentLifecycle.status === "settled" && agentLifecycle.result?.text ? <p>{agentLifecycle.result.text}</p> : null}
-                      {agentLifecycle.error ? <p className="error">{agentLifecycle.error}</p> : null}
-                      {agentLifecycle.status === "failed" && agentLifecycle.result?.text ? (
-                        <details className="agent-result-raw">
-                          <summary>Technical details</summary>
-                          <pre>{agentLifecycle.result.text}</pre>
-                        </details>
-                      ) : null}
+                      <ol>
+                        {agentSeries.lifecycle.slice(-8).map((entry, index) => (
+                          <li className={entry.tone} key={`${entry.kind}-${entry.blockNumber ?? index}-${index}`}>
+                            <span className="scheduler-lifecycle-icon" aria-hidden="true">
+                              {entry.tone === "ok" ? <Check size={13} /> : entry.tone === "bad" ? <X size={13} /> : entry.tone === "warning" ? <AlertCircle size={13} /> : <CircleDot size={13} />}
+                            </span>
+                            <div>
+                              <strong>{entry.label}</strong>
+                              <p>{entry.detail}</p>
+                            </div>
+                            {entry.transactionHash ? (
+                              <a href={explorerTransactionUrl(entry.transactionHash)} target="_blank" rel="noreferrer" aria-label={`${entry.label} transaction`}>
+                                {entry.blockNumber ? `#${entry.blockNumber.toLocaleString()}` : "Tx"} <ArrowUpRight size={12} />
+                              </a>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
+                  {agentHarnessStatus?.configured ? (
+                    <div className="agent-job-history" aria-label="Recent Agent job history">
+                      <div className="scheduler-lifecycle-head">
+                        <span>Recent Agent jobs</span>
+                        <strong>Last 100,000 blocks</strong>
+                      </div>
+                      {agentHistory.length ? (
+                        <ol>
+                          {agentHistory.map((job) => (
+                            <li className={job.status} key={job.jobId}>
+                              <span className="agent-job-icon" aria-hidden="true">
+                                {job.status === "settled" ? <Check size={13} /> : job.status === "failed" || job.status === "expired" ? <AlertCircle size={13} /> : <Activity size={13} />}
+                              </span>
+                              <div>
+                                <strong>{job.status === "settled" ? "Result delivered" : job.status === "failed" ? "Job failed" : job.status === "expired" ? "Job expired" : job.status === "result-ready" ? "Awaiting callback" : "TEE processing"}</strong>
+                                <p>{job.result?.text || job.error || `Committed at block ${job.commitBlock?.toLocaleString() ?? "unknown"}.`}</p>
+                              </div>
+                              {job.transactionHash ? (
+                                <a href={explorerTransactionUrl(job.transactionHash)} target="_blank" rel="noreferrer" aria-label="Agent job transaction">
+                                  {job.jobId ? formatHash(job.jobId) : "Tx"} <ArrowUpRight size={12} />
+                                </a>
+                              ) : job.jobId ? <code>{formatHash(job.jobId)}</code> : null}
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="agent-history-empty">No Agent job was found for this harness in the RPC&apos;s recent log window.</p>
+                      )}
                     </div>
                   ) : null}
                 </div>

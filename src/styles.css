@@ -1548,22 +1548,6 @@ textarea:focus {
   line-height: 1.45;
 }
 
-.agent-cost-circuit > div > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding-top: 2px;
-}
-
-.agent-cost-circuit a {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--accent-ink);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-}
-
 .agent-preflight {
   display: grid;
   gap: 9px;
@@ -1701,6 +1685,78 @@ textarea:focus {
 
 .agent-launch-controls {
   justify-content: flex-end;
+}
+
+.agent-series-status {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  border-block: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.agent-series-status-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--muted);
+}
+
+.agent-series-status.ok .agent-series-status-icon,
+.agent-series-status.ok strong {
+  border-color: rgba(71, 227, 173, 0.3);
+  color: var(--accent-ink);
+}
+
+.agent-series-status.warning .agent-series-status-icon,
+.agent-series-status.warning strong {
+  border-color: rgba(255, 179, 107, 0.35);
+  color: #ffb36b;
+}
+
+.agent-series-status.bad .agent-series-status-icon,
+.agent-series-status.bad strong {
+  border-color: rgba(255, 117, 96, 0.35);
+  color: #ff7560;
+}
+
+.agent-series-status > div {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-series-status > div > span,
+.agent-job-history .scheduler-lifecycle-head span {
+  color: var(--quiet);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-series-status strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.agent-series-status p,
+.agent-history-empty {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.agent-series-status > code {
+  padding-top: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 .agent-launch-controls label {
@@ -1855,6 +1911,86 @@ textarea:focus {
 
 .agent-lifecycle p {
   overflow-wrap: anywhere;
+}
+
+.agent-job-history {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.agent-job-history ol {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-job-history li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  padding: 9px 0;
+}
+
+.agent-job-history li:first-child {
+  border-top: 0;
+}
+
+.agent-job-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--muted);
+}
+
+.agent-job-history li.settled .agent-job-icon {
+  border-color: rgba(71, 227, 173, 0.3);
+  color: var(--accent-ink);
+}
+
+.agent-job-history li.failed .agent-job-icon,
+.agent-job-history li.expired .agent-job-icon {
+  border-color: rgba(255, 117, 96, 0.35);
+  color: #ff7560;
+}
+
+.agent-job-history li > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.agent-job-history li strong {
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.agent-job-history li p {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.agent-job-history li > a,
+.agent-job-history li > code {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  white-space: nowrap;
 }
 
 .agent-result-raw {
@@ -3770,6 +3906,19 @@ pre {
   .agent-lifecycle {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .agent-series-status,
+  .agent-job-history li {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .agent-series-status > code,
+  .agent-job-history li > a,
+  .agent-job-history li > code {
+    grid-column: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .agent-lifecycle {

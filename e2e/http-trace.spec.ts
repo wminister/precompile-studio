@@ -20,6 +20,7 @@ const ZERO_HASH = `0x${"0".repeat(64)}` as `0x${string}`;
 
 test.beforeEach(async ({ page }, testInfo) => {
   const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
+  const stoppedAgentSeries = testInfo.title.includes("reports a stopped Agent series");
   let factoryLookupCount = 0;
   await page.addInitScript(({ llmHash }) => {
     const account = "0x1111111111111111111111111111111111111111";
@@ -68,6 +69,11 @@ test.beforeEach(async ({ page }, testInfo) => {
         result = encodeAbiParameters(parseAbiParameters("address,bytes32"), [PREDICTED_AGENT_HARNESS, ZERO_HASH]);
       }
       else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
+      else if (call?.data?.startsWith(toFunctionSelector("configured()"))) result = encodeAbiParameters(parseAbiParameters("bool"), [stoppedAgentSeries]);
+      else if (call?.data?.startsWith(toFunctionSelector("wakeMode()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [stoppedAgentSeries ? 1 : 0]);
+      else if (call?.data?.startsWith(toFunctionSelector("activeCallId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 3_259_797n : 0n]);
+      else if (call?.data?.startsWith(toFunctionSelector("currentSeriesId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 1n : 0n]);
+      else if (call?.data?.startsWith(toFunctionSelector("hasPendingJobForSender(address)"))) result = encodeAbiParameters(parseAbiParameters("bool"), [false]);
       else if (call?.data?.startsWith(toFunctionSelector("consumerBalance()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [400_000_000_000_000n]);
       else if (call?.data?.startsWith(toFunctionSelector("activeScheduleId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [0n]);
       else if (call?.data?.startsWith(toFunctionSelector("lastScheduleId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [3_146_449n]);
@@ -145,7 +151,7 @@ test("prepares only the capped registry-valid, GLM-tested Agent launch without o
   const preflight = page.getByLabel("Agent pre-sign cost check");
   await expect(preflight.getByText("0.025 RITUAL", { exact: true })).toBeVisible();
   await expect(preflight.getByText(/general RitualWallet escrow is not used/)).toBeVisible();
-  await expect(launch.getByRole("link", { name: "Request tx", exact: true })).toHaveAttribute("href", /8f196bb3/);
+  await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("1.1");
   await expect(launch.getByText(/1 GLM run .* 0\.02 RITUAL maximum sent/)).toBeVisible();
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
@@ -155,6 +161,20 @@ test("prepares only the capped registry-valid, GLM-tested Agent launch without o
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
   await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
+  await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("reports a stopped Agent series without stale transaction links", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+
+  const launch = page.getByTestId("agent-launch");
+  const seriesStatus = launch.locator(".agent-series-status");
+  await expect(seriesStatus.getByText("Series stopped", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(seriesStatus.getByText("Call #3,259,797", { exact: true })).toBeVisible();
+  await expect(launch.getByText("No Agent job was found for this harness in the RPC's recent log window.", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Agent active", { exact: true })).toHaveCount(0);
+  await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 

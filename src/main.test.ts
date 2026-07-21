@@ -46,6 +46,7 @@ import {
   describeHttpPrecompileOutput,
   describeLlmPrecompileOutput,
   describeRunnerCallback,
+  describeAgentSeries,
   ensureRitualChain,
   parseRunnerRuns,
   prepareWalletTransaction,
@@ -280,6 +281,35 @@ describe("Scheduled JQ consumer", () => {
 });
 
 describe("Sovereign Agent harness", () => {
+  it("reports a configured stopped harness as stopped instead of active", () => {
+    const series = describeAgentSeries({
+      address: SOVEREIGN_AGENT_HARNESS_ADDRESS,
+      owner: TEST_ADDRESS,
+      configured: true,
+      wakeMode: 1,
+      activeCallId: "3259797",
+      currentSeriesId: "1",
+      senderLocked: false,
+    }, [{
+      kind: "scheduled",
+      label: "Schedule created",
+      detail: "1 execution, first at block 48,473,212.",
+      tone: "neutral",
+      blockNumber: 48_471_212,
+      transactionHash: TX_HASH,
+    }]);
+
+    expect(series).toMatchObject({
+      status: "stopped",
+      label: "Series stopped",
+      callId: "3259797",
+    });
+    expect(series.lifecycle[series.lifecycle.length - 1]).toMatchObject({
+      kind: "stopped",
+      tone: "warning",
+    });
+  });
+
   it("defaults to the capped, registry-valid native GLM profile with successful history", () => {
     const fields = Object.fromEntries(recipeFields("agent").map((field) => [field.key, field.value]));
     expect(fields.executor).toBe(TESTED_NATIVE_AGENT_EXECUTOR);
