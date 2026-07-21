@@ -21,6 +21,7 @@ const ZERO_HASH = `0x${"0".repeat(64)}` as `0x${string}`;
 test.beforeEach(async ({ page }, testInfo) => {
   const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
   const stoppedAgentSeries = testInfo.title.includes("reports a stopped Agent series");
+  const delayedAgentHarness = testInfo.title.includes("keeps Agent actions hidden while loading");
   let factoryLookupCount = 0;
   let delayAgentHistory = false;
   await page.route("**/__test/delay-agent-history", async (route) => {
@@ -73,7 +74,10 @@ test.beforeEach(async ({ page }, testInfo) => {
       else if (call?.data?.startsWith(toFunctionSelector("predictHarness(address,bytes32)"))) {
         result = encodeAbiParameters(parseAbiParameters("address,bytes32"), [PREDICTED_AGENT_HARNESS, ZERO_HASH]);
       }
-      else if (call?.data?.startsWith(toFunctionSelector("owner()"))) result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
+      else if (call?.data?.startsWith(toFunctionSelector("owner()"))) {
+        if (delayedAgentHarness) await new Promise((resolve) => setTimeout(resolve, 750));
+        result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
+      }
       else if (call?.data?.startsWith(toFunctionSelector("configured()"))) result = encodeAbiParameters(parseAbiParameters("bool"), [stoppedAgentSeries]);
       else if (call?.data?.startsWith(toFunctionSelector("wakeMode()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [0]);
       else if (call?.data?.startsWith(toFunctionSelector("activeCallId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 3_259_797n : 0n]);
@@ -170,6 +174,21 @@ test("prepares only the capped registry-valid, GLM-tested Agent launch without o
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
   await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("keeps Agent actions hidden while loading the first onchain snapshot", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+
+  const launch = page.getByTestId("agent-launch");
+  await expect(launch.getByLabel("Reading Agent harness state")).toBeVisible();
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toHaveCount(0);
+  await expect(launch.getByText("Checking", { exact: true })).toHaveCount(0);
+
+  await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
 });
 
 test("reports a stopped Agent series without stale transaction links", async ({ page }) => {

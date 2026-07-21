@@ -1517,6 +1517,43 @@ textarea:focus {
   color: #ffb36b;
 }
 
+.agent-launch-loading {
+  display: grid;
+  gap: 9px;
+  min-height: 92px;
+  align-content: center;
+  border-block: 1px solid var(--line);
+  padding: 14px 0;
+}
+
+.agent-loading-line {
+  width: min(42%, 360px);
+  height: 8px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  animation: agent-loading-pulse 1.4s ease-in-out infinite;
+}
+
+.agent-loading-line.wide {
+  width: min(68%, 620px);
+}
+
+.agent-loading-line.short {
+  width: min(26%, 220px);
+}
+
+@keyframes agent-loading-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-loading-line {
+    animation: none;
+    opacity: 0.65;
+  }
+}
+
 .agent-cost-circuit {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

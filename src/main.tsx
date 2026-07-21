@@ -4123,6 +4123,9 @@ function App() {
     agentHarnessState.status === "ready" || agentHarnessState.status === "loading" || agentHarnessState.status === "error"
       ? agentHarnessState.data
       : undefined;
+  const isAgentHarnessResolving =
+    agentHarnessState.status === "idle" ||
+    (agentHarnessState.status === "loading" && !agentHarnessState.data);
   const agentLifecycle = agentLifecycleState.status === "ready" ? agentLifecycleState.data : undefined;
   const agentHistory = agentLifecycleState.status === "ready" ? agentLifecycleState.history : [];
   const agentSeries = agentSeriesState.status === "ready" || agentSeriesState.status === "loading" || agentSeriesState.status === "error"
@@ -7106,7 +7109,13 @@ function App() {
                       {agentSeriesState.status === "loading" && agentSeries ? "Refreshing" : "Refresh"}
                     </button>
                   </div>
-                  <div className="agent-launch-facts">
+                  {isAgentHarnessResolving ? (
+                    <div className="agent-launch-loading" role="status" aria-live="polite" aria-label="Reading Agent harness state">
+                      <div className="agent-loading-line wide" />
+                      <div className="agent-loading-line" />
+                      <div className="agent-loading-line short" />
+                    </div>
+                  ) : <div className="agent-launch-facts">
                     <div>
                       <span>Harness</span>
                       <code>{formatAddress(agentHarnessAddress)}</code>
@@ -7139,8 +7148,8 @@ function App() {
                           : `#${agentHarnessStatus.currentSeriesId}`}
                       </strong>
                     </div>
-                  </div>
-                  <div className="agent-cost-circuit" role="status">
+                  </div>}
+                  {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
                       <ShieldCheck size={16} />
                       <div>
                         <strong>Registry-valid, GLM-tested route</strong>
@@ -7151,8 +7160,8 @@ function App() {
                           without a reliable quote.
                         </p>
                       </div>
-                    </div>
-                  {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
+                    </div> : null}
+                  {agentHarnessState.status === "ready" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
                     <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
                       <header>
                         <div>
@@ -7191,7 +7200,7 @@ function App() {
                       ) : null}
                     </section>
                   ) : null}
-                  {agentHarnessStatus?.configured && agentSeries ? (
+                  {!isAgentHarnessResolving && agentHarnessStatus?.configured && agentSeries ? (
                     <div className={`agent-series-status ${agentSeries.tone}`} role="status" aria-live="polite">
                       <span className="agent-series-status-icon" aria-hidden="true">
                         {agentSeries.status === "completed"
@@ -7207,7 +7216,7 @@ function App() {
                       </div>
                       {agentSeries.callId ? <code>Call #{Number(agentSeries.callId).toLocaleString()}</code> : null}
                     </div>
-                  ) : (
+                  ) : !isAgentHarnessResolving ? (
                     <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
                     {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
@@ -7253,7 +7262,7 @@ function App() {
                         : agentLaunchMode === "once" ? "Run once" : "Start recurring"}
                     </button>
                     </div>
-                  )}
+                  ) : null}
                   {agentHarnessState.status === "error" ? <p className="agent-launch-message error">{agentHarnessState.error}</p> : null}
                   {agentSeriesState.status === "error" ? <p className="agent-launch-message error">Series history temporarily unavailable: {agentSeriesState.error}</p> : null}
                   {agentLifecycleState.status === "error" ? <p className="agent-launch-message error">{agentLifecycleState.error}</p> : null}
