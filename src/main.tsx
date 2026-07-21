@@ -227,7 +227,8 @@ export type AgentSeriesEvidence = {
 };
 
 type AgentSeriesState =
-  | { status: "idle" | "loading" }
+  | { status: "idle" }
+  | { status: "loading"; data?: AgentSeriesEvidence }
   | { status: "ready"; data: AgentSeriesEvidence }
   | { status: "error"; error: string; data?: AgentSeriesEvidence };
 
@@ -3880,6 +3881,7 @@ function App() {
   const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
   const [agentSeriesState, setAgentSeriesState] = React.useState<AgentSeriesState>({ status: "idle" });
+  const agentSeriesRequestRef = React.useRef(0);
   const [agentLaunchMode] = React.useState<AgentLaunchMode>("scheduled");
   const [agentFundingAmount] = React.useState(() => formatEther(VERIFIED_AGENT_EXECUTION_FUNDING));
   const [agentMaxFeeGwei, setAgentMaxFeeGwei] = React.useState(() => formatGwei(AGENT_DEFAULT_MAX_FEE));
@@ -4114,7 +4116,7 @@ function App() {
       : undefined;
   const agentLifecycle = agentLifecycleState.status === "ready" ? agentLifecycleState.data : undefined;
   const agentHistory = agentLifecycleState.status === "ready" ? agentLifecycleState.history : [];
-  const agentSeries = agentSeriesState.status === "ready" || agentSeriesState.status === "error"
+  const agentSeries = agentSeriesState.status === "ready" || agentSeriesState.status === "loading" || agentSeriesState.status === "error"
     ? agentSeriesState.data
     : undefined;
   const isAgentHarnessDemo = wallet.status !== "connected" || !wallet.address;
@@ -5937,6 +5939,7 @@ function App() {
       if (wallet.address) {
         const discovery = await readAgentHarnessDiscovery(wallet.address);
         if (discovery.status === "missing") {
+          agentSeriesRequestRef.current += 1;
           setAgentHarnessState({ status: "missing", predictedAddress: discovery.predictedAddress });
           setAgentLifecycleState({ status: "ready", data: { status: "idle" }, history: [] });
           setAgentSeriesState({ status: "idle" });
@@ -5962,17 +5965,23 @@ function App() {
   }, [wallet.address]);
 
   const refreshAgentSeries = React.useCallback(async (status: AgentHarnessStatus) => {
+    const requestId = agentSeriesRequestRef.current + 1;
+    agentSeriesRequestRef.current = requestId;
     let cachedData: AgentSeriesEvidence | undefined;
     setAgentSeriesState((current) => {
-      cachedData = current.status === "ready" || current.status === "error" ? current.data : undefined;
-      return { status: "loading" };
+      cachedData = current.status === "ready" || current.status === "loading" || current.status === "error"
+        ? current.data
+        : undefined;
+      return { status: "loading", data: cachedData };
     });
     try {
       const data = await readAgentSeriesEvidence(status);
+      if (requestId !== agentSeriesRequestRef.current) return data;
       setAgentSeriesState({ status: "ready", data });
       return data;
     } catch (error) {
       const fallback = describeAgentSeries(status);
+      if (requestId !== agentSeriesRequestRef.current) return cachedData ?? fallback;
       setAgentSeriesState({
         status: "error",
         data: cachedData ?? fallback,
@@ -7080,8 +7089,8 @@ function App() {
                       }}
                       disabled={agentHarnessState.status === "loading"}
                     >
-                      {agentHarnessState.status === "loading" ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
-                      Refresh
+                      {agentHarnessState.status === "loading" || agentSeriesState.status === "loading" ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
+                      {agentSeriesState.status === "loading" && agentSeries ? "Refreshing" : "Refresh"}
                     </button>
                   </div>
                   <div className="agent-launch-facts">

@@ -22,6 +22,11 @@ test.beforeEach(async ({ page }, testInfo) => {
   const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
   const stoppedAgentSeries = testInfo.title.includes("reports a stopped Agent series");
   let factoryLookupCount = 0;
+  let delayAgentHistory = false;
+  await page.route("**/__test/delay-agent-history", async (route) => {
+    delayAgentHistory = true;
+    await route.fulfill({ status: 204, body: "" });
+  });
   await page.addInitScript(({ llmHash }) => {
     const account = "0x1111111111111111111111111111111111111111";
     const provider = {
@@ -89,7 +94,10 @@ test.beforeEach(async ({ page }, testInfo) => {
       }
       else result = "0x" + "0".repeat(64);
     }
-    if (payload.method === "eth_getLogs") result = [];
+    if (payload.method === "eth_getLogs") {
+      if (stoppedAgentSeries && delayAgentHistory) await new Promise((resolve) => setTimeout(resolve, 750));
+      result = [];
+    }
     if (payload.method === "eth_getTransactionReceipt") {
       result = payload.params?.[0] === FIXTURE_LLM_TX_HASH ? ritualReceiptFixtures.llmSuccess : ritualReceiptFixtures.success;
     }
@@ -175,6 +183,13 @@ test("reports a stopped Agent series without stale transaction links", async ({ 
   await expect(launch.getByText("No Agent job was found for this harness in the RPC's recent log window.", { exact: true })).toBeVisible();
   await expect(launch.getByText("Agent active", { exact: true })).toHaveCount(0);
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
+
+  await page.evaluate(() => fetch("/__test/delay-agent-history"));
+  await launch.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(launch.getByRole("button", { name: "Refreshing", exact: true })).toBeVisible();
+  await expect(seriesStatus.getByText("Series stopped", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
