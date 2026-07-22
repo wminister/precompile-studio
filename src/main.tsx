@@ -607,11 +607,14 @@ const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpP
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
-// Earlier harness versions stored Scheduler gas limits that proved insufficient
-// for wakeUp on the live chain. Version the deterministic child so those
-// immutable schedules remain history instead of being presented for reuse.
+// Earlier harness versions contain immutable schedules from failed test
+// profiles. Keep the deployed v3 address stable for history inspection while
+// paid Agent launch remains paused below.
 export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v3"));
-export const AGENT_RECURRING_EXECUTION_ENABLED = true;
+// Paid Agent launch is paused until the historically successful Scheduler
+// profile has been reproduced end to end from the browser. Keep encoding,
+// discovery, and lifecycle inspection available without exposing more funds.
+export const AGENT_RECURRING_EXECUTION_ENABLED = false;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
@@ -652,7 +655,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, Scheduled JQ, and the capped recurring Sovereign Agent route are publicly usable. Agent launch is restricted to native GLM-4.7, ZeroClaw, one registry-valid executor with proven onchain history, and a one-call harness deposit capped at 0.02 RITUAL. Direct one-shot Agent submission remains disabled because it can spend from existing wallet escrow without a reliable quote.",
+      "HTTP, JQ, and Scheduled JQ are publicly usable. Agent composition, executor discovery, ABI inspection, and existing-series history remain available, but paid Agent launch is paused after the Scheduler accepted calls without dispatching them. Direct one-shot submission is also disabled because it can spend from existing wallet escrow without a reliable quote.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -662,7 +665,7 @@ const FAQ_ITEMS = [
   {
     question: "Why does Agent use a recurring harness?",
     answer:
-      "The wallet-owned recurring harness isolates Agent funding from the wallet's existing RitualWallet escrow. The verified launch sends exactly 0.02 RITUAL: 0.01 for one execution and Ritual's 0.01 Scheduler reserve. This creates a hard transaction-value ceiling before signing; direct one-shot submission cannot currently provide that protection.",
+      "The wallet-owned recurring harness isolates Agent funding from the wallet's existing RitualWallet escrow and preserves Scheduler and callback evidence. Paid launch is currently paused: the latest low-fee schedules were accepted but not dispatched. The Studio will not present that route as working until its browser flow reproduces a completed Agent result.",
   },
   {
     question: "What is stored by the app?",
@@ -735,12 +738,15 @@ const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
 const AGENT_CONFIGURE_SELECTOR = "0xb1906702";
 type AgentSchedule = readonly [number, number, number, bigint, bigint, bigint];
 type AgentRolling = readonly [number, number, number];
-export const AGENT_SCHEDULER_GAS = 1_200_000;
-const AGENT_DEFAULT_MAX_FEE = 1_100_000_000n;
-const AGENT_PRIORITY_FEE = 100_000_000n;
-const AGENT_SCHEDULE: AgentSchedule = [
+// These values match the user's historical browser-independent Agent run that
+// produced a Scheduler CallExecuted event. They are retained for inspection
+// and regression tests while paid browser launch remains paused.
+export const AGENT_SCHEDULER_GAS = 800_000;
+const AGENT_DEFAULT_MAX_FEE = 20_000_000_000n;
+const AGENT_PRIORITY_FEE = 1_000_000_000n;
+export const AGENT_SCHEDULE: AgentSchedule = [
   AGENT_SCHEDULER_GAS,
-  500,
+  180,
   500,
   AGENT_DEFAULT_MAX_FEE,
   AGENT_PRIORITY_FEE,
@@ -754,13 +760,14 @@ const AGENT_LOCK_BLOCKS = 100_000n;
 const AGENT_CONFIGURE_GAS_LIMIT = 5_000_000n;
 const AGENT_OBSERVED_CONFIGURE_GAS = 3_178_666n;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
-export const VERIFIED_AGENT_EXECUTION_FUNDING = 10_000_000_000_000_000n;
+const AGENT_MINIMUM_EXECUTION_FUNDING = 10_000_000_000_000_000n;
+export const VERIFIED_AGENT_EXECUTION_FUNDING = 90_000_000_000_000_000n;
 export const VERIFIED_AGENT_LAUNCH_CEILING = SCHEDULER_RESERVE + VERIFIED_AGENT_EXECUTION_FUNDING;
 export function agentExecutionBudget(schedule: AgentSchedule = AGENT_SCHEDULE) {
   const schedulerBudget = BigInt(schedule[0]) * schedule[3] + schedule[5];
-  return schedulerBudget > VERIFIED_AGENT_EXECUTION_FUNDING
+  return schedulerBudget > AGENT_MINIMUM_EXECUTION_FUNDING
     ? schedulerBudget
-    : VERIFIED_AGENT_EXECUTION_FUNDING;
+    : AGENT_MINIMUM_EXECUTION_FUNDING;
 }
 export function agentTotalFunding(executionFunding: bigint) {
   return SCHEDULER_RESERVE + executionFunding;
@@ -1195,10 +1202,10 @@ export const recipes: Recipe[] = [
   {
     id: "agent",
     name: "Agent",
-    label: "Factory-backed recipe",
+    label: "Inspection-only recipe",
     icon: Route,
-    status: "live",
-    description: "Wallet-owned ZeroClaw task with authenticated two-phase delivery through a deterministic factory harness.",
+    status: "degraded",
+    description: "Compose and inspect a wallet-owned ZeroClaw task; paid browser launch is paused.",
     fields: [
       { key: "executor", label: "Executor", value: TESTED_NATIVE_AGENT_EXECUTOR },
       { key: "ttl", label: "TTL blocks", value: "500" },
@@ -4224,7 +4231,7 @@ function App() {
     ? "Select the registry-valid, GLM-tested executor"
     : !isAgentFeeCapSufficient
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
-    : `1 GLM run · ${formatRitual(agentFunding)} execution ceiling + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL maximum sent`;
+    : `Historical profile · ${formatRitual(agentFunding)} harness funding + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL deposited`;
   const agentOneShotSummary = !AGENT_ONE_SHOT_EXECUTION_ENABLED
     ? "Direct one-shot submission remains disabled because it can draw from the wallet's existing escrow without a reliable executor quote."
     : !hasRitualBalance
@@ -4624,15 +4631,19 @@ function App() {
                   : `${formatRitual(agentEscrowBalance)} RITUAL available is below the ${formatRitual(agentCallbackBudget)} RITUAL callback limit. You can still run because the actual cost may be lower.`,
             }]
           : [{
-              ok: agentFunding >= agentPerCallFunding && isAgentFeeCapSufficient,
-              label: !isAgentFeeCapSufficient
-                ? "Raise Scheduler fee cap"
-                : agentFunding < agentPerCallFunding
-                  ? "Fund the first Agent call"
-                  : `${agentFundedCalls}-call window funded`,
-              help: !isAgentFeeCapSufficient
-                ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
-                : `The launch will encode ${agentFundedCalls} of the ${AGENT_MAX_WINDOW_CALLS} maximum calls.`,
+              ok: false,
+              label: !AGENT_RECURRING_EXECUTION_ENABLED
+                ? "Paid Agent launch paused"
+                : !isAgentFeeCapSufficient
+                  ? "Raise Scheduler fee cap"
+                  : agentFunding < agentPerCallFunding
+                    ? "Fund the first Agent call"
+                    : `${agentFundedCalls}-call window funded`,
+              help: !AGENT_RECURRING_EXECUTION_ENABLED
+                ? "Inspect and copy the Agent input without sending another harness transaction."
+                : !isAgentFeeCapSufficient
+                  ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
+                  : `The launch will encode ${agentFundedCalls} of the ${AGENT_MAX_WINDOW_CALLS} maximum calls.`,
             }]
         : []),
       {
@@ -6145,7 +6156,7 @@ function App() {
       return;
     }
     if (agentFunding !== VERIFIED_AGENT_EXECUTION_FUNDING || agentLaunchTotal !== VERIFIED_AGENT_LAUNCH_CEILING) {
-      setAgentTxState({ status: "error", error: "The verified one-call launch must send exactly 0.02 RITUAL." });
+      setAgentTxState({ status: "error", error: "The historical one-call profile deposited exactly 0.1 RITUAL." });
       return;
     }
     if (!isAgentHarnessOwner) {
@@ -6173,7 +6184,7 @@ function App() {
     if (wallet.balanceWei !== undefined && wallet.balanceWei < agentMaximumWalletDebit) {
       setAgentTxState({
         status: "error",
-        error: `Keep at least ${formatRitual(agentMaximumWalletDebit)} liquid RITUAL in the wallet for the 0.02 transfer and maximum network fee. General RitualWallet escrow is not used.`,
+        error: `Keep at least ${formatRitual(agentMaximumWalletDebit)} liquid RITUAL in the wallet for the harness deposit and maximum network fee. General RitualWallet escrow is not used.`,
       });
       return;
     }
@@ -7189,12 +7200,11 @@ function App() {
                   {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
                       <ShieldCheck size={16} />
                       <div>
-                        <strong>Registry-valid, GLM-tested route</strong>
+                        <strong>Paid Agent launch paused</strong>
                         <p>
-                          This executor is currently valid in Ritual's onchain registry and has successful GLM-4.7 history;
-                          Ritual does not document it as an official Foundation executor. The wallet transaction sends at
-                          most 0.02 RITUAL. Direct one-shot remains disabled because it can draw from existing wallet escrow
-                          without a reliable quote.
+                          The latest Scheduler calls were accepted but never dispatched. The proven historical profile used
+                          800,000 callback gas, 20/1 gwei Scheduler caps, and a 0.1 RITUAL harness deposit. Composition,
+                          registry discovery, and existing-series evidence remain available without another paid attempt.
                         </p>
                       </div>
                     </div> : null}
@@ -7230,7 +7240,7 @@ function App() {
                         </div>
                       </dl>
                       <p>
-                        Gas is capped at {AGENT_CONFIGURE_GAS_LIMIT.toLocaleString()} and unused gas is not charged. The 0.02 RITUAL transfer funds the harness directly; general RitualWallet escrow is not used.
+                        Gas is capped at {AGENT_CONFIGURE_GAS_LIMIT.toLocaleString()} and unused gas is not charged. The harness deposit is separate from network gas and general RitualWallet escrow is not used.
                       </p>
                       {!agentLaunchBalanceCovered ? (
                         <p className="warning">The liquid wallet balance does not cover this maximum. Move funds to the wallet balance, not escrow, before signing.</p>
@@ -7258,9 +7268,9 @@ function App() {
                     {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
                         <div className="agent-fixed-funding">
-                          <span>Maximum sent</span>
+                          <span>Historical deposit</span>
                           <strong>{formatRitual(VERIFIED_AGENT_LAUNCH_CEILING)} RITUAL</strong>
-                          <small>0.01 execution + 0.01 Scheduler reserve</small>
+                          <small>0.09 harness funding + 0.01 Scheduler reserve</small>
                         </div>
                         <label>
                           <span>Scheduler fee cap</span>

@@ -29,6 +29,7 @@ import {
   createAgentHarnessTransaction,
   createDirectAgentTransaction,
   AGENT_MINIMUM_FUNDING,
+  AGENT_SCHEDULE,
   AGENT_SCHEDULER_GAS,
   AGENT_ONE_SHOT_EXECUTION_ENABLED,
   AGENT_RECURRING_EXECUTION_ENABLED,
@@ -376,11 +377,19 @@ describe("Sovereign Agent harness", () => {
     expect(fields.cliType).toBe("6");
     expect(fields.maxFeePerGas).toBe("1000000000");
     expect(fields.maxPriorityFeePerGas).toBe("100000000");
-    expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(true);
+    expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(false);
     expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(false);
-    expect(AGENT_SCHEDULER_GAS).toBe(1_200_000);
-    expect(VERIFIED_AGENT_EXECUTION_FUNDING).toBe(10_000_000_000_000_000n);
-    expect(VERIFIED_AGENT_LAUNCH_CEILING).toBe(20_000_000_000_000_000n);
+    expect(AGENT_SCHEDULER_GAS).toBe(800_000);
+    expect(AGENT_SCHEDULE).toEqual([
+      800_000,
+      180,
+      500,
+      20_000_000_000n,
+      1_000_000_000n,
+      0n,
+    ]);
+    expect(VERIFIED_AGENT_EXECUTION_FUNDING).toBe(90_000_000_000_000_000n);
+    expect(VERIFIED_AGENT_LAUNCH_CEILING).toBe(100_000_000_000_000_000n);
   });
 
   it("creates a deterministic harness through Ritual's deployed factory", () => {
@@ -422,8 +431,8 @@ describe("Sovereign Agent harness", () => {
     const tx = createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING);
     expect(tx.from).toBe(TEST_ADDRESS);
     expect(tx.to).toBe(SOVEREIGN_AGENT_HARNESS_ADDRESS);
-    expect(agentTotalFunding(AGENT_MINIMUM_FUNDING)).toBe(20_000_000_000_000_000n);
-    expect(tx.value).toBe("0x470de4df820000");
+    expect(agentTotalFunding(AGENT_MINIMUM_FUNDING)).toBe(26_000_000_000_000_000n);
+    expect(tx.value).toBe("0x5c5edcbc290000");
     expect(tx.data?.slice(0, 10)).toBe("0xb1906702");
   });
 
@@ -458,14 +467,14 @@ describe("Sovereign Agent harness", () => {
       recipeFields("agent", { executor: TEST_ADDRESS, encryptedSecrets: "0x1234" }),
     );
     expect(() => createAgentHarnessTransaction(TEST_ADDRESS, draft, AGENT_MINIMUM_FUNDING - 1n)).toThrow(
-      "cover all 1 scheduled calls (0.01 RITUAL",
+      "cover all 1 scheduled calls (0.016 RITUAL",
     );
-    expect(agentExecutionBudget()).toBe(10_000_000_000_000_000n);
-    expect(agentFundedCallCount(10_000_000_000_000_000n)).toBe(1);
-    expect(agentFundedCallCount(30_000_000_000_000_000n)).toBe(3);
+    expect(agentExecutionBudget()).toBe(16_000_000_000_000_000n);
+    expect(agentFundedCallCount(16_000_000_000_000_000n)).toBe(1);
+    expect(agentFundedCallCount(48_000_000_000_000_000n)).toBe(3);
     expect(agentFundedCallCount(90_000_000_000_000_000n)).toBe(5);
-    expect(agentRollingForFunding(10_000_000_000_000_000n)).toEqual([1, 5_000, 1]);
-    expect(agentRollingForFunding(30_000_000_000_000_000n)).toEqual([3, 5_000, 1]);
+    expect(agentRollingForFunding(16_000_000_000_000_000n)).toEqual([1, 5_000, 1]);
+    expect(agentRollingForFunding(48_000_000_000_000_000n)).toEqual([3, 5_000, 1]);
     expect(agentRollingForFunding(90_000_000_000_000_000n)).toEqual([5, 5_000, 1]);
   });
 
