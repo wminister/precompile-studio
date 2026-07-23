@@ -12,6 +12,7 @@
     "test:all": "npm run test && npm run consumer:test && npm run test:e2e",
     "smoke:production": "node scripts/smoke-production.mjs",
     "verify:recipes": "node scripts/verify-recipes.mjs",
+    "verify:agent-fork": "node scripts/verify-agent-fork.mjs",
     "consumer:build": "forge build",
     "consumer:test": "forge test",
     "consumer:deploy": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/HttpPrecompileConsumer.sol:HttpPrecompileConsumer",

@@ -301,7 +301,10 @@ function encodeAgent(fields) {
   const prompt = fields.prompt.trim();
   const tools = parseStringList(fields.tools);
   const ttl = parseUint(fields.ttl, "Agent ttl", { min: 1n });
-  const maxPollBlock = parseUint(fields.maxPollBlock, "Agent maxPollBlock", { min: 1n, max: 70_000n });
+  const maxPollBlock = parseUint(fields.maxPollBlock, "Agent maxPollBlock", {
+    min: 1n,
+    max: 18_446_744_073_709_551_615n,
+  });
   const cliType = parseUint(fields.cliType, "Agent cliType", { max: 65535n });
   if (!prompt) throw new Error("Agent prompt is required");
   if (callbackAddress.toLowerCase() !== sovereignAgentHarness.toLowerCase()) {

@@ -607,16 +607,22 @@ const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpP
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
-// Earlier harness versions contain immutable schedules from failed test
-// profiles. Keep the deployed v3 address stable for history inspection while
-// paid Agent launch remains paused below.
-export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v3"));
-// Paid Agent launch is paused until the historically successful Scheduler
-// profile has been reproduced end to end from the browser. Keep encoding,
-// discovery, and lifecycle inspection available without exposing more funds.
-export const AGENT_RECURRING_EXECUTION_ENABLED = false;
+// Earlier harness versions contain immutable schedules from failed low-fee
+// profiles. Use a fresh deterministic namespace for the corrected schedule.
+export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v4"));
+// Recurring launch uses Ritual's documented fee floor and safe frequency. The
+// exact profile is also exercised against the deployed contracts on a local
+// fork by scripts/verify-agent-fork.mjs before it is exposed in the browser.
+export const AGENT_RECURRING_EXECUTION_ENABLED = true;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
+export const AGENT_MAX_POLL_BLOCK_OFFSET = 10_000_000;
+export function agentMaxPollBlock(latestBlock: number) {
+  if (!Number.isSafeInteger(latestBlock) || latestBlock < 0) {
+    throw new Error("Latest Ritual block must be a non-negative safe integer.");
+  }
+  return BigInt(latestBlock) + BigInt(AGENT_MAX_POLL_BLOCK_OFFSET);
+}
 const DEFAULT_HTTP_RUNNER_ADDRESS = HTTP_PRECOMPILE_CONSUMER_ADDRESS;
 const DEFAULT_LLM_MODEL = "zai-org/GLM-4.7-FP8";
 const DEFAULT_LLM_EXECUTOR = "0xb42e435c4252a5a2e7440e37b609f00c61a0c91b";
@@ -655,7 +661,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, and Scheduled JQ are publicly usable. Agent composition, executor discovery, ABI inspection, and existing-series history remain available, but paid Agent launch is paused after the Scheduler accepted calls without dispatching them. Direct one-shot submission is also disabled because it can spend from existing wallet escrow without a reliable quote.",
+      "HTTP, JQ, Scheduled JQ, and the wallet-owned recurring Agent harness are publicly usable. Agent launch uses Ritual's documented 20/1 gwei Scheduler fee floor, a 2,000-block frequency, and a fixed 0.02 RITUAL harness deposit. Direct one-shot submission remains disabled because it can spend from existing wallet escrow without a reliable quote.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -665,7 +671,7 @@ const FAQ_ITEMS = [
   {
     question: "Why does Agent use a recurring harness?",
     answer:
-      "The wallet-owned recurring harness isolates Agent funding from the wallet's existing RitualWallet escrow and preserves Scheduler and callback evidence. Paid launch is currently paused: the latest low-fee schedules were accepted but not dispatched. The Studio will not present that route as working until its browser flow reproduces a completed Agent result.",
+      "The wallet-owned recurring harness isolates Agent funding from the wallet's existing RitualWallet escrow and preserves Scheduler and callback evidence. The fixed 0.02 RITUAL deposit contains a 0.01 Scheduler reserve and a 0.01 one-call execution ceiling. Network gas for the wallet transaction is separate, and unused harness funding remains in the harness RitualWallet subject to its lock.",
   },
   {
     question: "What is stored by the app?",
@@ -738,15 +744,14 @@ const AGENT_CALLBACK_SELECTOR = "0x8ca12055";
 const AGENT_CONFIGURE_SELECTOR = "0xb1906702";
 type AgentSchedule = readonly [number, number, number, bigint, bigint, bigint];
 type AgentRolling = readonly [number, number, number];
-// These values match the user's historical browser-independent Agent run that
-// produced a Scheduler CallExecuted event. They are retained for inspection
-// and regression tests while paid browser launch remains paused.
-export const AGENT_SCHEDULER_GAS = 800_000;
+// Ritual's documented safe first-call profile: one call, 500k Scheduler gas,
+// 2,000-block frequency, 500-block TTL, and a 20/1 gwei EIP-1559 fee floor.
+export const AGENT_SCHEDULER_GAS = 500_000;
 const AGENT_DEFAULT_MAX_FEE = 20_000_000_000n;
 const AGENT_PRIORITY_FEE = 1_000_000_000n;
 export const AGENT_SCHEDULE: AgentSchedule = [
   AGENT_SCHEDULER_GAS,
-  180,
+  2_000,
   500,
   AGENT_DEFAULT_MAX_FEE,
   AGENT_PRIORITY_FEE,
@@ -761,7 +766,7 @@ const AGENT_CONFIGURE_GAS_LIMIT = 5_000_000n;
 const AGENT_OBSERVED_CONFIGURE_GAS = 3_178_666n;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 const AGENT_MINIMUM_EXECUTION_FUNDING = 10_000_000_000_000_000n;
-export const VERIFIED_AGENT_EXECUTION_FUNDING = 90_000_000_000_000_000n;
+export const VERIFIED_AGENT_EXECUTION_FUNDING = 10_000_000_000_000_000n;
 export const VERIFIED_AGENT_LAUNCH_CEILING = SCHEDULER_RESERVE + VERIFIED_AGENT_EXECUTION_FUNDING;
 export function agentExecutionBudget(schedule: AgentSchedule = AGENT_SCHEDULE) {
   const schedulerBudget = BigInt(schedule[0]) * schedule[3] + schedule[5];
@@ -1202,16 +1207,16 @@ export const recipes: Recipe[] = [
   {
     id: "agent",
     name: "Agent",
-    label: "Inspection-only recipe",
+    label: "Live recipe",
     icon: Route,
-    status: "degraded",
-    description: "Compose and inspect a wallet-owned ZeroClaw task; paid browser launch is paused.",
+    status: "live",
+    description: "Compose and run one wallet-owned ZeroClaw task through a corrected recurring harness.",
     fields: [
       { key: "executor", label: "Executor", value: TESTED_NATIVE_AGENT_EXECUTOR },
       { key: "ttl", label: "TTL blocks", value: "500" },
       { key: "pollInterval", label: "Poll interval", value: "5" },
-      { key: "maxPollBlock", label: "Max poll block", value: "6000" },
-      { key: "taskIdMarker", label: "Task marker", value: "PRECOMPILE_STUDIO_AGENT" },
+      { key: "maxPollBlock", label: "Poll window blocks", value: AGENT_MAX_POLL_BLOCK_OFFSET.toString(), type: "generated" },
+      { key: "taskIdMarker", label: "Task marker", value: "SOVEREIGN_AGENT_TASK" },
       { key: "callbackAddress", label: "Callback harness", value: SOVEREIGN_AGENT_HARNESS_ADDRESS },
       { key: "callbackSelector", label: "Callback selector", value: AGENT_CALLBACK_SELECTOR },
       { key: "gasLimit", label: "Callback gas", value: "3000000" },
@@ -1247,8 +1252,8 @@ export const recipes: Recipe[] = [
       { key: "systemPromptKeyRef", label: "System key ref", value: "" },
       { key: "model", label: "Model", value: DEFAULT_LLM_MODEL },
       { key: "tools", label: "Allowed tools (optional)", value: "", type: "textarea" },
-      { key: "maxTurns", label: "Max turns", value: "8" },
-      { key: "maxTokens", label: "Max tokens", value: "4096" },
+      { key: "maxTurns", label: "Max turns", value: "5" },
+      { key: "maxTokens", label: "Max tokens", value: "2048" },
       { key: "rpcUrls", label: "RPC URLs (optional)", value: "", type: "textarea" },
     ],
   },
@@ -1347,8 +1352,8 @@ const builtInRecipePresets: RecipePreset[] = [
       { key: "executor", value: zeroAddress },
       { key: "ttl", value: "500" },
       { key: "pollInterval", value: "5" },
-      { key: "maxPollBlock", value: "6000" },
-      { key: "taskIdMarker", value: "PRECOMPILE_STUDIO_AGENT" },
+      { key: "maxPollBlock", value: AGENT_MAX_POLL_BLOCK_OFFSET.toString() },
+      { key: "taskIdMarker", value: "SOVEREIGN_AGENT_TASK" },
       { key: "callbackAddress", value: SOVEREIGN_AGENT_HARNESS_ADDRESS },
       { key: "callbackSelector", value: AGENT_CALLBACK_SELECTOR },
       { key: "gasLimit", value: "3000000" },
@@ -1372,8 +1377,8 @@ const builtInRecipePresets: RecipePreset[] = [
       { key: "systemPromptKeyRef", value: "" },
       { key: "model", value: DEFAULT_LLM_MODEL },
       { key: "tools", value: "" },
-      { key: "maxTurns", value: "8" },
-      { key: "maxTokens", value: "4096" },
+      { key: "maxTurns", value: "5" },
+      { key: "maxTokens", value: "2048" },
       { key: "rpcUrls", value: "" },
     ]),
   },
@@ -3637,7 +3642,6 @@ export function buildAgentDraft(
   if (!model) errors.push("Model is required.");
   if (![0n, 5n, 6n].includes(cliType)) errors.push("CLI type must be 0 (Claude Code), 5 (Crush), or 6 (ZeroClaw).");
   if (maxPollBlock <= ttl) errors.push("Max poll block must be greater than TTL for two-phase delivery.");
-  if (maxPollBlock > 70_000n) errors.push("Max poll block cannot exceed 70,000.");
 
   const values = [
     executor as `0x${string}`,
@@ -3937,7 +3941,7 @@ function App() {
   const agentSeriesRequestRef = React.useRef(0);
   const [agentLaunchMode] = React.useState<AgentLaunchMode>("scheduled");
   const [agentFundingAmount] = React.useState(() => formatEther(VERIFIED_AGENT_EXECUTION_FUNDING));
-  const [agentMaxFeeGwei, setAgentMaxFeeGwei] = React.useState(() => formatGwei(AGENT_DEFAULT_MAX_FEE));
+  const agentMaxFeeGwei = formatGwei(AGENT_DEFAULT_MAX_FEE);
   const [scheduledJqState, setScheduledJqState] = React.useState<ScheduledJqConsumerState>({ status: "idle" });
   const [schedulerTxState, setSchedulerTxState] = React.useState<SchedulerTransactionState>({ status: "idle" });
   const [runnerCodeState, setRunnerCodeState] = React.useState<RunnerCodeState>({ status: "idle" });
@@ -4231,7 +4235,7 @@ function App() {
     ? "Select the registry-valid, GLM-tested executor"
     : !isAgentFeeCapSufficient
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
-    : `Historical profile · ${formatRitual(agentFunding)} harness funding + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL deposited`;
+    : `Locally simulated profile · ${formatRitual(agentFunding)} execution ceiling + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL deposited`;
   const agentOneShotSummary = !AGENT_ONE_SHOT_EXECUTION_ENABLED
     ? "Direct one-shot submission remains disabled because it can draw from the wallet's existing escrow without a reliable executor quote."
     : !hasRitualBalance
@@ -6156,7 +6160,7 @@ function App() {
       return;
     }
     if (agentFunding !== VERIFIED_AGENT_EXECUTION_FUNDING || agentLaunchTotal !== VERIFIED_AGENT_LAUNCH_CEILING) {
-      setAgentTxState({ status: "error", error: "The historical one-call profile deposited exactly 0.1 RITUAL." });
+      setAgentTxState({ status: "error", error: "The corrected one-call profile deposits exactly 0.02 RITUAL." });
       return;
     }
     if (!isAgentHarnessOwner) {
@@ -6195,10 +6199,16 @@ function App() {
 
     setAgentTxState({ status: "submitting" });
     try {
+      if (rpcState.block === undefined) {
+        throw new Error("The latest Ritual block is unavailable. Refresh RPC status before starting the Agent.");
+      }
+      const maxPollBlock = agentMaxPollBlock(rpcState.block);
       const encryptedSecrets = await encryptAgentProviderSecret(selectedDiscoveredExecutor.publicKey);
       const nextFields = fieldState.agent.map((field) =>
         field.key === "encryptedSecrets"
           ? { ...field, value: encryptedSecrets }
+          : field.key === "maxPollBlock"
+            ? { ...field, value: maxPollBlock.toString() }
           : field.key === "callbackAddress"
             ? { ...field, value: agentHarnessAddress }
             : field,
@@ -6255,6 +6265,7 @@ function App() {
     isTestedNativeAgentProfile,
     isRitualWalletFunded,
     refreshAgentReceipt,
+    rpcState.block,
     rpcState.gasPrice,
     selectedDiscoveredExecutor?.publicKey,
     wallet.address,
@@ -7200,11 +7211,10 @@ function App() {
                   {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
                       <ShieldCheck size={16} />
                       <div>
-                        <strong>Paid Agent launch paused</strong>
+                        <strong>Corrected recurring profile</strong>
                         <p>
-                          The latest Scheduler calls were accepted but never dispatched. The proven historical profile used
-                          800,000 callback gas, 20/1 gwei Scheduler caps, and a 0.1 RITUAL harness deposit. Composition,
-                          registry discovery, and existing-series evidence remain available without another paid attempt.
+                          Uses Ritual's documented 20/1 gwei Scheduler fee floor, 500,000 gas, a 2,000-block frequency,
+                          and one call funded by a fixed 0.02 RITUAL deposit. Direct one-shot remains disabled.
                         </p>
                       </div>
                     </div> : null}
@@ -7268,9 +7278,9 @@ function App() {
                     {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
                         <div className="agent-fixed-funding">
-                          <span>Historical deposit</span>
+                          <span>Verified deposit</span>
                           <strong>{formatRitual(VERIFIED_AGENT_LAUNCH_CEILING)} RITUAL</strong>
-                          <small>0.09 harness funding + 0.01 Scheduler reserve</small>
+                          <small>0.01 execution ceiling + 0.01 Scheduler reserve</small>
                         </div>
                         <label>
                           <span>Scheduler fee cap</span>
@@ -7279,7 +7289,8 @@ function App() {
                               name="agent-max-fee"
                               inputMode="decimal"
                               value={agentMaxFeeGwei}
-                              onChange={(event) => setAgentMaxFeeGwei(event.target.value)}
+                              readOnly
+                              aria-readonly="true"
                             />
                             <small>GWEI</small>
                           </div>

@@ -151,31 +151,31 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("keeps paid Agent launch paused while preserving inspection without overflow", async ({ page }) => {
+test("shows the corrected Agent launch profile without overflow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Ritual degraded recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: /Run once/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText("Paid Agent launch paused", { exact: true })).toBeVisible();
-  await expect(launch.locator(".agent-fixed-funding").getByText("0.1 RITUAL", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Corrected recurring profile", { exact: true })).toBeVisible();
+  await expect(launch.locator(".agent-fixed-funding").getByText("0.02 RITUAL", { exact: true })).toBeVisible();
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("20");
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
 test("keeps Agent actions hidden while loading the first onchain snapshot", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Ritual degraded recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
 
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByLabel("Reading Agent harness state")).toBeVisible();
@@ -185,12 +185,12 @@ test("keeps Agent actions hidden while loading the first onchain snapshot", asyn
 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByLabel("Agent pre-sign cost check")).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Live launch paused", exact: true })).toBeDisabled();
+  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
 });
 
 test("reports a stopped Agent series without stale transaction links", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Ritual degraded recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
 
   const launch = page.getByTestId("agent-launch");
   const seriesStatus = launch.locator(".agent-series-status");
@@ -255,7 +255,7 @@ test("uses named dark menus instead of native system pickers", async ({ page }) 
   await capabilityList.getByRole("option", { name: "LLM inference (1)" }).click();
   await expect(page.getByRole("button", { name: "Executor capability", exact: true })).toContainText("LLM inference (1)");
 
-  await page.getByRole("tab", { name: "Agent Ritual degraded recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   await page.getByRole("button", { name: "Agent runtime", exact: true }).click();
   const runtimeList = page.getByRole("listbox", { name: "Agent runtime" });
   await expect(runtimeList.getByRole("option", { name: "ZeroClaw (recommended)" })).toBeVisible();

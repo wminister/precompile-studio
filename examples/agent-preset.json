@@ -9,8 +9,8 @@
       { "key": "executor", "value": "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C" },
       { "key": "ttl", "value": "500" },
       { "key": "pollInterval", "value": "5" },
-      { "key": "maxPollBlock", "value": "6000" },
-      { "key": "taskIdMarker", "value": "PRECOMPILE_STUDIO_AGENT" },
+      { "key": "maxPollBlock", "value": "10000000" },
+      { "key": "taskIdMarker", "value": "SOVEREIGN_AGENT_TASK" },
       { "key": "callbackAddress", "value": "0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe" },
       { "key": "callbackSelector", "value": "0x8ca12055" },
       { "key": "gasLimit", "value": "3000000" },
@@ -34,8 +34,8 @@
       { "key": "systemPromptKeyRef", "value": "" },
       { "key": "model", "value": "zai-org/GLM-4.7-FP8" },
       { "key": "tools", "value": "" },
-      { "key": "maxTurns", "value": "8" },
-      { "key": "maxTokens", "value": "4096" },
+      { "key": "maxTurns", "value": "5" },
+      { "key": "maxTokens", "value": "2048" },
       { "key": "rpcUrls", "value": "" }
     ]
   }
