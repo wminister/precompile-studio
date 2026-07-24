@@ -158,18 +158,18 @@ test("shows the corrected Agent launch profile without overflow", async ({ page 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: /Run once/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText("Corrected recurring profile", { exact: true })).toBeVisible();
+  await expect(launch.getByText("One scheduled Agent test", { exact: true })).toBeVisible();
   await expect(launch.locator(".agent-fixed-funding").getByText("0.02 RITUAL", { exact: true })).toBeVisible();
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("20");
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toBeEnabled();
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
@@ -180,12 +180,12 @@ test("keeps Agent actions hidden while loading the first onchain snapshot", asyn
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByLabel("Reading Agent harness state")).toBeVisible();
   await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toHaveCount(0);
   await expect(launch.getByText("Checking", { exact: true })).toHaveCount(0);
 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByLabel("Agent pre-sign cost check")).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toBeEnabled();
 });
 
 test("reports a stopped Agent series without stale transaction links", async ({ page }) => {
@@ -204,7 +204,7 @@ test("reports a stopped Agent series without stale transaction links", async ({ 
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.getByRole("button", { name: "Refreshing", exact: true })).toBeVisible();
   await expect(seriesStatus.getByText("Series stopped", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Start recurring", exact: true })).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toHaveCount(0);
   await expect(launch.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });

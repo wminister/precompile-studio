@@ -661,7 +661,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, Scheduled JQ, and the wallet-owned recurring Agent harness are publicly usable. Agent launch uses Ritual's documented 20/1 gwei Scheduler fee floor, a 2,000-block frequency, and a fixed 0.02 RITUAL harness deposit. Direct one-shot submission remains disabled because it can spend from existing wallet escrow without a reliable quote.",
+      "HTTP, JQ, Scheduled JQ, and the wallet-owned Agent test harness are publicly usable. The Agent test funds exactly one execution after 2,000 blocks with a fixed 0.02 RITUAL harness deposit. It cannot automatically top up from your wallet or general RitualWallet escrow.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -669,9 +669,9 @@ const FAQ_ITEMS = [
       "Each wallet gets its own Scheduled JQ consumer and contract-owned RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. The same wallet can cancel active calls or withdraw unused escrow after its lock expires.",
   },
   {
-    question: "Why does Agent use a recurring harness?",
+    question: "Why does the Agent test use a Scheduler harness?",
     answer:
-      "The wallet-owned recurring harness isolates Agent funding from the wallet's existing RitualWallet escrow and preserves Scheduler and callback evidence. The fixed 0.02 RITUAL deposit contains a 0.01 Scheduler reserve and a 0.01 one-call execution ceiling. Network gas for the wallet transaction is separate, and unused harness funding remains in the harness RitualWallet subject to its lock.",
+      "The wallet-owned Scheduler harness isolates Agent spending from general RitualWallet escrow. Its fixed 0.02 RITUAL deposit contains a 0.01 RITUAL Scheduler reserve and a 0.01 RITUAL ceiling for one execution. Initial network gas is separate, and unused harness funding remains locked for 100,000 blocks.",
   },
   {
     question: "What is stored by the app?",
@@ -4235,7 +4235,7 @@ function App() {
     ? "Select the registry-valid, GLM-tested executor"
     : !isAgentFeeCapSufficient
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
-    : `Locally simulated profile · ${formatRitual(agentFunding)} execution ceiling + 0.01 reserve = ${formatRitual(agentLaunchTotal)} RITUAL deposited`;
+    : `One execution only · no automatic top-up · ${formatRitual(agentLaunchTotal)} RITUAL harness deposit`;
   const agentOneShotSummary = !AGENT_ONE_SHOT_EXECUTION_ENABLED
     ? "Direct one-shot submission remains disabled because it can draw from the wallet's existing escrow without a reliable executor quote."
     : !hasRitualBalance
@@ -5272,7 +5272,7 @@ function App() {
           : agentDraft.encodedInput
             ? agentLaunchMode === "once"
               ? `Run once through 0x080C and receive the callback at ${agentHarnessAddress}. No Scheduler reserve is used.`
-              : `Start the recurring Agent series through ${agentHarnessAddress}. Scheduler funding and configuration use one wallet confirmation.`
+              : `Schedule one Agent execution through ${agentHarnessAddress}. The 0.02 RITUAL harness deposit and network gas use one wallet confirmation.`
             : "Resolve Sovereign Agent field errors before starting the harness."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
@@ -6149,7 +6149,7 @@ function App() {
       return;
     }
     if (agentLaunchMode === "once") {
-      setAgentTxState({ status: "error", error: "Direct one-shot Agent submission is disabled. Use the capped recurring harness route." });
+      setAgentTxState({ status: "error", error: "Direct precompile submission is disabled. Use the capped one-call Scheduler test." });
       return;
     }
     if (!AGENT_RECURRING_EXECUTION_ENABLED || !isTestedNativeAgentProfile) {
@@ -7211,10 +7211,10 @@ function App() {
                   {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
                       <ShieldCheck size={16} />
                       <div>
-                        <strong>Corrected recurring profile</strong>
+                        <strong>One scheduled Agent test</strong>
                         <p>
-                          Uses Ritual's documented 20/1 gwei Scheduler fee floor, 500,000 gas, a 2,000-block frequency,
-                          and one call funded by a fixed 0.02 RITUAL deposit. Direct one-shot remains disabled.
+                          Exactly one execution is funded. The harness receives 0.02 RITUAL and cannot automatically
+                          top up from your wallet or general RitualWallet escrow.
                         </p>
                       </div>
                     </div> : null}
@@ -7250,7 +7250,9 @@ function App() {
                         </div>
                       </dl>
                       <p>
-                        Gas is capped at {AGENT_CONFIGURE_GAS_LIMIT.toLocaleString()} and unused gas is not charged. The harness deposit is separate from network gas and general RitualWallet escrow is not used.
+                        Hard wallet cap for this confirmation: {formatRitual(agentMaximumWalletDebit)} RITUAL (
+                        {formatRitual(agentLaunchTotal)} deposit + up to {formatRitual(agentMaximumNetworkFee)} network
+                        gas). The remaining wallet balance cannot be spent by this test.
                       </p>
                       {!agentLaunchBalanceCovered ? (
                         <p className="warning">The liquid wallet balance does not cover this maximum. Move funds to the wallet balance, not escrow, before signing.</p>
@@ -7278,9 +7280,9 @@ function App() {
                     {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
                         <div className="agent-fixed-funding">
-                          <span>Verified deposit</span>
+                          <span>One-call deposit</span>
                           <strong>{formatRitual(VERIFIED_AGENT_LAUNCH_CEILING)} RITUAL</strong>
-                          <small>0.01 execution ceiling + 0.01 Scheduler reserve</small>
+                          <small>0.01 execution ceiling + 0.01 locked Scheduler reserve</small>
                         </div>
                         <label>
                           <span>Scheduler fee cap</span>
@@ -7302,7 +7304,7 @@ function App() {
                         ? "One factory transaction creates a deterministic contract owned by this wallet."
                         : agentLaunchMode === "once"
                           ? agentOneShotSummary
-                          : `${agentFundingSummary} · every ${AGENT_SCHEDULE[1].toLocaleString()} blocks · ${AGENT_LOCK_BLOCKS.toLocaleString()}-block lock`}
+                          : `${agentFundingSummary} · runs after ${AGENT_SCHEDULE[1].toLocaleString()} blocks · unused deposit stays locked for ${AGENT_LOCK_BLOCKS.toLocaleString()} blocks`}
                     </p>
                     <button
                       className="primary-action large"
@@ -7317,7 +7319,7 @@ function App() {
                           ? "Live launch paused"
                         : agentHarnessState.status === "missing"
                           ? "Create Agent harness"
-                        : agentLaunchMode === "once" ? "Run once" : "Start recurring"}
+                        : agentLaunchMode === "once" ? "Run once" : "Run scheduled test"}
                     </button>
                     </div>
                   ) : null}
