@@ -17,6 +17,7 @@ import {
   SCHEDULED_JQ_FACTORY_ADDRESS,
   SOVEREIGN_AGENT_FACTORY_ADDRESS,
   SOVEREIGN_AGENT_HARNESS_ADDRESS,
+  SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS,
   SOVEREIGN_AGENT_USER_SALT,
   SYSTEM_CONTRACTS,
   buildAgentDraft,
@@ -43,6 +44,7 @@ import {
   agentTotalFunding,
   agentRollingForFunding,
   createAgentHarnessDeploymentTransaction,
+  createAgentOneShotConsumerTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
   decodeSovereignAgentResult,
@@ -58,6 +60,7 @@ import {
   receiptStatus,
   readAgentHarnessStatus,
   readAgentHarnessDiscovery,
+  readAgentOneShotConsumerDiscovery,
   readAgentLifecycle,
   readSchedulerLifecycle,
   readScheduledJqConsumerStatus,
@@ -426,6 +429,52 @@ describe("Sovereign Agent harness", () => {
 
     const readyRequester = async <T,>(method: string) => (method === "eth_getCode" ? "0x6000" : prediction) as T;
     await expect(readAgentHarnessDiscovery(TEST_ADDRESS, readyRequester)).resolves.toEqual({
+      status: "ready",
+      address: predicted,
+    });
+  });
+
+  it("builds a zero-value one-shot consumer creation transaction", () => {
+    const tx = createAgentOneShotConsumerTransaction(TEST_ADDRESS);
+    expect(tx).toMatchObject({
+      from: TEST_ADDRESS,
+      to: SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS,
+    });
+    expect(tx.value).toBeUndefined();
+    expect(
+      decodeFunctionData({
+        abi: [{
+          type: "function",
+          name: "createConsumer",
+          stateMutability: "nonpayable",
+          inputs: [],
+          outputs: [{ name: "consumer", type: "address" }],
+        }] as const,
+        data: tx.data as `0x${string}`,
+      }).functionName,
+    ).toBe("createConsumer");
+  });
+
+  it("discovers the wallet's one-shot consumer without deploying it", async () => {
+    const predicted = "0x2222222222222222222222222222222222222222";
+    const calls: string[] = [];
+    const missingRequester = async <T,>(method: string) => {
+      calls.push(method);
+      return encodeAbiParameters(
+        parseAbiParameters("address"),
+        [calls.length === 1 ? zeroAddress : predicted],
+      ) as T;
+    };
+
+    await expect(readAgentOneShotConsumerDiscovery(TEST_ADDRESS, missingRequester)).resolves.toEqual({
+      status: "missing",
+      predictedAddress: predicted,
+    });
+    expect(calls).toEqual(["eth_call", "eth_call"]);
+
+    const readyRequester = async <T,>() =>
+      encodeAbiParameters(parseAbiParameters("address"), [predicted]) as T;
+    await expect(readAgentOneShotConsumerDiscovery(TEST_ADDRESS, readyRequester)).resolves.toEqual({
       status: "ready",
       address: predicted,
     });

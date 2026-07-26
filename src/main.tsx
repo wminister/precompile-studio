@@ -607,6 +607,8 @@ const HTTP_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.HttpP
 export const LLM_PRECOMPILE_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.LlmPrecompileConsumer.address;
 export const SOVEREIGN_AGENT_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.factory;
 export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts.SovereignAgentHarness.address;
+export const SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS =
+  ritualTestnetDeployment.contracts.SovereignAgentOneShotConsumerFactory.address;
 // Earlier harness versions contain immutable schedules from failed low-fee
 // profiles. Use a fresh deterministic namespace for the corrected schedule.
 export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v4"));
@@ -1137,6 +1139,30 @@ const sovereignAgentFactoryAbi = [
     stateMutability: "nonpayable",
     inputs: [{ name: "userSalt", type: "bytes32" }],
     outputs: [{ name: "harness", type: "address" }],
+  },
+] as const;
+
+const sovereignAgentOneShotFactoryAbi = [
+  {
+    type: "function",
+    name: "consumerOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "consumer", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "predictConsumer",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "consumer", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "createConsumer",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ name: "consumer", type: "address" }],
   },
 ] as const;
 
@@ -2504,6 +2530,17 @@ export function createAgentHarnessDeploymentTransaction(from: string): WalletTra
   };
 }
 
+export function createAgentOneShotConsumerTransaction(from: string): WalletTransactionRequest {
+  return {
+    from,
+    to: SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS,
+    data: encodeFunctionData({
+      abi: sovereignAgentOneShotFactoryAbi,
+      functionName: "createConsumer",
+    }),
+  };
+}
+
 export function createSchedulerTransaction(
   from: string,
   draft: ReturnType<typeof buildScheduleDraft>,
@@ -2648,6 +2685,33 @@ export async function readAgentHarnessDiscovery(
   return code && code !== "0x"
     ? { status: "ready", address: predictedAddress }
     : { status: "missing", predictedAddress };
+}
+
+export type AgentOneShotConsumerDiscovery =
+  | { status: "ready"; address: string }
+  | { status: "missing"; predictedAddress: string };
+
+export async function readAgentOneShotConsumerDiscovery(
+  owner: string,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+): Promise<AgentOneShotConsumerDiscovery> {
+  const consumer = await readViewFunction<string>(
+    SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS,
+    sovereignAgentOneShotFactoryAbi,
+    "consumerOf",
+    [owner],
+    requester,
+  );
+  if (consumer.toLowerCase() !== zeroAddress) return { status: "ready", address: consumer };
+
+  const predictedAddress = await readViewFunction<string>(
+    SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS,
+    sovereignAgentOneShotFactoryAbi,
+    "predictConsumer",
+    [owner],
+    requester,
+  );
+  return { status: "missing", predictedAddress };
 }
 
 async function readViewFunction<T>(

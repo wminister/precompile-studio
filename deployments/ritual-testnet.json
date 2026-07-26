@@ -27,6 +27,16 @@
       "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
       "blockNumber": 45343963
     },
+    "SovereignAgentOneShotConsumerFactory": {
+      "address": "0xAE2D6BD1C04641A0Dd5453BcE699a7e7877D0Ef7",
+      "scheduler": "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B",
+      "deploymentTransaction": "0x1043aaa17bf1090743221613a03b34520c3e603ba179ccfba51e28aa561818a3",
+      "deployer": "0xE74600CB53B65F475EF8032EEc68AFc32edfDE6E",
+      "blockNumber": 51095832,
+      "gasUsed": 2576323,
+      "effectiveGasPriceWei": "1000000007",
+      "deploymentCostWei": "2576323018034261"
+    },
     "ScheduledJqConsumer": {
       "address": "0x7243c1A2cA1Ea555416951480B147c27b17eA668",
       "scheduler": "0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B",
