@@ -7,6 +7,10 @@ import {
   parseEther,
 } from "viem";
 
+console.warn(
+  "Legacy configuration-only check: this script does not prove Scheduler dispatch, Agent execution, callback delivery, cost, or one-shot behavior.",
+);
+
 const rpcUrl = process.env.FORK_RPC_URL ?? "http://127.0.0.1:8547";
 const owner = process.env.FORK_OWNER ?? "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const harness = process.env.FORK_HARNESS;
@@ -196,6 +200,8 @@ if (receipt.status !== "success" || !configured || wakeMode !== 1 || activeCallI
 }
 
 console.log(JSON.stringify({
+  scope: "legacy rolling-harness configuration only",
+  lifecycleVerified: false,
   receipt: receipt.status,
   configured,
   wakeMode,

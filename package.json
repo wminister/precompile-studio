@@ -16,7 +16,8 @@
     "consumer:build": "forge build",
     "consumer:test": "forge test",
     "consumer:deploy": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/HttpPrecompileConsumer.sol:HttpPrecompileConsumer",
-    "consumer:deploy:llm": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/LlmPrecompileConsumer.sol:LlmPrecompileConsumer"
+    "consumer:deploy:llm": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/LlmPrecompileConsumer.sol:LlmPrecompileConsumer",
+    "consumer:deploy:agent-one-shot": "forge create --broadcast --rpc-url https://rpc.ritualfoundation.org --private-key $RITUAL_PRIVATE_KEY contracts/SovereignAgentOneShotConsumerFactory.sol:SovereignAgentOneShotConsumerFactory --constructor-args 0x56e776BAE2DD60664b69Bd5F865F1180ffB7D58B"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",

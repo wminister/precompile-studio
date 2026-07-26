@@ -1,6 +1,6 @@
 # Precompile Studio Contracts
 
-The repository contains owned consumers for HTTP and non-streaming LLM inference plus a per-wallet Scheduled JQ factory. Sovereign Agent children are deployed through Ritual's official `SovereignAgentFactory`; this repository integrates that factory ABI rather than duplicating the official harness source.
+The repository contains owned consumers for HTTP and non-streaming LLM inference, a per-wallet Scheduled JQ factory, and a bounded per-wallet Sovereign Agent one-shot consumer.
 
 ## HTTP Consumer
 
@@ -57,3 +57,18 @@ The connected wallet still pays its own Ritual testnet gas and precompile fees.
 `fundAndSchedule` combines the escrow top-up and schedule creation in one payable transaction. `cancelSchedule` and `withdraw` remain owner-only, and RitualWallet still enforces the configured escrow lock before withdrawal.
 
 `ScheduledJqConsumerFactory.sol` deploys one deterministic consumer per wallet and assigns that wallet as the immutable owner. The Ritual testnet factory is `0x705e1393280062D95d6e3B522223eD3f28b9548b`; the original direct deployment at `0x7243c1A2cA1Ea555416951480B147c27b17eA668` remains the frontend's disconnected demo. Factory, child, schedule, and execution evidence are recorded in [`../deployments/ritual-testnet.json`](../deployments/ritual-testnet.json).
+
+## Sovereign Agent One-Shot Consumer
+
+`SovereignAgentOneShotConsumer.sol` replaces the Studio's use of Ritual's rolling Agent factory for bounded tests. It:
+
+- schedules exactly one Scheduler callback;
+- clears the active schedule before invoking precompile `0x080C`;
+- rejects any second invocation for that schedule;
+- has no successor-scheduling code path;
+- accepts final Agent results only from Ritual's AsyncDelivery contract;
+- owns isolated RitualWallet escrow that only the wallet owner can withdraw.
+
+`SovereignAgentOneShotConsumerFactory.sol` deploys one deterministic consumer per wallet. It has not been deployed to Ritual testnet yet. The frontend therefore keeps new paid Agent launches disabled while preserving existing factory-harness history for inspection.
+
+The local tests prove the one-call boundary and access controls. They do not prove executor pricing or live TEE delivery. Those require a deliberately approved, capped testnet smoke test after deployment.

@@ -48,7 +48,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 
 Use MetaMask for Ritual testnet transaction submission. Rabby can connect and read state, but currently converts Ritual custom transactions to a legacy transaction type rejected by the Ritual RPC and does not provide the raw-signing fallback needed to broadcast the supported form. The studio reports this limitation directly instead of silently disconnecting or blocking Rabby.
 
-HTTP, JQ, Scheduled JQ, and the wallet-owned Sovereign Agent test harness are publicly usable. Scheduled JQ discovers or creates one deterministic contract owned by the connected wallet. The Agent test schedules exactly one call after 2,000 blocks, uses a fixed `0.02 RITUAL` harness deposit, and cannot automatically top up from the wallet or general RitualWallet escrow. LLM submission is implemented but currently depends on a degraded Ritual executor path.
+HTTP, JQ, and Scheduled JQ are publicly usable. Scheduled JQ discovers or creates one deterministic contract owned by the connected wallet. The Agent composer and prior harness history remain readable, but new paid Agent launches are paused until the bounded one-shot consumer is deployed and its full callback lifecycle is verified. LLM submission is implemented but currently depends on a degraded Ritual executor path.
 
 ## Local Development
 
@@ -105,15 +105,17 @@ The deployed Ritual testnet consumer is `0x6f78351167AA672e75948dc802FDf96f77E87
 
 TEE executor addresses can also be saved locally from recipes that need an executor, currently HTTP, LLM, and Sovereign Agent. The executor value still comes from `TEEServiceRegistry`; the studio only remembers addresses the builder has confirmed.
 
-## Sovereign Agent Harness
+## Sovereign Agent
 
-The Agent recipe uses Ritual's `SovereignAgentFactory` at `0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304`. The studio calls `predictHarness(owner,userSalt)` for the connected wallet, verifies whether code exists at that CREATE3 address, and offers `deployHarness(userSalt)` when it does not. The original harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe` remains a readable public demo while disconnected.
+The Agent recipe can still read prior wallet-owned children of Ritual's `SovereignAgentFactory` at `0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304`. The original harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe` remains a readable public demo while disconnected. New factory-harness deployment and launch are disabled because the official harness rolls into successor Scheduler windows.
 
-After the wallet-owned child exists, the studio discovers a capability-0 executor and public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, and sets two-phase delivery to that child. Live browser launch uses a conservative allowlisted profile: native `zai-org/GLM-4.7-FP8`, ZeroClaw, executor `0x9dc1...8b4C`, and one scheduled call. The address is currently valid in Ritual's onchain registry and has successful GLM execution history, but Ritual's documentation does not identify it as a Foundation-owned or official executor. Direct one-shot calldata remains inspectable, but browser submission is disabled because it can draw from the connected wallet's existing RitualWallet escrow without a reliable quote.
+The studio discovers a capability-0 executor and public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, and keeps native `zai-org/GLM-4.7-FP8` with ZeroClaw as the tested free-provider profile. Executor `0x9dc1...8b4C` is currently valid in Ritual's onchain registry and has successful GLM execution history, but Ritual's documentation does not identify it as Foundation-owned or official.
 
-The Studio reads harness ownership, series state, and sender lock, then reconciles `JobAdded`, `Phase1Settled`, `ResultDelivered`, `JobRemoved`, and the harness callback event into user-facing lifecycle states. The failed browser attempts used `1.1/0.1 gwei` Scheduler caps, below Ritual's documented `20/1 gwei` minimum, so their schedules were accepted but never dispatched. They also encoded the literal value `6000` as an already-expired absolute poll deadline. The corrected test profile uses `500,000` Scheduler gas, a `2,000`-block delay, `500`-block TTL, a poll deadline derived as the live block plus `10,000,000`, exactly one call, and a fixed `0.02 RITUAL` deposit (`0.01` reserve plus a `0.01` execution ceiling). There is no automatic top-up. `scripts/verify-agent-fork.mjs` verifies that profile against the deployed contracts on a local Ritual fork before release.
+The Studio reads existing harness ownership and series history by reconciling Scheduler and Agent events. That history is diagnostic only and does not make the factory harness a bounded test path.
 
-Direct Sovereign Agent submission remains circuit-broken after a provider-failed request charged `0.50784 RITUAL` without a reliable pre-signing quote. The one-call Scheduler harness isolates its fixed deposit from general wallet escrow and keeps the executor/model profile constrained to the registry-valid ZeroClaw plus Ritual GLM path.
+Direct Sovereign Agent submission remains circuit-broken after a provider-failed request charged `0.50784 RITUAL` without a reliable pre-signing quote. Ritual's official factory harness is also blocked for new launches because its rolling windows are not a true one-shot path. The repository now includes a per-wallet consumer that schedules one callback, rejects a second invocation, and never creates a successor; it remains unavailable in production until deployed and verified live.
+
+The rollout gates are documented in [`docs/agent-verification.md`](./docs/agent-verification.md).
 
 ## Scheduled JQ Consumer
 

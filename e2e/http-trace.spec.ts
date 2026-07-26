@@ -151,25 +151,26 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("shows the corrected Agent launch profile without overflow", async ({ page }) => {
+test("shows the bounded Agent upgrade without exposing the rolling launch", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByRole("button", { name: /Run once/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText("One scheduled Agent test", { exact: true })).toBeVisible();
-  await expect(launch.locator(".agent-fixed-funding").getByText("0.02 RITUAL", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Bounded one-shot upgrade", { exact: true })).toBeVisible();
+  await expect(launch.locator(".agent-fixed-funding")).toHaveCount(0);
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
-  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("20");
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveCount(0);
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: "One-shot upgrade pending", exact: true })).toBeDisabled();
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(launch.getByText("Ready to configure", { exact: true })).toBeVisible();
+  await expect(launch.locator("strong").getByText("One-shot upgrade pending", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: "One-shot upgrade pending", exact: true })).toBeDisabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
@@ -184,8 +185,9 @@ test("keeps Agent actions hidden while loading the first onchain snapshot", asyn
   await expect(launch.getByText("Checking", { exact: true })).toHaveCount(0);
 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByLabel("Agent pre-sign cost check")).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toBeEnabled();
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
+  await expect(launch.getByText("Bounded one-shot upgrade", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "One-shot upgrade pending", exact: true })).toBeDisabled();
 });
 
 test("reports a stopped Agent series without stale transaction links", async ({ page }) => {

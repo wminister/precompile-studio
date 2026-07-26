@@ -384,7 +384,7 @@ describe("Sovereign Agent harness", () => {
     expect(fields.maxTurns).toBe("5");
     expect(fields.maxTokens).toBe("2048");
     expect(agentMaxPollBlock(49_000_000)).toBe(59_000_000n);
-    expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(true);
+    expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(false);
     expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(false);
     expect(AGENT_SCHEDULER_GAS).toBe(500_000);
     expect(AGENT_SCHEDULE).toEqual([

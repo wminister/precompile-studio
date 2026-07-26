@@ -610,10 +610,10 @@ export const SOVEREIGN_AGENT_HARNESS_ADDRESS = ritualTestnetDeployment.contracts
 // Earlier harness versions contain immutable schedules from failed low-fee
 // profiles. Use a fresh deterministic namespace for the corrected schedule.
 export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v4"));
-// Recurring launch uses Ritual's documented fee floor and safe frequency. The
-// exact profile is also exercised against the deployed contracts on a local
-// fork by scripts/verify-agent-fork.mjs before it is exposed in the browser.
-export const AGENT_RECURRING_EXECUTION_ENABLED = true;
+// Ritual's official factory harness rolls into successor Scheduler windows.
+// Keep both paid launch paths disabled until the Studio's bounded one-shot
+// consumer is deployed and its complete callback lifecycle is verified live.
+export const AGENT_RECURRING_EXECUTION_ENABLED = false;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
 export const AGENT_MAX_POLL_BLOCK_OFFSET = 10_000_000;
@@ -661,7 +661,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, Scheduled JQ, and the wallet-owned Agent test harness are publicly usable. The Agent test funds exactly one execution after 2,000 blocks with a fixed 0.02 RITUAL harness deposit. It cannot automatically top up from your wallet or general RitualWallet escrow.",
+      "HTTP, JQ, and Scheduled JQ are publicly usable. The Agent composer and prior harness history remain available for inspection, but new paid Agent launches are paused while the Studio's bounded one-shot consumer completes deployment verification.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -669,9 +669,9 @@ const FAQ_ITEMS = [
       "Each wallet gets its own Scheduled JQ consumer and contract-owned RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. The same wallet can cancel active calls or withdraw unused escrow after its lock expires.",
   },
   {
-    question: "Why does the Agent test use a Scheduler harness?",
+    question: "Why is the Agent launch currently paused?",
     answer:
-      "The wallet-owned Scheduler harness isolates Agent spending from general RitualWallet escrow. Its fixed 0.02 RITUAL deposit contains a 0.01 RITUAL Scheduler reserve and a 0.01 RITUAL ceiling for one execution. Initial network gas is separate, and unused harness funding remains locked for 100,000 blocks.",
+      "Ritual's official Sovereign Agent factory harness creates rolling Scheduler windows, even when each window contains one call. Precompile Studio no longer presents that recurring behavior as a one-shot test. A Studio-owned consumer now enforces one Scheduler callback and rejects a second invocation; live launch stays disabled until that contract is deployed and its full Agent callback is proven on testnet.",
   },
   {
     question: "What is stored by the app?",
@@ -4100,7 +4100,7 @@ function App() {
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
   const directCallUnavailableReason =
     selectedRecipe.id === "agent" && agentLaunchMode === "scheduled"
-      ? "Recurring Agent calls are launched through the wallet-owned Scheduler harness."
+      ? "Paid Agent launch is paused until the bounded one-shot consumer is deployed and verified."
       : selectedRecipe.id === "scheduler" && scheduledJqState.status !== "ready"
         ? "Create your Scheduled JQ consumer before exporting a transaction."
       : undefined;
@@ -4237,7 +4237,7 @@ function App() {
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
     : `One execution only · no automatic top-up · ${formatRitual(agentLaunchTotal)} RITUAL harness deposit`;
   const agentOneShotSummary = !AGENT_ONE_SHOT_EXECUTION_ENABLED
-    ? "Direct one-shot submission remains disabled because it can draw from the wallet's existing escrow without a reliable executor quote."
+    ? "The bounded one-shot consumer is implemented locally. Live launch remains disabled until deployment and callback verification are complete."
     : !hasRitualBalance
       ? "Deposit RITUAL into RitualWallet before running"
       : !isRitualLockSufficient
@@ -4263,7 +4263,8 @@ function App() {
     if (agentRun?.action === "once" && agentRun.status === "confirmed") return "Locating Agent job";
     if (agentHarnessState.status === "loading" && !agentHarnessStatus) return "Reading onchain state";
     if (agentHarnessState.status === "error") return "Harness unavailable";
-    if (agentHarnessState.status === "missing") return "Create your Agent harness";
+    if (!AGENT_RECURRING_EXECUTION_ENABLED && !agentHarnessStatus?.configured) return "One-shot upgrade pending";
+    if (agentHarnessState.status === "missing") return "Agent harness unavailable";
     if (agentLifecycle?.status === "settled") return "Agent result delivered";
     if (agentLifecycle?.status === "failed") return "Agent job failed";
     if (agentLifecycle?.status === "expired") return "Agent job expired";
@@ -4589,12 +4590,14 @@ function App() {
                   ? "The deployer demo remains readable; connect to discover your deterministic harness."
                   : agentHarnessState.status === "missing"
                     ? `Factory predicts ${formatAddress(agentHarnessState.predictedAddress)} for this wallet.`
-                    : !agentHarnessStatus
+                  : !agentHarnessStatus
                       ? "Reading the wallet-specific factory child."
                       : isAgentHarnessOwner
                         ? agentLaunchMode === "once"
                           ? "The harness will receive the one-shot callback."
-                          : `${formatRitual(agentFunding)} RITUAL funds a ${agentFundedCalls}-call rolling window at the selected fee cap.`
+                          : AGENT_RECURRING_EXECUTION_ENABLED
+                            ? `${formatRitual(agentFunding)} RITUAL funds a ${agentFundedCalls}-call rolling window at the selected fee cap.`
+                            : "Existing harness state is read-only. New launches wait for the bounded one-shot consumer."
                         : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
             }
         : {
@@ -5267,13 +5270,15 @@ function App() {
               : "Connect a wallet to discover its Scheduled JQ consumer."
           : "Resolve Scheduled JQ field errors before submitting."
       : selectedRecipe.id === "agent"
-        ? agentHarnessState.status === "missing"
-          ? `Create the Agent harness predicted for this wallet at ${agentHarnessState.predictedAddress}.`
-          : agentDraft.encodedInput
-            ? agentLaunchMode === "once"
-              ? `Run once through 0x080C and receive the callback at ${agentHarnessAddress}. No Scheduler reserve is used.`
-              : `Schedule one Agent execution through ${agentHarnessAddress}. The 0.02 RITUAL harness deposit and network gas use one wallet confirmation.`
-            : "Resolve Sovereign Agent field errors before starting the harness."
+        ? !AGENT_RECURRING_EXECUTION_ENABLED
+          ? "Inspect or copy the Agent payload. Paid launch remains paused until the bounded one-shot consumer is deployed and verified."
+          : agentHarnessState.status === "missing"
+            ? `Create the Agent harness predicted for this wallet at ${agentHarnessState.predictedAddress}.`
+            : agentDraft.encodedInput
+              ? agentLaunchMode === "once"
+                ? `Run once through 0x080C and receive the callback at ${agentHarnessAddress}. No Scheduler reserve is used.`
+                : `Schedule an Agent window through ${agentHarnessAddress}.`
+              : "Resolve Sovereign Agent field errors before starting the harness."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
         : `Resolve ${selectedRecipe.name} field errors before copying ABI input.`;
@@ -6149,13 +6154,15 @@ function App() {
       return;
     }
     if (agentLaunchMode === "once") {
-      setAgentTxState({ status: "error", error: "Direct precompile submission is disabled. Use the capped one-call Scheduler test." });
+      setAgentTxState({ status: "error", error: "Direct precompile submission is disabled while executor cost cannot be quoted reliably." });
       return;
     }
     if (!AGENT_RECURRING_EXECUTION_ENABLED || !isTestedNativeAgentProfile) {
       setAgentTxState({
         status: "error",
-        error: `Live Agent launch requires native ${DEFAULT_LLM_MODEL}, ZeroClaw, and the registry-valid executor tested by this Studio (${formatAddress(TESTED_NATIVE_AGENT_EXECUTOR)}).`,
+        error: !AGENT_RECURRING_EXECUTION_ENABLED
+          ? "The rolling factory launch is disabled. Wait for the bounded one-shot consumer deployment."
+          : `Live Agent launch requires native ${DEFAULT_LLM_MODEL}, ZeroClaw, and the registry-valid executor tested by this Studio (${formatAddress(TESTED_NATIVE_AGENT_EXECUTOR)}).`,
       });
       return;
     }
@@ -7211,14 +7218,14 @@ function App() {
                   {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
                       <ShieldCheck size={16} />
                       <div>
-                        <strong>One scheduled Agent test</strong>
+                        <strong>Bounded one-shot upgrade</strong>
                         <p>
-                          Exactly one execution is funded. The harness receives 0.02 RITUAL and cannot automatically
-                          top up from your wallet or general RitualWallet escrow.
+                          The replacement consumer enforces one Scheduler callback and has no successor-series path.
+                          Live launch remains unavailable until its testnet callback lifecycle is verified.
                         </p>
                       </div>
                     </div> : null}
-                  {!isAgentHarnessResolving && agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
+                  {AGENT_RECURRING_EXECUTION_ENABLED && !isAgentHarnessResolving && agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
                     <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
                       <header>
                         <div>
@@ -7277,7 +7284,7 @@ function App() {
                     </div>
                   ) : !isAgentHarnessResolving ? (
                     <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
-                    {agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
+                    {AGENT_RECURRING_EXECUTION_ENABLED && agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
                       <>
                         <div className="agent-fixed-funding">
                           <span>One-call deposit</span>
@@ -7316,7 +7323,7 @@ function App() {
                       {agentTxState.status === "submitting"
                         ? "Confirming"
                         : !AGENT_RECURRING_EXECUTION_ENABLED
-                          ? "Live launch paused"
+                          ? "One-shot upgrade pending"
                         : agentHarnessState.status === "missing"
                           ? "Create Agent harness"
                         : agentLaunchMode === "once" ? "Run once" : "Run scheduled test"}
