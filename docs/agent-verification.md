@@ -44,7 +44,7 @@ The legacy fork verifier only proved that `configureFundAndStart` succeeded and 
 - [ ] `JobAdded`, phase-one settlement, AsyncDelivery, and stored callback are observed.
 - [ ] The consumer reports exactly one execution and no active successor schedule.
 - [ ] Remaining escrow and unlock height are shown accurately.
-- [ ] The production UI is switched from legacy harness history to the verified consumer.
+- [x] The production UI is switched from legacy harness history to the verified consumer.
 
 ## Spending Rule
 

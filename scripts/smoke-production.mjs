@@ -6,9 +6,16 @@ const contractAddresses = [
   deployments.contracts.HttpPrecompileConsumer.address,
   deployments.contracts.LlmPrecompileConsumer.address,
   deployments.contracts.SovereignAgentHarness.address,
+  deployments.contracts.SovereignAgentOneShotConsumerFactory.address,
+  deployments.contracts.SovereignAgentOneShotConsumerFactory.deployerConsumer,
   deployments.contracts.ScheduledJqConsumer.address,
   deployments.contracts.ScheduledJqConsumerFactory.address,
 ].map((address) => address.toLowerCase());
+const requiredProductCopy = [
+  "Run one bounded Agent",
+  "One call, isolated funds",
+  "Maximum wallet debit",
+];
 const attempts = 6;
 
 async function check() {
@@ -22,6 +29,8 @@ async function check() {
   const normalizedScript = script.toLowerCase();
   const missingAddress = contractAddresses.find((address) => !normalizedScript.includes(address));
   if (missingAddress) throw new Error(`deployment ${missingAddress} is not in the production bundle`);
+  const missingProductCopy = requiredProductCopy.find((copy) => !script.includes(copy));
+  if (missingProductCopy) throw new Error(`bounded Agent UI copy is missing: ${missingProductCopy}`);
 
   const faq = await fetch(new URL("/faq", response.url));
   if (!faq.ok) throw new Error(`FAQ returned HTTP ${faq.status}`);
