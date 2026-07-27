@@ -35,7 +35,12 @@
       "blockNumber": 51095832,
       "gasUsed": 2576323,
       "effectiveGasPriceWei": "1000000007",
-      "deploymentCostWei": "2576323018034261"
+      "deploymentCostWei": "2576323018034261",
+      "deployerConsumer": "0x1f6f1102D533bf78d61C4ad5CC3ECD4D4b2Ba0FC",
+      "consumerCreationTransaction": "0xe49ead931a5da9881c6ffa776415af1b89a0d7362283f567132fd66324295182",
+      "consumerCreationBlock": 51155175,
+      "consumerCreationGasUsed": 1951558,
+      "consumerCreationCostWei": "195155813660906"
     },
     "ScheduledJqConsumer": {
       "address": "0x7243c1A2cA1Ea555416951480B147c27b17eA668",

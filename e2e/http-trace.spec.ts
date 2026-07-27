@@ -14,13 +14,14 @@ const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
 const TEST_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
 const SCHEDULER_CONSUMER = "0x7243c1A2cA1Ea555416951480B147c27b17eA668";
 const PREDICTED_SCHEDULER_CONSUMER = "0x3333333333333333333333333333333333333333";
-const PREDICTED_AGENT_HARNESS = "0x4444444444444444444444444444444444444444";
+const AGENT_ONE_SHOT_FACTORY = "0xAE2D6BD1C04641A0Dd5453BcE699a7e7877D0Ef7";
+const AGENT_ONE_SHOT_CONSUMER = "0x4444444444444444444444444444444444444444";
 const TEST_PUBLIC_KEY = `0x04${"33".repeat(64)}` as `0x${string}`;
 const ZERO_HASH = `0x${"0".repeat(64)}` as `0x${string}`;
 
 test.beforeEach(async ({ page }, testInfo) => {
   const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
-  const stoppedAgentSeries = testInfo.title.includes("reports a stopped Agent series");
+  const usedAgentConsumer = testInfo.title.includes("reports a used Agent consumer");
   const delayedAgentHarness = testInfo.title.includes("keeps Agent actions hidden while loading");
   let factoryLookupCount = 0;
   let delayAgentHistory = false;
@@ -64,42 +65,57 @@ test.beforeEach(async ({ page }, testInfo) => {
         );
       }
       else if (call?.data?.startsWith(toFunctionSelector("consumerOf(address)"))) {
-        factoryLookupCount += 1;
-        const consumer = firstTimeSchedulerWallet && factoryLookupCount === 1 ? "0x0000000000000000000000000000000000000000" : SCHEDULER_CONSUMER;
+        const isAgentFactory = call.to?.toLowerCase() === AGENT_ONE_SHOT_FACTORY.toLowerCase();
+        if (!isAgentFactory) factoryLookupCount += 1;
+        const consumer = isAgentFactory
+          ? AGENT_ONE_SHOT_CONSUMER
+          : firstTimeSchedulerWallet && factoryLookupCount === 1
+            ? "0x0000000000000000000000000000000000000000"
+            : SCHEDULER_CONSUMER;
         result = encodeAbiParameters(parseAbiParameters("address"), [consumer]);
       }
       else if (call?.data?.startsWith(toFunctionSelector("predictConsumer(address)"))) {
-        result = encodeAbiParameters(parseAbiParameters("address"), [PREDICTED_SCHEDULER_CONSUMER]);
+        result = encodeAbiParameters(
+          parseAbiParameters("address"),
+          [call.to?.toLowerCase() === AGENT_ONE_SHOT_FACTORY.toLowerCase() ? AGENT_ONE_SHOT_CONSUMER : PREDICTED_SCHEDULER_CONSUMER],
+        );
       }
       else if (call?.data?.startsWith(toFunctionSelector("predictHarness(address,bytes32)"))) {
-        result = encodeAbiParameters(parseAbiParameters("address,bytes32"), [PREDICTED_AGENT_HARNESS, ZERO_HASH]);
+        result = encodeAbiParameters(parseAbiParameters("address,bytes32"), [AGENT_ONE_SHOT_CONSUMER, ZERO_HASH]);
       }
       else if (call?.data?.startsWith(toFunctionSelector("owner()"))) {
         if (delayedAgentHarness) await new Promise((resolve) => setTimeout(resolve, 750));
         result = encodeAbiParameters(parseAbiParameters("address"), [TEST_ACCOUNT]);
       }
-      else if (call?.data?.startsWith(toFunctionSelector("configured()"))) result = encodeAbiParameters(parseAbiParameters("bool"), [stoppedAgentSeries]);
+      else if (call?.data?.startsWith(toFunctionSelector("configured()"))) result = encodeAbiParameters(parseAbiParameters("bool"), [usedAgentConsumer]);
       else if (call?.data?.startsWith(toFunctionSelector("wakeMode()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [0]);
-      else if (call?.data?.startsWith(toFunctionSelector("activeCallId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 3_259_797n : 0n]);
-      else if (call?.data?.startsWith(toFunctionSelector("currentSeriesId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [stoppedAgentSeries ? 1n : 0n]);
+      else if (call?.data?.startsWith(toFunctionSelector("activeCallId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [usedAgentConsumer ? 3_259_797n : 0n]);
+      else if (call?.data?.startsWith(toFunctionSelector("currentSeriesId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [usedAgentConsumer ? 1n : 0n]);
       else if (call?.data?.startsWith(toFunctionSelector("hasPendingJobForSender(address)"))) result = encodeAbiParameters(parseAbiParameters("bool"), [false]);
       else if (call?.data?.startsWith(toFunctionSelector("consumerBalance()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [400_000_000_000_000n]);
       else if (call?.data?.startsWith(toFunctionSelector("activeScheduleId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [0n]);
-      else if (call?.data?.startsWith(toFunctionSelector("lastScheduleId()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [3_146_449n]);
+      else if (call?.data?.startsWith(toFunctionSelector("lastScheduleId()"))) {
+        const isAgentConsumer = call.to?.toLowerCase() === AGENT_ONE_SHOT_CONSUMER.toLowerCase();
+        result = encodeAbiParameters(parseAbiParameters("uint256"), [isAgentConsumer ? (usedAgentConsumer ? 3_259_797n : 0n) : 3_146_449n]);
+      }
       else if (call?.data?.startsWith(toFunctionSelector("activeScheduleState()"))) result = encodeAbiParameters(parseAbiParameters("uint8"), [2]);
-      else if (call?.data?.startsWith(toFunctionSelector("executionCount()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [1n]);
+      else if (call?.data?.startsWith(toFunctionSelector("executionCount()"))) {
+        const isAgentConsumer = call.to?.toLowerCase() === AGENT_ONE_SHOT_CONSUMER.toLowerCase();
+        result = encodeAbiParameters(parseAbiParameters("uint256"), [isAgentConsumer ? 0n : 1n]);
+      }
       else if (call?.data?.startsWith(toFunctionSelector("lastExecutionIndex()"))) result = encodeAbiParameters(parseAbiParameters("uint256"), [0n]);
       else if (call?.data?.startsWith(toFunctionSelector("activeNumCalls()"))) result = encodeAbiParameters(parseAbiParameters("uint32"), [1]);
       else if (call?.data?.startsWith(toFunctionSelector("lastResult()"))) {
+        const isAgentConsumer = call.to?.toLowerCase() === AGENT_ONE_SHOT_CONSUMER.toLowerCase();
         result = encodeAbiParameters(
           parseAbiParameters("bytes"),
-          [encodeAbiParameters(parseAbiParameters("uint256"), [1979n])],
+          [isAgentConsumer ? "0x" : encodeAbiParameters(parseAbiParameters("uint256"), [1979n])],
         );
       }
       else result = "0x" + "0".repeat(64);
     }
     if (payload.method === "eth_getLogs") {
-      if (stoppedAgentSeries && delayAgentHistory) await new Promise((resolve) => setTimeout(resolve, 750));
+      if (usedAgentConsumer && delayAgentHistory) await new Promise((resolve) => setTimeout(resolve, 750));
       result = [];
     }
     if (payload.method === "eth_getTransactionReceipt") {
@@ -151,26 +167,25 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("shows the bounded Agent upgrade without exposing the rolling launch", async ({ page }) => {
+test("shows the bounded Agent run with an exact maximum debit", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByRole("button", { name: /Run once/ })).toHaveCount(0);
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText("Bounded one-shot upgrade", { exact: true })).toBeVisible();
-  await expect(launch.locator(".agent-fixed-funding")).toHaveCount(0);
-  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
+  await expect(launch.getByText("Ready for one bounded run", { exact: true })).toBeVisible();
+  await expect(launch.locator(".agent-fixed-funding")).toContainText("0.02 RITUAL");
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toContainText("0.025 RITUAL");
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
-  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveCount(0);
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("20");
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "One-shot upgrade pending", exact: true })).toBeDisabled();
+  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(launch.locator("strong").getByText("One-shot upgrade pending", { exact: true })).toBeVisible();
+  await expect(launch.locator("strong").getByText("Ready for one bounded run", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "One-shot upgrade pending", exact: true })).toBeDisabled();
+  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
@@ -179,34 +194,34 @@ test("keeps Agent actions hidden while loading the first onchain snapshot", asyn
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
 
   const launch = page.getByTestId("agent-launch");
-  await expect(launch.getByLabel("Reading Agent harness state")).toBeVisible();
+  await expect(launch.getByLabel("Reading Agent consumer state")).toBeVisible();
   await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toHaveCount(0);
   await expect(launch.getByText("Checking", { exact: true })).toHaveCount(0);
 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
-  await expect(launch.getByText("Bounded one-shot upgrade", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "One-shot upgrade pending", exact: true })).toBeDisabled();
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toBeVisible();
+  await expect(launch.getByText("Ready for one bounded run", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
 });
 
-test("reports a stopped Agent series without stale transaction links", async ({ page }) => {
+test("reports a used Agent consumer without offering another paid run", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
 
   const launch = page.getByTestId("agent-launch");
   const seriesStatus = launch.locator(".agent-series-status");
-  await expect(seriesStatus.getByText("Series stopped", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(seriesStatus.getByText("Bounded run ended", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(seriesStatus.getByText("Call #3,259,797", { exact: true })).toBeVisible();
-  await expect(launch.getByText("No Agent job was found for this harness in the RPC's recent log window.", { exact: true })).toBeVisible();
-  await expect(launch.getByText("Agent active", { exact: true })).toHaveCount(0);
+  await expect(launch.getByText("No Agent job was found for this consumer in the RPC's recent log window.", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toHaveCount(0);
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
 
   await page.evaluate(() => fetch("/__test/delay-agent-history"));
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.getByRole("button", { name: "Refreshing", exact: true })).toBeVisible();
-  await expect(seriesStatus.getByText("Series stopped", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run scheduled test", exact: true })).toHaveCount(0);
+  await expect(seriesStatus.getByText("Bounded run ended", { exact: true })).toBeVisible();
+  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toHaveCount(0);
   await expect(launch.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });

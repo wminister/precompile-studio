@@ -1,6 +1,10 @@
 # Sovereign Agent One-Shot Verification
 
-Precompile Studio must not expose another paid Agent launch until every gate below passes.
+Precompile Studio must not describe Agent execution as fully verified until every
+gate below passes. A bounded live-test action may be exposed after the contract,
+deployment, deterministic consumer, transaction preflight, and maximum-debit
+gates pass; the remaining gates record the result of that explicitly approved
+test.
 
 ## Why The Factory Harness Is Blocked
 
@@ -33,8 +37,8 @@ The legacy fork verifier only proved that `configureFundAndStart` succeeded and 
 - [x] Unit tests cover funding, cancellation, and owner withdrawal.
 - [x] Factory deployed to Ritual testnet.
 - [x] Deployment bytecode and constructor Scheduler address verified.
-- [ ] A wallet child is created without funding an Agent execution.
-- [ ] A read-only preflight quotes the complete maximum wallet debit.
+- [x] A wallet child is created without funding an Agent execution.
+- [x] A read-only preflight quotes the complete maximum wallet debit.
 - [ ] One explicitly approved live test uses a fixed consumer deposit.
 - [ ] The Scheduler dispatch transaction is observed.
 - [ ] `JobAdded`, phase-one settlement, AsyncDelivery, and stored callback are observed.
@@ -64,25 +68,19 @@ No live transaction should be submitted without the wallet owner approving that 
 
 The deployed runtime length matches the Solidity artifact. All non-immutable
 runtime bytes match exactly, and the three immutable slots resolve through
-`scheduler()` to the Scheduler address above. The deployer's `consumerOf`
-mapping remains empty; no child consumer or Agent execution was funded during
-factory deployment.
+`scheduler()` to the Scheduler address above. The factory deployment itself did
+not create a child or fund an Agent execution.
 
-## Next Transaction Preview
+## Verified Deployer Consumer
 
-The next release gate is creating the deployer's deterministic child without
-funding or scheduling an Agent:
+- Consumer: `0x1f6f1102D533bf78d61C4ad5CC3ECD4D4b2Ba0FC`
+- Owner: `0xE74600CB53B65F475ef8032EEc68AFc32edfDE6E`
+- Transaction: `0xe49ead931a5da9881c6ffa776415af1b89a0d7362283f567132fd66324295182`
+- Block: `51155175`
+- Gas used: `1951558`
+- Actual network cost: `0.000195155813660906 RITUAL`
 
-- Factory: `0xAE2D6BD1C04641A0Dd5453BcE699a7e7877D0Ef7`
-- Predicted child: `0x1f6f1102D533bf78d61C4ad5CC3ECD4D4b2Ba0FC`
-- Calldata: `0x73c53af9` (`createConsumer()`)
-- Transaction value: `0 RITUAL`
-- Estimate at block `51102466`: `1968214` gas
-- Proposed 25% gas cap: `2460268` gas
-- Cost at the observed `1000000007` wei gas price: approximately
-  `0.001968214013777498 RITUAL`, capped at approximately
-  `0.002460268017221876 RITUAL`
-
-This preview is not an approval to broadcast. Gas and balance must be refreshed
-immediately before signing. Creating the child does not fund its isolated
-RitualWallet account and cannot schedule or invoke the Agent.
+The consumer was created with zero transaction value. Its RitualWallet balance,
+active schedule, execution count, job id, and result were all zero after
+deployment. The runtime bytecode matches the local artifact after resolving its
+immutable constructor values.

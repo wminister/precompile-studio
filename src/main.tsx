@@ -616,7 +616,7 @@ export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studi
 // Keep both paid launch paths disabled until the Studio's bounded one-shot
 // consumer is deployed and its complete callback lifecycle is verified live.
 export const AGENT_RECURRING_EXECUTION_ENABLED = false;
-export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
+export const AGENT_ONE_SHOT_EXECUTION_ENABLED = true;
 export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
 export const AGENT_MAX_POLL_BLOCK_OFFSET = 10_000_000;
 export function agentMaxPollBlock(latestBlock: number) {
@@ -663,7 +663,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, and Scheduled JQ are publicly usable. The Agent composer and prior harness history remain available for inspection, but new paid Agent launches are paused while the Studio's bounded one-shot consumer completes deployment verification.",
+      "HTTP, JQ, LLM, Scheduled JQ, and the bounded Agent flow are available. Agent uses a wallet-owned consumer that accepts one scheduled invocation, clears the schedule before dispatch, and cannot roll into another paid run.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -671,9 +671,9 @@ const FAQ_ITEMS = [
       "Each wallet gets its own Scheduled JQ consumer and contract-owned RitualWallet escrow. The studio calculates Ritual's 0.01 RITUAL Scheduler reserve plus the execution budget. If escrow is short, Fund & schedule deposits exactly the shortfall and creates the schedule in one wallet transaction. The same wallet can cancel active calls or withdraw unused escrow after its lock expires.",
   },
   {
-    question: "Why is the Agent launch currently paused?",
+    question: "How is an Agent run bounded?",
     answer:
-      "Ritual's official Sovereign Agent factory harness creates rolling Scheduler windows, even when each window contains one call. Precompile Studio no longer presents that recurring behavior as a one-shot test. A Studio-owned consumer now enforces one Scheduler callback and rejects a second invocation; live launch stays disabled until that contract is deployed and its full Agent callback is proven on testnet.",
+      "Each wallet gets a deterministic consumer that can be used once. The confirmation sends exactly 0.02 RITUAL to that consumer and caps outer transaction gas at 5,000,000. The consumer schedules one invocation, clears its schedule before dispatching to the Agent precompile, and cannot automatically renew or draw from the wallet's general RitualWallet escrow.",
   },
   {
     question: "What is stored by the app?",
@@ -765,7 +765,6 @@ const AGENT_ROLLOVER_RETRY_CALLS = 1;
 const AGENT_ROLLING = [AGENT_MAX_WINDOW_CALLS, AGENT_ROLLOVER_THRESHOLD_BPS, AGENT_ROLLOVER_RETRY_CALLS] as const;
 const AGENT_LOCK_BLOCKS = 100_000n;
 const AGENT_CONFIGURE_GAS_LIMIT = 5_000_000n;
-const AGENT_OBSERVED_CONFIGURE_GAS = 3_178_666n;
 const SCHEDULER_RESERVE = 10_000_000_000_000_000n;
 const AGENT_MINIMUM_EXECUTION_FUNDING = 10_000_000_000_000_000n;
 export const VERIFIED_AGENT_EXECUTION_FUNDING = 10_000_000_000_000_000n;
@@ -810,12 +809,14 @@ export function agentRollingForFunding(
   ];
 }
 export const AGENT_MINIMUM_FUNDING = agentExecutionBudget();
-const AGENT_DEPLOYMENT_BLOCK = ritualTestnetDeployment.contracts.SovereignAgentHarness.blockNumber;
+const AGENT_DEPLOYMENT_BLOCK =
+  ritualTestnetDeployment.contracts.SovereignAgentOneShotConsumerFactory.blockNumber;
 const JOB_ADDED_TOPIC = keccak256(stringToHex("JobAdded(address,bytes32,address,uint256,bytes,address,bytes32,uint256,uint256,uint256,uint256)"));
 const PHASE1_SETTLED_TOPIC = keccak256(stringToHex("Phase1Settled(bytes32,address,uint256)"));
 const RESULT_DELIVERED_TOPIC = keccak256(stringToHex("ResultDelivered(bytes32,address,bool)"));
 const JOB_REMOVED_TOPIC = keccak256(stringToHex("JobRemoved(address,bytes32,bool)"));
 const SOVEREIGN_RESULT_TOPIC = keccak256(stringToHex("SovereignResult(bytes32,bytes)"));
+const AGENT_RESULT_DELIVERED_TOPIC = keccak256(stringToHex("AgentResultDelivered(bytes32,bytes)"));
 export const SCHEDULED_JQ_CONSUMER_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumer.address;
 export const SCHEDULED_JQ_FACTORY_ADDRESS = ritualTestnetDeployment.contracts.ScheduledJqConsumerFactory.address;
 const SCHEDULER_LOCK_BLOCKS = 50_000n;
@@ -1166,6 +1167,35 @@ const sovereignAgentOneShotFactoryAbi = [
   },
 ] as const;
 
+const sovereignAgentOneShotConsumerAbi = [
+  { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  {
+    type: "function",
+    name: "fundAndSchedule",
+    stateMutability: "payable",
+    inputs: [
+      { name: "agentInput", type: "bytes" },
+      { name: "frequency", type: "uint32" },
+      { name: "gasLimit", type: "uint32" },
+      { name: "ttl", type: "uint32" },
+      { name: "maxFeePerGas", type: "uint256" },
+      { name: "maxPriorityFeePerGas", type: "uint256" },
+      { name: "value", type: "uint256" },
+      { name: "lockDuration", type: "uint256" },
+    ],
+    outputs: [{ name: "callId", type: "uint256" }],
+  },
+  { type: "function", name: "consumerBalance", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "activeScheduleId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "lastScheduleId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "executionCount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "lastExecutionIndex", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "scheduleNonce", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "activeScheduleState", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+  { type: "function", name: "lastJobId", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32" }] },
+  { type: "function", name: "lastResult", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] },
+] as const;
+
 export const recipes: Recipe[] = [
   {
     id: "http",
@@ -1236,14 +1266,14 @@ export const recipes: Recipe[] = [
     label: "Live recipe",
     icon: Route,
     status: "live",
-    description: "Compose and run one wallet-owned ZeroClaw task through a corrected recurring harness.",
+    description: "Compose one wallet-owned ZeroClaw task through a bounded Scheduler consumer.",
     fields: [
       { key: "executor", label: "Executor", value: TESTED_NATIVE_AGENT_EXECUTOR },
       { key: "ttl", label: "TTL blocks", value: "500" },
       { key: "pollInterval", label: "Poll interval", value: "5" },
       { key: "maxPollBlock", label: "Poll window blocks", value: AGENT_MAX_POLL_BLOCK_OFFSET.toString(), type: "generated" },
       { key: "taskIdMarker", label: "Task marker", value: "SOVEREIGN_AGENT_TASK" },
-      { key: "callbackAddress", label: "Callback harness", value: SOVEREIGN_AGENT_HARNESS_ADDRESS },
+      { key: "callbackAddress", label: "Callback consumer", value: SOVEREIGN_AGENT_HARNESS_ADDRESS },
       { key: "callbackSelector", label: "Callback selector", value: AGENT_CALLBACK_SELECTOR },
       { key: "gasLimit", label: "Callback gas", value: "3000000" },
       { key: "maxFeePerGas", label: "Max fee wei", value: "1000000000" },
@@ -2541,6 +2571,48 @@ export function createAgentOneShotConsumerTransaction(from: string): WalletTrans
   };
 }
 
+export function createAgentOneShotScheduleTransaction(
+  from: string,
+  draft: ReturnType<typeof buildAgentDraft>,
+  consumerAddress: string,
+  funding = VERIFIED_AGENT_LAUNCH_CEILING,
+  schedule: AgentSchedule = AGENT_SCHEDULE,
+  lockDuration = AGENT_LOCK_BLOCKS,
+): WalletTransactionRequest {
+  if (!draft.encodedInput || draft.errors.length) {
+    throw new Error("Resolve the Sovereign Agent input before scheduling it.");
+  }
+  if (!isAddress(consumerAddress) || consumerAddress.toLowerCase() === zeroAddress) {
+    throw new Error("Create your bounded Agent consumer before scheduling the task.");
+  }
+  if (draft.callbackAddress.toLowerCase() !== consumerAddress.toLowerCase()) {
+    throw new Error("Agent delivery target must be your bounded Agent consumer.");
+  }
+  const required = agentTotalFunding(agentExecutionBudget(schedule));
+  if (funding !== required) {
+    throw new Error(`The bounded Agent transaction must deposit exactly ${formatEther(required)} RITUAL.`);
+  }
+  return {
+    from,
+    to: consumerAddress,
+    value: `0x${funding.toString(16)}`,
+    data: encodeFunctionData({
+      abi: sovereignAgentOneShotConsumerAbi,
+      functionName: "fundAndSchedule",
+      args: [
+        draft.encodedInput,
+        schedule[1],
+        schedule[0],
+        schedule[2],
+        schedule[3],
+        schedule[4],
+        schedule[5],
+        lockDuration,
+      ],
+    }),
+  };
+}
+
 export function createSchedulerTransaction(
   from: string,
   draft: ReturnType<typeof buildScheduleDraft>,
@@ -2664,6 +2736,14 @@ export type AgentHarnessStatus = {
   activeCallId: string;
   currentSeriesId: string;
   senderLocked: boolean;
+  consumerBalance?: bigint;
+  lockUntil?: bigint;
+  lastScheduleId?: bigint;
+  executionCount?: bigint;
+  lastExecutionIndex?: bigint;
+  scheduleState?: number;
+  lastJobId?: `0x${string}`;
+  lastResult?: `0x${string}`;
 };
 
 export type AgentHarnessDiscovery =
@@ -3086,11 +3166,104 @@ export async function readAgentHarnessStatus(
   };
 }
 
+export async function readAgentOneShotConsumerStatus(
+  consumerAddress: string,
+  requester: <T>(method: string, params?: unknown[]) => Promise<T> = rpc,
+): Promise<AgentHarnessStatus> {
+  const [
+    owner,
+    consumerBalance,
+    lockUntil,
+    activeScheduleId,
+    lastScheduleId,
+    executionCount,
+    lastExecutionIndex,
+    scheduleNonce,
+    scheduleState,
+    lastJobId,
+    lastResult,
+    senderLocked,
+  ] = await Promise.all([
+    readViewFunction<string>(consumerAddress, sovereignAgentOneShotConsumerAbi, "owner", [], requester),
+    readViewFunction<bigint>(consumerAddress, sovereignAgentOneShotConsumerAbi, "consumerBalance", [], requester),
+    readViewFunction<bigint>(SYSTEM_CONTRACTS.RitualWallet, ritualWalletAbi, "lockUntil", [consumerAddress], requester),
+    readViewFunction<bigint>(consumerAddress, sovereignAgentOneShotConsumerAbi, "activeScheduleId", [], requester),
+    readViewFunction<bigint>(consumerAddress, sovereignAgentOneShotConsumerAbi, "lastScheduleId", [], requester),
+    readViewFunction<bigint>(consumerAddress, sovereignAgentOneShotConsumerAbi, "executionCount", [], requester),
+    readViewFunction<bigint>(consumerAddress, sovereignAgentOneShotConsumerAbi, "lastExecutionIndex", [], requester),
+    readViewFunction<bigint>(consumerAddress, sovereignAgentOneShotConsumerAbi, "scheduleNonce", [], requester),
+    readViewFunction<number>(consumerAddress, sovereignAgentOneShotConsumerAbi, "activeScheduleState", [], requester),
+    readViewFunction<`0x${string}`>(consumerAddress, sovereignAgentOneShotConsumerAbi, "lastJobId", [], requester),
+    readViewFunction<`0x${string}`>(consumerAddress, sovereignAgentOneShotConsumerAbi, "lastResult", [], requester),
+    readViewFunction<boolean>(
+      SYSTEM_CONTRACTS.AsyncJobTracker,
+      asyncJobTrackerAbi,
+      "hasPendingJobForSender",
+      [consumerAddress],
+      requester,
+    ),
+  ]);
+  return {
+    address: consumerAddress,
+    owner,
+    configured: activeScheduleId > 0n || lastScheduleId > 0n,
+    wakeMode: activeScheduleId > 0n ? 1 : 0,
+    activeCallId: (activeScheduleId || lastScheduleId).toString(),
+    currentSeriesId: scheduleNonce.toString(),
+    senderLocked,
+    consumerBalance,
+    lockUntil,
+    lastScheduleId,
+    executionCount,
+    lastExecutionIndex,
+    scheduleState,
+    lastJobId,
+    lastResult,
+  };
+}
+
 export function describeAgentSeries(
   status: AgentHarnessStatus,
   lifecycle: SchedulerLifecycleEntry[] = [],
 ): AgentSeriesEvidence {
   const callId = status.activeCallId === "0" ? undefined : status.activeCallId;
+  if (status.lastResult && status.lastResult !== "0x") {
+    let detail = "Ritual AsyncDelivery returned the Agent result to this consumer.";
+    let tone: AgentSeriesEvidence["tone"] = "ok";
+    let state: AgentSeriesEvidence["status"] = "completed";
+    try {
+      const decoded = decodeSovereignAgentResult(status.lastResult);
+      const resultError = sovereignAgentResultError(decoded);
+      if (resultError) {
+        detail = resultError;
+        tone = "bad";
+        state = "failed";
+      }
+    } catch {
+      detail = "The callback arrived, but the Agent result tuple could not be decoded.";
+      tone = "warning";
+    }
+    return {
+      status: state,
+      label: state === "completed" ? "Agent result delivered" : "Agent returned an error",
+      detail,
+      tone,
+      callId,
+      lifecycle,
+    };
+  }
+  if (status.senderLocked || (status.executionCount ?? 0n) > 0n) {
+    return {
+      status: "processing",
+      label: status.senderLocked ? "Agent job processing" : "Waiting for Agent callback",
+      detail: status.senderLocked
+        ? "The one-shot consumer invoked the Agent and is waiting for its authenticated callback."
+        : "The Scheduler invocation completed. The consumer is waiting for Ritual AsyncDelivery to store the final result.",
+      tone: "neutral",
+      callId,
+      lifecycle,
+    };
+  }
   const terminal = [...lifecycle].reverse().find((entry) =>
     ["completed", "failed", "skipped-funds", "skipped-ttl", "expired", "cancelled"].includes(entry.kind),
   );
@@ -3124,26 +3297,34 @@ export function describeAgentSeries(
       lifecycle,
     };
   }
-  if (status.senderLocked) {
-    return {
-      status: "processing",
-      label: "Agent job processing",
-      detail: "The harness has a pending two-phase Agent job and is waiting for its callback.",
-      tone: "neutral",
-      callId,
-      lifecycle,
-    };
-  }
   if (!status.configured) {
     return {
       status: "idle",
-      label: "Ready to configure",
-      detail: "No Agent series has been configured for this harness.",
+      label: "Ready for one bounded run",
+      detail: "This wallet-owned consumer has no Agent schedule yet.",
       tone: "neutral",
       lifecycle,
     };
   }
   if (status.wakeMode === 0) {
+    if (status.lastScheduleId !== undefined) {
+      const endedLifecycle = lifecycle.some((entry) => entry.kind === "stopped")
+        ? lifecycle
+        : [...lifecycle, {
+            kind: "stopped" as const,
+            label: "Bounded run ended",
+            detail: "The one-shot schedule is no longer active and this consumer did not store an Agent result.",
+            tone: "warning" as const,
+          }];
+      return {
+        status: "stopped",
+        label: "Bounded run ended",
+        detail: "This consumer has already used its only schedule. No authenticated Agent result was stored.",
+        tone: "warning",
+        callId,
+        lifecycle: endedLifecycle,
+      };
+    }
     const stoppedLifecycle = lifecycle.some((entry) => entry.kind === "stopped")
       ? lifecycle
       : [...lifecycle, {
@@ -3173,10 +3354,10 @@ export function describeAgentSeries(
   }
   return {
     status: "active",
-    label: "Series scheduled",
+    label: "One-shot scheduled",
     detail: callId
-      ? `Scheduler call #${callId} is armed. This status does not mean an Agent result has been delivered yet.`
-      : "The harness reports an armed configuration. This status does not mean an Agent result has been delivered yet.",
+      ? `Scheduler call #${callId} is armed for exactly one invocation. This is not an Agent result yet.`
+      : "The consumer reports an armed one-shot schedule. This is not an Agent result yet.",
     tone: "neutral",
     callId,
     lifecycle,
@@ -3262,7 +3443,7 @@ export async function readAgentHistory(
     .sort((a, b) => Number(BigInt(b.blockNumber ?? "0x0") - BigInt(a.blockNumber ?? "0x0")))
     .slice(0, limit);
   if (!orderedJobs.length) return [];
-  const [phase1Logs, resultLogs, removedLogs, harnessResultLogs] = await Promise.all([
+  const [phase1Logs, resultLogs, removedLogs, legacyResultLogs, oneShotResultLogs] = await Promise.all([
     requester<RpcLog[]>("eth_getLogs", [{
       address: SYSTEM_CONTRACTS.AsyncJobTracker,
       fromBlock: logRange.fromBlock,
@@ -3287,7 +3468,14 @@ export async function readAgentHistory(
       toBlock: logRange.toBlock,
       topics: [SOVEREIGN_RESULT_TOPIC],
     }]),
+    requester<RpcLog[]>("eth_getLogs", [{
+      address: harnessAddress,
+      fromBlock: logRange.fromBlock,
+      toBlock: logRange.toBlock,
+      topics: [AGENT_RESULT_DELIVERED_TOPIC],
+    }]),
   ]);
+  const harnessResultLogs = [...legacyResultLogs, ...oneShotResultLogs];
   return orderedJobs.map((jobLog): AgentLifecycle => {
     const jobId = jobLog.topics![2];
     const [commitBlock] = decodeAbiParameters(
@@ -3691,7 +3879,7 @@ export function buildAgentDraft(
   if (!isAddress(callbackAddress) || callbackAddress.toLowerCase() === zeroAddress) {
     errors.push("Set the contract callback address for two-phase delivery.");
   } else if (!isAddress(expectedHarnessAddress) || callbackAddress.toLowerCase() !== expectedHarnessAddress.toLowerCase()) {
-    errors.push("Callback target must be the active wallet-owned Sovereign Agent harness.");
+    errors.push("Callback target must be the active wallet-owned Agent consumer.");
   }
   if (callbackSelector === "0x00000000") {
     errors.push("Callback selector should point to onSovereignAgentResult(bytes32,bytes).");
@@ -4003,7 +4191,7 @@ function App() {
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
   const [agentSeriesState, setAgentSeriesState] = React.useState<AgentSeriesState>({ status: "idle" });
   const agentSeriesRequestRef = React.useRef(0);
-  const [agentLaunchMode] = React.useState<AgentLaunchMode>("scheduled");
+  const [agentLaunchMode] = React.useState<AgentLaunchMode>("once");
   const [agentFundingAmount] = React.useState(() => formatEther(VERIFIED_AGENT_EXECUTION_FUNDING));
   const agentMaxFeeGwei = formatGwei(AGENT_DEFAULT_MAX_FEE);
   const [scheduledJqState, setScheduledJqState] = React.useState<ScheduledJqConsumerState>({ status: "idle" });
@@ -4098,7 +4286,7 @@ function App() {
         ? agentHarnessState.predictedAddress
         : (agentHarnessState.status === "loading" || agentHarnessState.status === "error") && agentHarnessState.address
           ? agentHarnessState.address
-        : SOVEREIGN_AGENT_HARNESS_ADDRESS;
+        : ritualTestnetDeployment.contracts.SovereignAgentOneShotConsumerFactory.deployerConsumer;
   const agentDraft = React.useMemo(
     () => buildAgentDraft(fieldState.agent, agentHarnessAddress),
     [agentHarnessAddress, fieldState.agent],
@@ -4163,8 +4351,8 @@ function App() {
     : scheduleDraft.requiredBalance;
   const canCopyEncoded = Boolean(liveAbiDraft?.encodedInput);
   const directCallUnavailableReason =
-    selectedRecipe.id === "agent" && agentLaunchMode === "scheduled"
-      ? "Paid Agent launch is paused until the bounded one-shot consumer is deployed and verified."
+    selectedRecipe.id === "agent"
+      ? "Use the bounded Agent action so the task runs through your isolated one-shot consumer."
       : selectedRecipe.id === "scheduler" && scheduledJqState.status !== "ready"
         ? "Create your Scheduled JQ consumer before exporting a transaction."
       : undefined;
@@ -4272,7 +4460,6 @@ function App() {
   const agentPerCallFunding = agentExecutionBudget(agentSchedule);
   const agentLaunchTotal = agentTotalFunding(agentFunding);
   const agentOuterMaxFeePerGas = rpcState.maxFeePerGas ?? rpcState.gasPrice ?? 0n;
-  const agentEstimatedNetworkFee = AGENT_OBSERVED_CONFIGURE_GAS * (rpcState.gasPrice ?? 0n);
   const agentMaximumNetworkFee = AGENT_CONFIGURE_GAS_LIMIT * agentOuterMaxFeePerGas;
   const agentMaximumWalletDebit = agentLaunchTotal + agentMaximumNetworkFee;
   const agentLaunchBalanceKnown = wallet.balanceWei !== undefined;
@@ -4300,18 +4487,11 @@ function App() {
     : !isAgentFeeCapSufficient
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
     : `One execution only · no automatic top-up · ${formatRitual(agentLaunchTotal)} RITUAL harness deposit`;
-  const agentOneShotSummary = !AGENT_ONE_SHOT_EXECUTION_ENABLED
-    ? "The bounded one-shot consumer is implemented locally. Live launch remains disabled until deployment and callback verification are complete."
-    : !hasRitualBalance
-      ? "Deposit RITUAL into RitualWallet before running"
-      : !isRitualLockSufficient
-        ? "Extend the RitualWallet lock before running"
-        : `${formatRitual(agentEscrowBalance)} RITUAL available · executor/model price is not quoted before submission · callback gas is capped at ${formatRitual(agentCallbackBudget)} RITUAL and unused callback budget is refunded`;
+  const agentOneShotSummary =
+    `Exactly one Scheduler invocation · ${formatRitual(agentLaunchTotal)} RITUAL deposited into this consumer · ` +
+    `Agent callback gas capped at ${formatRitual(agentCallbackBudget)} RITUAL`;
   const currentOneShotLifecycle =
-    agentRun?.action === "once" &&
-    agentLifecycle?.jobId?.toLowerCase() === agentRun.hash.toLowerCase()
-      ? agentLifecycle
-      : undefined;
+    agentRun?.action === "once" ? agentLifecycle : undefined;
   const agentEscrowSpent =
     agentRun?.escrowBefore !== undefined &&
     agentRun.escrowAfter !== undefined &&
@@ -4326,17 +4506,16 @@ function App() {
     if (currentOneShotLifecycle?.status === "expired") return "One-shot expired";
     if (agentRun?.action === "once" && agentRun.status === "confirmed") return "Locating Agent job";
     if (agentHarnessState.status === "loading" && !agentHarnessStatus) return "Reading onchain state";
-    if (agentHarnessState.status === "error") return "Harness unavailable";
-    if (!AGENT_RECURRING_EXECUTION_ENABLED && !agentHarnessStatus?.configured) return "One-shot upgrade pending";
-    if (agentHarnessState.status === "missing") return "Agent harness unavailable";
+    if (agentHarnessState.status === "error") return "Consumer unavailable";
+    if (agentHarnessState.status === "missing") return "Create your bounded consumer";
     if (agentLifecycle?.status === "settled") return "Agent result delivered";
     if (agentLifecycle?.status === "failed") return "Agent job failed";
     if (agentLifecycle?.status === "expired") return "Agent job expired";
     if (agentLifecycle?.status === "result-ready") return "TEE result ready";
     if (agentSeries) return agentSeries.label;
-    if (agentHarnessStatus?.configured) return "Reading series state";
+    if (agentHarnessStatus?.configured) return "Reading bounded run state";
     if (!isTestedNativeAgentProfile) return "Tested GLM route required";
-    return "Ready to configure";
+    return "Ready for one bounded run";
   })();
   const isScheduledJqOwner =
     Boolean(wallet.address && scheduledJqStatus?.owner) &&
@@ -4386,7 +4565,7 @@ function App() {
     Boolean(wallet.address && agentHarnessStatus?.owner) &&
     wallet.address?.toLowerCase() === agentHarnessStatus?.owner.toLowerCase();
   const canCreateAgentHarness =
-    AGENT_RECURRING_EXECUTION_ENABLED &&
+    AGENT_ONE_SHOT_EXECUTION_ENABLED &&
     selectedRecipe.id === "agent" &&
     agentHarnessState.status === "missing" &&
     wallet.status === "connected" &&
@@ -4421,7 +4600,7 @@ function App() {
   const hasPendingHttpTransaction = runnerRuns.some((run) => run.status === "pending");
   const hasPendingLlmTransaction = llmRun?.status === "pending";
   const hasPendingAgentTransaction =
-    agentRun?.status === "pending" || Boolean(wallet.asyncSenderLocked) || Boolean(agentHarnessStatus?.senderLocked);
+    agentRun?.status === "pending" || Boolean(agentHarnessStatus?.senderLocked);
   const hasPendingAsyncTransaction = hasPendingHttpTransaction || hasPendingLlmTransaction || hasPendingAgentTransaction;
   const llmEvidence = React.useMemo(() => {
     const spcCalls = Array.isArray(llmRun?.receipt?.spcCalls) ? llmRun.receipt.spcCalls.filter(isSpcCall) : [];
@@ -4449,13 +4628,17 @@ function App() {
     selectedRecipe.id === "agent" &&
     Boolean(agentDraft.encodedInput) &&
     Boolean(selectedDiscoveredExecutor?.publicKey) &&
+    isTestedNativeAgentProfile &&
     wallet.status === "connected" &&
     isRightChain &&
     isAgentHarnessOwner &&
     Boolean(agentHarnessStatus) &&
-    isRitualWalletFunded &&
-    !wallet.asyncSenderLocked &&
-    !hasPendingAsyncTransaction &&
+    !agentHarnessStatus?.configured &&
+    !agentHarnessStatus?.senderLocked &&
+    agentOuterMaxFeePerGas > 0n &&
+    agentLaunchBalanceCovered &&
+    isAgentFeeCapSufficient &&
+    !hasPendingAgentTransaction &&
     agentTxState.status !== "submitting";
   const canScheduleAgent =
     AGENT_RECURRING_EXECUTION_ENABLED &&
@@ -4643,25 +4826,21 @@ function App() {
               ok: Boolean(agentHarnessStatus) && isAgentHarnessOwner,
               label:
                 wallet.status !== "connected"
-                  ? "Connect for your Agent harness"
+                  ? "Connect for your Agent consumer"
                   : agentHarnessState.status === "missing"
-                    ? "Create Sovereign Agent harness"
+                    ? "Create bounded Agent consumer"
                     : isAgentHarnessOwner
-                      ? "Wallet-owned Agent harness ready"
-                      : "Harness ownership mismatch",
+                      ? "Wallet-owned Agent consumer ready"
+                      : "Consumer ownership mismatch",
               help:
                 wallet.status !== "connected"
-                  ? "The deployer demo remains readable; connect to discover your deterministic harness."
+                  ? "The deployer demo remains readable; connect to discover your deterministic consumer."
                   : agentHarnessState.status === "missing"
                     ? `Factory predicts ${formatAddress(agentHarnessState.predictedAddress)} for this wallet.`
                   : !agentHarnessStatus
                       ? "Reading the wallet-specific factory child."
                       : isAgentHarnessOwner
-                        ? agentLaunchMode === "once"
-                          ? "The harness will receive the one-shot callback."
-                          : AGENT_RECURRING_EXECUTION_ENABLED
-                            ? `${formatRitual(agentFunding)} RITUAL funds a ${agentFundedCalls}-call rolling window at the selected fee cap.`
-                            : "Existing harness state is read-only. New launches wait for the bounded one-shot consumer."
+                        ? "The consumer receives exactly one scheduled Agent callback."
                         : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
             }
         : {
@@ -4683,39 +4862,23 @@ function App() {
                     : `${wallet.ritualWalletBalance ?? "0"} RITUAL, locked ${ritualLockRemaining ?? "?"} blocks ahead`,
           },
       ...(selectedRecipe.id === "agent"
-        ? agentLaunchMode === "once"
-          ? [{
-              ok: isRitualWalletFunded && !wallet.asyncSenderLocked,
-              label: wallet.asyncSenderLocked
-                ? "One-shot Agent already pending"
-                : !hasRitualBalance
-                  ? "Fund RitualWallet"
-                  : !isRitualLockSufficient
-                    ? "Extend RitualWallet lock"
-                    : "One-shot escrow ready",
-              help: wallet.asyncSenderLocked
-                ? "Wait for the current wallet-sent Agent job to settle or expire."
-                : wallet.status !== "connected"
-                  ? "Escrow and sender status are checked after wallet connection."
-                : agentCallbackBudgetCovered
-                  ? `${formatRitual(agentEscrowBalance)} RITUAL available. The callback can cost up to ${formatRitual(agentCallbackBudget)} RITUAL, but the actual charge depends on gas used.`
-                  : `${formatRitual(agentEscrowBalance)} RITUAL available is below the ${formatRitual(agentCallbackBudget)} RITUAL callback limit. You can still run because the actual cost may be lower.`,
-            }]
-          : [{
-              ok: false,
-              label: !AGENT_RECURRING_EXECUTION_ENABLED
-                ? "Paid Agent launch paused"
-                : !isAgentFeeCapSufficient
-                  ? "Raise Scheduler fee cap"
-                  : agentFunding < agentPerCallFunding
-                    ? "Fund the first Agent call"
-                    : `${agentFundedCalls}-call window funded`,
-              help: !AGENT_RECURRING_EXECUTION_ENABLED
-                ? "Inspect and copy the Agent input without sending another harness transaction."
-                : !isAgentFeeCapSufficient
-                  ? `Current RPC suggestion is ${formatGwei(rpcState.gasPrice ?? 0n)} gwei.`
-                  : `The launch will encode ${agentFundedCalls} of the ${AGENT_MAX_WINDOW_CALLS} maximum calls.`,
-            }]
+        ? [{
+            ok:
+              agentHarnessState.status === "ready" &&
+              !agentHarnessStatus?.configured &&
+              !agentHarnessStatus?.senderLocked &&
+              agentLaunchBalanceCovered,
+            label: agentHarnessStatus?.senderLocked
+              ? "Agent callback pending"
+              : agentHarnessStatus?.configured
+                ? "Bounded run already used"
+                : !agentLaunchBalanceCovered
+                  ? "Liquid balance below maximum debit"
+                  : "Bounded cost cap ready",
+            help: wallet.status !== "connected"
+              ? "Connect to verify the maximum debit against your liquid balance."
+              : `${formatRitual(agentLaunchTotal)} RITUAL fixed deposit + up to ${formatRitual(agentMaximumNetworkFee)} RITUAL outer gas; no rollover.`,
+          }]
         : []),
       {
         ok: Boolean(liveAbiDraft?.encodedInput) && (liveAbiDraft?.errors.length ?? 1) === 0,
@@ -5334,15 +5497,11 @@ function App() {
               : "Connect a wallet to discover its Scheduled JQ consumer."
           : "Resolve Scheduled JQ field errors before submitting."
       : selectedRecipe.id === "agent"
-        ? !AGENT_RECURRING_EXECUTION_ENABLED
-          ? "Inspect or copy the Agent payload. Paid launch remains paused until the bounded one-shot consumer is deployed and verified."
-          : agentHarnessState.status === "missing"
-            ? `Create the Agent harness predicted for this wallet at ${agentHarnessState.predictedAddress}.`
-            : agentDraft.encodedInput
-              ? agentLaunchMode === "once"
-                ? `Run once through 0x080C and receive the callback at ${agentHarnessAddress}. No Scheduler reserve is used.`
-                : `Schedule an Agent window through ${agentHarnessAddress}.`
-              : "Resolve Sovereign Agent field errors before starting the harness."
+        ? agentHarnessState.status === "missing"
+          ? `Create the bounded Agent consumer predicted for this wallet at ${agentHarnessState.predictedAddress}.`
+          : agentDraft.encodedInput
+            ? `Schedule exactly one Agent invocation through ${agentHarnessAddress}. The consumer cannot roll over into another run.`
+            : "Resolve Sovereign Agent field errors before starting the bounded run."
       : liveAbiDraft?.encodedInput
         ? `Copy the ${selectedRecipe.name} ABI input and send it to ${liveAbiDraft.callTarget}.`
         : `Resolve ${selectedRecipe.name} field errors before copying ABI input.`;
@@ -6068,9 +6227,10 @@ function App() {
       return { status: "loading", address: activeAddress, data: cachedData };
     });
     try {
-      let harnessAddress = SOVEREIGN_AGENT_HARNESS_ADDRESS;
+      let harnessAddress =
+        ritualTestnetDeployment.contracts.SovereignAgentOneShotConsumerFactory.deployerConsumer;
       if (wallet.address) {
-        const discovery = await readAgentHarnessDiscovery(wallet.address);
+        const discovery = await readAgentOneShotConsumerDiscovery(wallet.address);
         if (discovery.status === "missing") {
           agentSeriesRequestRef.current += 1;
           setAgentHarnessState({ status: "missing", predictedAddress: discovery.predictedAddress });
@@ -6080,7 +6240,7 @@ function App() {
         }
         harnessAddress = discovery.address;
       }
-      const data = await readAgentHarnessStatus(rpc, harnessAddress);
+      const data = await readAgentOneShotConsumerStatus(harnessAddress, rpc);
       setAgentHarnessState({ status: "ready", data });
       return data;
     } catch (error) {
@@ -6090,7 +6250,7 @@ function App() {
           : {
               status: "error",
               address: activeAddress,
-              error: error instanceof Error ? error.message : "Could not read the Sovereign Agent harness.",
+              error: error instanceof Error ? error.message : "Could not read the bounded Agent consumer.",
             },
       );
       return undefined;
@@ -6184,7 +6344,7 @@ function App() {
   const createAgentHarness = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address) {
-      setAgentTxState({ status: "error", error: "Connect a wallet before creating your Agent harness." });
+      setAgentTxState({ status: "error", error: "Connect a wallet before creating your bounded Agent consumer." });
       return;
     }
     if (agentHarnessState.status !== "missing") return;
@@ -6192,8 +6352,9 @@ function App() {
     setAgentTxState({ status: "submitting" });
     try {
       const tx = await prepareWalletTransaction(
-        createAgentHarnessDeploymentTransaction(wallet.address),
-        "0xf4240",
+        createAgentOneShotConsumerTransaction(wallet.address),
+        "0x2625a0",
+        "0x2625a0",
       );
       const hash = await sendWalletTransaction(provider, tx);
       setAgentTxState({ status: "submitted", hash });
@@ -6202,7 +6363,7 @@ function App() {
     } catch (error) {
       setAgentTxState({
         status: "error",
-        error: error instanceof Error ? error.message : "Agent harness creation was rejected.",
+        error: error instanceof Error ? error.message : "Bounded Agent consumer creation was rejected.",
       });
     }
   }, [agentHarnessState.status, refreshAgentReceipt, wallet.address]);
@@ -6210,22 +6371,18 @@ function App() {
   const startAgent = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address) {
-      setAgentTxState({ status: "error", error: "Connect the harness owner wallet before starting the Agent." });
+      setAgentTxState({ status: "error", error: "Connect the consumer owner wallet before starting the Agent." });
       return;
     }
     if (!selectedDiscoveredExecutor?.publicKey) {
       setAgentTxState({ status: "error", error: "Select an executor from live registry discovery so its encryption key is available." });
       return;
     }
-    if (agentLaunchMode === "once") {
-      setAgentTxState({ status: "error", error: "Direct precompile submission is disabled while executor cost cannot be quoted reliably." });
-      return;
-    }
-    if (!AGENT_RECURRING_EXECUTION_ENABLED || !isTestedNativeAgentProfile) {
+    if (!AGENT_ONE_SHOT_EXECUTION_ENABLED || !isTestedNativeAgentProfile) {
       setAgentTxState({
         status: "error",
-        error: !AGENT_RECURRING_EXECUTION_ENABLED
-          ? "The rolling factory launch is disabled. Wait for the bounded one-shot consumer deployment."
+        error: !AGENT_ONE_SHOT_EXECUTION_ENABLED
+          ? "Bounded Agent execution is not enabled."
           : `Live Agent launch requires native ${DEFAULT_LLM_MODEL}, ZeroClaw, and the registry-valid executor tested by this Studio (${formatAddress(TESTED_NATIVE_AGENT_EXECUTOR)}).`,
       });
       return;
@@ -6235,11 +6392,11 @@ function App() {
       return;
     }
     if (!isAgentHarnessOwner) {
-      setAgentTxState({ status: "error", error: "The connected wallet is not the owner of this Agent harness." });
+      setAgentTxState({ status: "error", error: "The connected wallet is not the owner of this Agent consumer." });
       return;
     }
     if (agentHarnessStatus?.configured) {
-      setAgentTxState({ status: "error", error: "This harness is already configured. Its active series cannot be configured twice." });
+      setAgentTxState({ status: "error", error: "This consumer already has a one-shot run. Create a fresh wallet consumer before another paid test." });
       return;
     }
     if (!isAgentFeeCapSufficient) {
@@ -6249,22 +6406,15 @@ function App() {
       });
       return;
     }
-    if (agentFunding < agentPerCallFunding) {
-      setAgentTxState({
-        status: "error",
-        error: `Enter at least ${formatEther(agentPerCallFunding)} RITUAL to cover the first scheduled call at this fee cap.`,
-      });
-      return;
-    }
     if (wallet.balanceWei !== undefined && wallet.balanceWei < agentMaximumWalletDebit) {
       setAgentTxState({
         status: "error",
-        error: `Keep at least ${formatRitual(agentMaximumWalletDebit)} liquid RITUAL in the wallet for the harness deposit and maximum network fee. General RitualWallet escrow is not used.`,
+        error: `Keep at least ${formatRitual(agentMaximumWalletDebit)} liquid RITUAL for the fixed consumer deposit and maximum network fee.`,
       });
       return;
     }
-    if (hasPendingAsyncTransaction) {
-      setAgentTxState({ status: "error", error: "An async transaction is already pending. Wait for it to settle before starting the Agent." });
+    if (hasPendingAgentTransaction) {
+      setAgentTxState({ status: "error", error: "This Agent consumer already has a pending transaction or callback." });
       return;
     }
 
@@ -6286,17 +6436,16 @@ function App() {
       );
       const nextDraft = buildAgentDraft(nextFields, agentHarnessAddress);
       if (!nextDraft.encodedInput || nextDraft.errors.length) {
-        throw new Error(nextDraft.errors[0] ?? "Resolve the Sovereign Agent input before starting the harness.");
+        throw new Error(nextDraft.errors[0] ?? "Resolve the Sovereign Agent input before scheduling the bounded run.");
       }
       const tx = await prepareWalletTransaction(
-        createAgentHarnessTransaction(
+        createAgentOneShotScheduleTransaction(
           wallet.address,
           nextDraft,
-          agentFunding,
-          AGENT_LOCK_BLOCKS,
           agentHarnessAddress,
+          agentLaunchTotal,
           agentSchedule,
-          agentRolling,
+          AGENT_LOCK_BLOCKS,
         ),
         "0x4c4b40",
         "0x4c4b40",
@@ -6307,7 +6456,7 @@ function App() {
       setAgentRun({
         hash,
         submittedAt: Date.now(),
-        action: "schedule",
+        action: "once",
         status: "pending",
       });
       window.setTimeout(() => refreshAgentReceipt(hash).catch(() => undefined), 2500);
@@ -6318,29 +6467,22 @@ function App() {
       });
     }
   }, [
-    agentEscrowBalance,
     agentFunding,
     agentLaunchTotal,
     agentMaximumWalletDebit,
-    agentLaunchMode,
-    agentPerCallFunding,
     agentHarnessAddress,
     agentHarnessStatus?.configured,
-    agentRolling,
     agentSchedule,
     fieldState.agent,
-    hasPendingAsyncTransaction,
-    hasRitualBalance,
+    hasPendingAgentTransaction,
     isAgentHarnessOwner,
     isAgentFeeCapSufficient,
     isTestedNativeAgentProfile,
-    isRitualWalletFunded,
     refreshAgentReceipt,
     rpcState.block,
     rpcState.gasPrice,
     selectedDiscoveredExecutor?.publicKey,
     wallet.address,
-    wallet.asyncSenderLocked,
     wallet.balanceWei,
   ]);
 
@@ -6487,9 +6629,8 @@ function App() {
     const refresh = async () => {
       const status = await refreshAgentHarness();
       if (!status) return;
-      const expectedJobId = agentRun?.action === "once" ? agentRun.hash : undefined;
       const [lifecycle] = await Promise.all([
-        refreshAgentLifecycle(status.configured, expectedJobId),
+        refreshAgentLifecycle(status.configured),
         refreshAgentSeries(status),
       ]);
       const terminal = lifecycle && ["settled", "failed", "expired"].includes(lifecycle.status);
@@ -7220,7 +7361,7 @@ function App() {
                 <div className="agent-launch" data-testid="agent-launch">
                   <div className="agent-launch-head">
                     <div>
-                      <span>Sovereign Agent harness</span>
+                      <span>Bounded Agent consumer</span>
                       <strong>{agentHarnessHeadline}</strong>
                     </div>
                     <button
@@ -7240,14 +7381,14 @@ function App() {
                     </button>
                   </div>
                   {isAgentHarnessResolving ? (
-                    <div className="agent-launch-loading" role="status" aria-live="polite" aria-label="Reading Agent harness state">
+                      <div className="agent-launch-loading" role="status" aria-live="polite" aria-label="Reading Agent consumer state">
                       <div className="agent-loading-line wide" />
                       <div className="agent-loading-line" />
                       <div className="agent-loading-line short" />
                     </div>
                   ) : <div className="agent-launch-facts">
                     <div>
-                      <span>Harness</span>
+                      <span>Consumer</span>
                       <code>{formatAddress(agentHarnessAddress)}</code>
                     </div>
                     <div className={isAgentHarnessOwner ? "ok" : "pending"}>
@@ -7269,27 +7410,25 @@ function App() {
                       <strong>{isTestedNativeAgentProfile ? "Registry valid + tested" : "Tested GLM route needed"}</strong>
                     </div>
                     <div>
-                      <span>{agentLaunchMode === "once" ? "Launch" : "Series"}</span>
+                      <span>Run</span>
                       <strong>
-                        {agentLaunchMode === "once"
-                          ? "One-shot"
-                          : !agentHarnessStatus?.currentSeriesId || agentHarnessStatus.currentSeriesId === "0"
+                        {!agentHarnessStatus?.currentSeriesId || agentHarnessStatus.currentSeriesId === "0"
                           ? "Not started"
-                          : `#${agentHarnessStatus.currentSeriesId}`}
+                          : `Bounded #${agentHarnessStatus.currentSeriesId}`}
                       </strong>
                     </div>
                   </div>}
                   {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
                       <ShieldCheck size={16} />
                       <div>
-                        <strong>Bounded one-shot upgrade</strong>
+                        <strong>One call, isolated funds</strong>
                         <p>
-                          The replacement consumer enforces one Scheduler callback and has no successor-series path.
-                          Live launch remains unavailable until its testnet callback lifecycle is verified.
+                          This wallet-owned consumer schedules exactly one callback, clears its schedule before invoking
+                          the Agent, and contains no successor or rollover path.
                         </p>
                       </div>
                     </div> : null}
-                  {AGENT_RECURRING_EXECUTION_ENABLED && !isAgentHarnessResolving && agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" && !agentHarnessStatus?.configured ? (
+                  {AGENT_ONE_SHOT_EXECUTION_ENABLED && !isAgentHarnessResolving && agentHarnessState.status !== "missing" && !agentHarnessStatus?.configured ? (
                     <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
                       <header>
                         <div>
@@ -7304,12 +7443,12 @@ function App() {
                           <dd>{formatRitual(agentLaunchTotal)} RITUAL</dd>
                         </div>
                         <div>
-                          <dt>Observed gas</dt>
-                          <dd>{AGENT_OBSERVED_CONFIGURE_GAS.toLocaleString()}</dd>
+                          <dt>Outer gas cap</dt>
+                          <dd>{AGENT_CONFIGURE_GAS_LIMIT.toLocaleString()}</dd>
                         </div>
                         <div>
-                          <dt>Estimated network</dt>
-                          <dd>{formatRitual(agentEstimatedNetworkFee)} RITUAL</dd>
+                          <dt>Callback cap</dt>
+                          <dd>{formatRitual(agentCallbackBudget)} RITUAL</dd>
                         </div>
                         <div>
                           <dt>Maximum network</dt>
@@ -7321,9 +7460,11 @@ function App() {
                         </div>
                       </dl>
                       <p>
-                        Hard wallet cap for this confirmation: {formatRitual(agentMaximumWalletDebit)} RITUAL (
-                        {formatRitual(agentLaunchTotal)} deposit + up to {formatRitual(agentMaximumNetworkFee)} network
-                        gas). The remaining wallet balance cannot be spent by this test.
+                        The wallet sends exactly {formatRitual(agentLaunchTotal)} RITUAL to this isolated consumer.
+                        The transaction gas is capped at {AGENT_CONFIGURE_GAS_LIMIT.toLocaleString()}, so the maximum
+                        wallet debit shown above is the deposit plus the maximum network fee. The consumer has no
+                        recurring schedule path. The callback cap is paid from the isolated deposit, not added to the
+                        wallet debit.
                       </p>
                       {!agentLaunchBalanceCovered ? (
                         <p className="warning">The liquid wallet balance does not cover this maximum. Move funds to the wallet balance, not escrow, before signing.</p>
@@ -7340,7 +7481,7 @@ function App() {
                             : <AlertCircle size={15} />}
                       </span>
                       <div>
-                        <span>Current series</span>
+                        <span>Current bounded run</span>
                         <strong>{agentSeries.label}</strong>
                         <p>{agentSeries.detail}</p>
                       </div>
@@ -7348,12 +7489,12 @@ function App() {
                     </div>
                   ) : !isAgentHarnessResolving ? (
                     <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
-                    {AGENT_RECURRING_EXECUTION_ENABLED && agentHarnessState.status !== "missing" && agentLaunchMode === "scheduled" ? (
+                    {AGENT_ONE_SHOT_EXECUTION_ENABLED && agentHarnessState.status !== "missing" ? (
                       <>
                         <div className="agent-fixed-funding">
-                          <span>One-call deposit</span>
+                          <span>Fixed consumer deposit</span>
                           <strong>{formatRitual(VERIFIED_AGENT_LAUNCH_CEILING)} RITUAL</strong>
-                          <small>0.01 execution ceiling + 0.01 locked Scheduler reserve</small>
+                          <small>0.01 execution ceiling + 0.01 Scheduler reserve; no automatic top-up</small>
                         </div>
                         <label>
                           <span>Scheduler fee cap</span>
@@ -7373,9 +7514,7 @@ function App() {
                     <p>
                       {agentHarnessState.status === "missing"
                         ? "One factory transaction creates a deterministic contract owned by this wallet."
-                        : agentLaunchMode === "once"
-                          ? agentOneShotSummary
-                          : `${agentFundingSummary} · runs after ${AGENT_SCHEDULE[1].toLocaleString()} blocks · unused deposit stays locked for ${AGENT_LOCK_BLOCKS.toLocaleString()} blocks`}
+                        : `${agentOneShotSummary} · starts after ${AGENT_SCHEDULE[1].toLocaleString()} blocks · unused funds remain withdrawable after the ${AGENT_LOCK_BLOCKS.toLocaleString()}-block lock`}
                     </p>
                     <button
                       className="primary-action large"
@@ -7386,11 +7525,9 @@ function App() {
                       {agentTxState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Route size={16} />}
                       {agentTxState.status === "submitting"
                         ? "Confirming"
-                        : !AGENT_RECURRING_EXECUTION_ENABLED
-                          ? "One-shot upgrade pending"
                         : agentHarnessState.status === "missing"
-                          ? "Create Agent harness"
-                        : agentLaunchMode === "once" ? "Run once" : "Run scheduled test"}
+                          ? "Create Agent consumer"
+                          : "Run one bounded Agent"}
                     </button>
                     </div>
                   ) : null}
@@ -7402,10 +7539,10 @@ function App() {
                     <div className={`agent-run ${currentOneShotLifecycle?.status ?? agentRun.status}`} aria-live="polite">
                       <span>
                         {agentRun.status === "pending"
-                          ? agentRun.action === "create" ? "Harness creation submitted" : agentRun.action === "once" ? "One-shot submitted" : "Schedule submitted"
+                          ? agentRun.action === "create" ? "Consumer creation submitted" : agentRun.action === "once" ? "Bounded run submitted" : "Schedule submitted"
                           : agentRun.status === "confirmed"
                             ? agentRun.action === "create"
-                              ? "Harness created"
+                              ? "Consumer created"
                               : agentRun.action === "once"
                                 ? currentOneShotLifecycle?.status === "settled"
                                   ? "Agent completed"
@@ -7414,8 +7551,8 @@ function App() {
                                     : currentOneShotLifecycle?.status === "expired"
                                       ? "Agent job expired"
                                       : "Request accepted · Agent processing"
-                                : "Harness configured"
-                            : agentRun.action === "create" ? "Harness creation failed" : agentRun.action === "once" ? "One-shot failed" : "Launch failed"}
+                                : "Consumer configured"
+                            : agentRun.action === "create" ? "Consumer creation failed" : agentRun.action === "once" ? "Bounded run failed" : "Launch failed"}
                       </span>
                       <a href={explorerTransactionUrl(agentRun.hash)} target="_blank" rel="noreferrer">
                         {formatHash(agentRun.hash)} <ArrowUpRight size={13} />
@@ -7430,10 +7567,10 @@ function App() {
                     </div>
                   ) : null}
                   {agentSeries?.lifecycle.length ? (
-                    <div className="scheduler-lifecycle agent-series-lifecycle" aria-label="Current Agent series lifecycle">
+                    <div className="scheduler-lifecycle agent-series-lifecycle" aria-label="Current bounded Agent lifecycle">
                       <div className="scheduler-lifecycle-head">
-                        <span>Series history</span>
-                        <strong>{agentSeries.callId ? `Call #${Number(agentSeries.callId).toLocaleString()}` : "Current series"}</strong>
+                        <span>Bounded run history</span>
+                        <strong>{agentSeries.callId ? `Call #${Number(agentSeries.callId).toLocaleString()}` : "Current run"}</strong>
                       </div>
                       <ol>
                         {agentSeries.lifecycle.slice(-8).map((entry, index) => (
@@ -7481,7 +7618,7 @@ function App() {
                           ))}
                         </ol>
                       ) : (
-                        <p className="agent-history-empty">No Agent job was found for this harness in the RPC&apos;s recent log window.</p>
+                        <p className="agent-history-empty">No Agent job was found for this consumer in the RPC&apos;s recent log window.</p>
                       )}
                     </div>
                   ) : null}

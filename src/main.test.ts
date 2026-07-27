@@ -45,6 +45,7 @@ import {
   agentRollingForFunding,
   createAgentHarnessDeploymentTransaction,
   createAgentOneShotConsumerTransaction,
+  createAgentOneShotScheduleTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
   decodeSovereignAgentResult,
@@ -370,7 +371,7 @@ describe("Sovereign Agent harness", () => {
 
     expect(series).toMatchObject({
       status: "active",
-      label: "Series scheduled",
+      label: "One-shot scheduled",
       callId: "3259797",
     });
   });
@@ -388,7 +389,7 @@ describe("Sovereign Agent harness", () => {
     expect(fields.maxTokens).toBe("2048");
     expect(agentMaxPollBlock(49_000_000)).toBe(59_000_000n);
     expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(false);
-    expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(false);
+    expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(true);
     expect(AGENT_SCHEDULER_GAS).toBe(500_000);
     expect(AGENT_SCHEDULE).toEqual([
       500_000,
@@ -478,6 +479,52 @@ describe("Sovereign Agent harness", () => {
       status: "ready",
       address: predicted,
     });
+  });
+
+  it("builds one fixed-value Scheduler call through the bounded consumer", () => {
+    const consumer = "0x2222222222222222222222222222222222222222";
+    const draft = buildAgentDraft(
+      recipeFields("agent", {
+        executor: TEST_ADDRESS,
+        callbackAddress: consumer,
+        encryptedSecrets: "0x1234",
+      }),
+      consumer,
+    );
+    const abi = [{
+      type: "function",
+      name: "fundAndSchedule",
+      stateMutability: "payable",
+      inputs: [
+        { name: "agentInput", type: "bytes" },
+        { name: "frequency", type: "uint32" },
+        { name: "gasLimit", type: "uint32" },
+        { name: "ttl", type: "uint32" },
+        { name: "maxFeePerGas", type: "uint256" },
+        { name: "maxPriorityFeePerGas", type: "uint256" },
+        { name: "value", type: "uint256" },
+        { name: "lockDuration", type: "uint256" },
+      ],
+      outputs: [{ name: "callId", type: "uint256" }],
+    }] as const;
+    const tx = createAgentOneShotScheduleTransaction(TEST_ADDRESS, draft, consumer);
+    const decoded = decodeFunctionData({ abi, data: tx.data as `0x${string}` });
+
+    expect(tx).toMatchObject({
+      from: TEST_ADDRESS,
+      to: consumer,
+      value: "0x470de4df820000",
+    });
+    expect(decoded.args).toEqual([
+      draft.encodedInput,
+      2_000,
+      500_000,
+      500,
+      20_000_000_000n,
+      1_000_000_000n,
+      0n,
+      100_000n,
+    ]);
   });
 
   it("creates a payable configureFundAndStart transaction with the Scheduler reserve", () => {
