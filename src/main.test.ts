@@ -37,7 +37,6 @@ import {
   AGENT_MAX_POLL_BLOCK_OFFSET,
   VERIFIED_AGENT_EXECUTION_FUNDING,
   VERIFIED_AGENT_LAUNCH_CEILING,
-  TESTED_NATIVE_AGENT_EXECUTOR,
   agentExecutionBudget,
   agentMaxPollBlock,
   agentFundedCallCount,
@@ -376,9 +375,9 @@ describe("Sovereign Agent harness", () => {
     });
   });
 
-  it("defaults to the capped, registry-valid native GLM profile with successful history", () => {
+  it("defaults to an unpinned capped native GLM profile", () => {
     const fields = Object.fromEntries(recipeFields("agent").map((field) => [field.key, field.value]));
-    expect(fields.executor).toBe(TESTED_NATIVE_AGENT_EXECUTOR);
+    expect(fields.executor).toBe(zeroAddress);
     expect(fields.model).toBe("zai-org/GLM-4.7-FP8");
     expect(fields.cliType).toBe("6");
     expect(fields.maxFeePerGas).toBe("1000000000");

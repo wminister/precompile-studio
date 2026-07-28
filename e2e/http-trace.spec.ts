@@ -184,7 +184,7 @@ test("shows the bounded Agent run with an exact maximum debit", async ({ page })
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(launch.locator("strong").getByText("Ready for one bounded run", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
-  await expect(launch.getByText("Registry valid + tested", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Registry valid + live key", { exact: true })).toBeVisible();
   await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });

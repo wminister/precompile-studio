@@ -6,7 +6,7 @@
     "label": "Ritual ZeroClaw agent",
     "updatedAt": 1783110000000,
     "fields": [
-      { "key": "executor", "value": "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C" },
+      { "key": "executor", "value": "0x0000000000000000000000000000000000000000" },
       { "key": "ttl", "value": "500" },
       { "key": "pollInterval", "value": "5" },
       { "key": "maxPollBlock", "value": "10000000" },

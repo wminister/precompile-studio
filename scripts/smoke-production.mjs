@@ -15,6 +15,8 @@ const requiredProductCopy = [
   "Run one bounded Agent",
   "One call, isolated funds",
   "Maximum wallet debit",
+  "Registry valid + live key",
+  "Current registry route",
 ];
 const attempts = 6;
 

@@ -109,7 +109,7 @@ TEE executor addresses can also be saved locally from recipes that need an execu
 
 The Agent recipe can still read prior wallet-owned children of Ritual's `SovereignAgentFactory` at `0x9dC4C054e53bCc4Ce0A0Ff09E890A7a8e817f304`. The original harness at `0x8067904eA53D7D0418AC0B5F87d2b4c7a59dE2Fe` remains a readable public demo while disconnected. New factory-harness deployment and launch are disabled because the official harness rolls into successor Scheduler windows.
 
-The studio discovers a capability-0 executor and public key from `TEEServiceRegistry`, encrypts the credential-free Ritual provider configuration in the browser, and keeps native `zai-org/GLM-4.7-FP8` with ZeroClaw as the tested free-provider profile. Executor `0x9dc1...8b4C` is currently valid in Ritual's onchain registry and has successful GLM execution history, but Ritual's documentation does not identify it as Foundation-owned or official.
+The studio discovers capability-0 executors and their public keys from `TEEServiceRegistry`, selects the first currently valid service when the previous choice has left the registry, and encrypts the credential-free Ritual provider configuration in the browser. Native `zai-org/GLM-4.7-FP8` with ZeroClaw remains the free-provider profile. Executor addresses are intentionally not pinned because Ritual rotates the valid registry set.
 
 The Studio reads existing harness ownership and series history by reconciling Scheduler and Agent events. That history is diagnostic only and does not make the factory harness a bounded test path.
 

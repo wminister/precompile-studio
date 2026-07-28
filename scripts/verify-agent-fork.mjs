@@ -14,7 +14,7 @@ console.warn(
 const rpcUrl = process.env.FORK_RPC_URL ?? "http://127.0.0.1:8547";
 const owner = process.env.FORK_OWNER ?? "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const harness = process.env.FORK_HARNESS;
-const executor = process.env.AGENT_EXECUTOR ?? "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
+const executor = process.env.AGENT_EXECUTOR;
 const ritualFork = defineChain({
   id: 1979,
   name: "Ritual local fork",
@@ -22,8 +22,8 @@ const ritualFork = defineChain({
   rpcUrls: { default: { http: [rpcUrl] } },
 });
 
-if (!harness) {
-  throw new Error("Set FORK_HARNESS to a fresh harness deployed on the local fork.");
+if (!harness || !executor) {
+  throw new Error("Set FORK_HARNESS and AGENT_EXECUTOR to fresh, explicitly verified fork values.");
 }
 
 const transport = http(rpcUrl);

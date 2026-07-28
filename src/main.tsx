@@ -617,7 +617,6 @@ export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studi
 // consumer is deployed and its complete callback lifecycle is verified live.
 export const AGENT_RECURRING_EXECUTION_ENABLED = false;
 export const AGENT_ONE_SHOT_EXECUTION_ENABLED = true;
-export const TESTED_NATIVE_AGENT_EXECUTOR = "0x9dc11412391Dc3EDF59811FC9Ee7bEbFD41c8b4C";
 export const AGENT_MAX_POLL_BLOCK_OFFSET = 10_000_000;
 export function agentMaxPollBlock(latestBlock: number) {
   if (!Number.isSafeInteger(latestBlock) || latestBlock < 0) {
@@ -1268,7 +1267,7 @@ export const recipes: Recipe[] = [
     status: "live",
     description: "Compose one wallet-owned ZeroClaw task through a bounded Scheduler consumer.",
     fields: [
-      { key: "executor", label: "Executor", value: TESTED_NATIVE_AGENT_EXECUTOR },
+      { key: "executor", label: "Executor", value: zeroAddress },
       { key: "ttl", label: "TTL blocks", value: "500" },
       { key: "pollInterval", label: "Poll interval", value: "5" },
       { key: "maxPollBlock", label: "Poll window blocks", value: AGENT_MAX_POLL_BLOCK_OFFSET.toString(), type: "generated" },
@@ -4092,7 +4091,7 @@ async function discoverExecutors(capabilityId: number): Promise<{ executors: Dis
   });
   return {
     total: services.length,
-    executors: services.slice(0, 12).map((service) => ({
+    executors: services.map((service) => ({
       address: service.node.teeAddress,
       capabilityId,
       publicKey: service.node.publicKey,
@@ -4411,14 +4410,22 @@ function App() {
   const selectedDiscoveredExecutor = executorDiscovery.executors.find(
     (executor) => executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase(),
   );
-  const isTestedNativeAgentExecutor = Boolean(
+  const isRegistryValidAgentExecutor = Boolean(
     selectedDiscoveredExecutor?.isValid &&
-      selectedDiscoveredExecutor.address.toLowerCase() === TESTED_NATIVE_AGENT_EXECUTOR.toLowerCase(),
+      selectedDiscoveredExecutor.publicKey &&
+      (selectedDiscoveredExecutor.publicKey.length - 2) / 2 === 65,
   );
-  const isTestedNativeAgentProfile =
+  const isRegistryValidAgentProfile =
     fieldValue(fieldState.agent, "model").trim() === DEFAULT_LLM_MODEL &&
     fieldValue(fieldState.agent, "cliType").trim() === "6" &&
-    isTestedNativeAgentExecutor;
+    isRegistryValidAgentExecutor;
+  const visibleDiscoveredExecutors = React.useMemo(() => {
+    const visible = executorDiscovery.executors.slice(0, 12);
+    if (!selectedDiscoveredExecutor || visible.some(
+      (executor) => executor.address.toLowerCase() === selectedDiscoveredExecutor.address.toLowerCase(),
+    )) return visible;
+    return [selectedDiscoveredExecutor, ...visible.slice(0, 11)];
+  }, [executorDiscovery.executors, selectedDiscoveredExecutor]);
   const agentHarnessStatus =
     agentHarnessState.status === "ready" || agentHarnessState.status === "loading" || agentHarnessState.status === "error"
       ? agentHarnessState.data
@@ -4482,8 +4489,8 @@ function App() {
   );
   const isAgentFeeCapSufficient =
     agentSchedulerMaxFee >= (rpcState.gasPrice ?? AGENT_PRIORITY_FEE + 1n);
-  const agentFundingSummary = !isTestedNativeAgentProfile
-    ? "Select the registry-valid, GLM-tested executor"
+  const agentFundingSummary = !isRegistryValidAgentProfile
+    ? "Select a currently valid Agent executor with a live encryption key"
     : !isAgentFeeCapSufficient
     ? `Fee cap below RPC suggestion (${formatGwei(rpcState.gasPrice ?? 0n)} gwei)`
     : `One execution only · no automatic top-up · ${formatRitual(agentLaunchTotal)} RITUAL harness deposit`;
@@ -4514,7 +4521,7 @@ function App() {
     if (agentLifecycle?.status === "result-ready") return "TEE result ready";
     if (agentSeries) return agentSeries.label;
     if (agentHarnessStatus?.configured) return "Reading bounded run state";
-    if (!isTestedNativeAgentProfile) return "Tested GLM route required";
+    if (!isRegistryValidAgentProfile) return "Current Agent route required";
     return "Ready for one bounded run";
   })();
   const isScheduledJqOwner =
@@ -4628,7 +4635,7 @@ function App() {
     selectedRecipe.id === "agent" &&
     Boolean(agentDraft.encodedInput) &&
     Boolean(selectedDiscoveredExecutor?.publicKey) &&
-    isTestedNativeAgentProfile &&
+    isRegistryValidAgentProfile &&
     wallet.status === "connected" &&
     isRightChain &&
     isAgentHarnessOwner &&
@@ -4645,7 +4652,7 @@ function App() {
     selectedRecipe.id === "agent" &&
     Boolean(agentDraft.encodedInput) &&
     Boolean(selectedDiscoveredExecutor?.publicKey) &&
-    isTestedNativeAgentProfile &&
+    isRegistryValidAgentProfile &&
     wallet.status === "connected" &&
     isRightChain &&
     isAgentHarnessOwner &&
@@ -5967,6 +5974,29 @@ function App() {
     refreshExecutorDiscovery(capabilityId).catch(() => undefined);
   }, [hasExecutorField, selectedRecipe.id]);
 
+  React.useEffect(() => {
+    if (selectedRecipe.id !== "agent" || executorDiscovery.status !== "ready") return;
+    if (isRegistryValidAgentExecutor) return;
+    const nextExecutor = executorDiscovery.executors.find(
+      (executor) =>
+        executor.isValid &&
+        executor.publicKey &&
+        (executor.publicKey.length - 2) / 2 === 65,
+    );
+    if (!nextExecutor) return;
+    setFieldState((current) => ({
+      ...current,
+      agent: current.agent.map((field) =>
+        field.key === "executor" ? { ...field, value: nextExecutor.address } : field,
+      ),
+    }));
+  }, [
+    executorDiscovery.executors,
+    executorDiscovery.status,
+    isRegistryValidAgentExecutor,
+    selectedRecipe.id,
+  ]);
+
   const forgetSavedExecutor = React.useCallback(
     (address: string) => {
       setSavedExecutors((current) => {
@@ -6378,12 +6408,12 @@ function App() {
       setAgentTxState({ status: "error", error: "Select an executor from live registry discovery so its encryption key is available." });
       return;
     }
-    if (!AGENT_ONE_SHOT_EXECUTION_ENABLED || !isTestedNativeAgentProfile) {
+    if (!AGENT_ONE_SHOT_EXECUTION_ENABLED || !isRegistryValidAgentProfile) {
       setAgentTxState({
         status: "error",
         error: !AGENT_ONE_SHOT_EXECUTION_ENABLED
           ? "Bounded Agent execution is not enabled."
-          : `Live Agent launch requires native ${DEFAULT_LLM_MODEL}, ZeroClaw, and the registry-valid executor tested by this Studio (${formatAddress(TESTED_NATIVE_AGENT_EXECUTOR)}).`,
+          : `Live Agent launch requires native ${DEFAULT_LLM_MODEL}, ZeroClaw, and a currently valid capability-0 executor with a live encryption key.`,
       });
       return;
     }
@@ -6423,8 +6453,22 @@ function App() {
       if (rpcState.block === undefined) {
         throw new Error("The latest Ritual block is unavailable. Refresh RPC status before starting the Agent.");
       }
+      const liveExecutors = await discoverExecutors(defaultCapabilityForRecipe("agent"));
+      const liveExecutor = liveExecutors.executors.find(
+        (executor) =>
+          executor.address.toLowerCase() === cleanSelectedExecutorAddress.toLowerCase() &&
+          executor.isValid &&
+          executor.publicKey &&
+          (executor.publicKey.length - 2) / 2 === 65,
+      );
+      if (!liveExecutor?.publicKey) {
+        refreshExecutorDiscovery(defaultCapabilityForRecipe("agent")).catch(() => undefined);
+        throw new Error(
+          "Ritual's executor registry changed before submission. No funds moved; wait for the current route to load and review it again.",
+        );
+      }
       const maxPollBlock = agentMaxPollBlock(rpcState.block);
-      const encryptedSecrets = await encryptAgentProviderSecret(selectedDiscoveredExecutor.publicKey);
+      const encryptedSecrets = await encryptAgentProviderSecret(liveExecutor.publicKey);
       const nextFields = fieldState.agent.map((field) =>
         field.key === "encryptedSecrets"
           ? { ...field, value: encryptedSecrets }
@@ -6473,12 +6517,14 @@ function App() {
     agentHarnessAddress,
     agentHarnessStatus?.configured,
     agentSchedule,
+    cleanSelectedExecutorAddress,
     fieldState.agent,
     hasPendingAgentTransaction,
     isAgentHarnessOwner,
     isAgentFeeCapSufficient,
-    isTestedNativeAgentProfile,
+    isRegistryValidAgentProfile,
     refreshAgentReceipt,
+    refreshExecutorDiscovery,
     rpcState.block,
     rpcState.gasPrice,
     selectedDiscoveredExecutor?.publicKey,
@@ -7405,9 +7451,9 @@ function App() {
                           : "Checking"}
                       </strong>
                     </div>
-                    <div className={isTestedNativeAgentProfile ? "ok" : "pending"}>
+                    <div className={isRegistryValidAgentProfile ? "ok" : "pending"}>
                       <span>Executor key</span>
-                      <strong>{isTestedNativeAgentProfile ? "Registry valid + tested" : "Tested GLM route needed"}</strong>
+                      <strong>{isRegistryValidAgentProfile ? "Registry valid + live key" : "Current Agent route needed"}</strong>
                     </div>
                     <div>
                       <span>Run</span>
@@ -7709,7 +7755,7 @@ function App() {
                     />
                     <p>
                       {executorDiscovery.status === "ready"
-                        ? `${executorDiscovery.total ?? executorDiscovery.executors.length} registered; showing ${executorDiscovery.executors.length}.`
+                        ? `${executorDiscovery.total ?? executorDiscovery.executors.length} registered; showing ${visibleDiscoveredExecutors.length}.`
                         : executorDiscovery.status === "loading"
                           ? "Reading TEEServiceRegistry..."
                           : executorDiscovery.status === "error"
@@ -7717,14 +7763,14 @@ function App() {
                             : "Choose a capability to load registered executors."}
                     </p>
                   </div>
-                  {executorDiscovery.executors.length ? (
+                  {visibleDiscoveredExecutors.length ? (
                     <div className="executor-discovery-list">
-                      {executorDiscovery.executors.map((executor, index) => (
+                      {visibleDiscoveredExecutors.map((executor, index) => (
                         <div className="discovered-executor" key={`${executor.capabilityId}-${executor.address}`}>
                           <button type="button" onClick={() => useDiscoveredExecutor(executor)}>
                             <span>
-                              {selectedRecipe.id === "agent" && executor.address.toLowerCase() === TESTED_NATIVE_AGENT_EXECUTOR.toLowerCase()
-                                ? "Registry-valid, GLM-tested"
+                              {selectedRecipe.id === "agent" && index === 0
+                                ? "Current registry route"
                                 : `${capabilityLabel(executor.capabilityId)} #${index + 1}`}
                             </span>
                             <code>{formatAddress(executor.address)}</code>
