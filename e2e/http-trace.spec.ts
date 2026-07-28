@@ -23,6 +23,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
   const usedAgentConsumer = testInfo.title.includes("reports a used Agent consumer");
   const delayedAgentHarness = testInfo.title.includes("keeps Agent actions hidden while loading");
+  const unlockedRitualEscrow = testInfo.title.includes("offers withdrawal for unlocked RitualWallet escrow");
   let factoryLookupCount = 0;
   let delayAgentHistory = false;
   await page.route("**/__test/delay-agent-history", async (route) => {
@@ -57,7 +58,9 @@ test.beforeEach(async ({ page }, testInfo) => {
       const call = payload.params?.[0] as { to?: string; data?: string } | undefined;
       if (call?.to?.toLowerCase().endsWith("0803")) result = `0x${1979n.toString(16).padStart(64, "0")}`;
       else if (call?.data?.startsWith(toFunctionSelector("balanceOf(address)"))) result = `0x${(10n ** 18n).toString(16).padStart(64, "0")}`;
-      else if (call?.data?.startsWith(toFunctionSelector("lockUntil(address)"))) result = `0x${50_000_000n.toString(16).padStart(64, "0")}`;
+      else if (call?.data?.startsWith(toFunctionSelector("lockUntil(address)"))) {
+        result = `0x${(unlockedRitualEscrow ? 1n : 50_000_000n).toString(16).padStart(64, "0")}`;
+      }
       else if (call?.data?.startsWith(toFunctionSelector("getServicesByCapability(uint8,bool)"))) {
         result = encodeAbiParameters(
           parseAbiParameters("((address,address,uint8,bytes,string,bytes32,uint8),bool,bytes32)[]"),
@@ -152,6 +155,15 @@ test("runs the synchronous JQ recipe without a wallet", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
+test("offers withdrawal for unlocked RitualWallet escrow", async ({ page }) => {
+  await page.goto("/");
+
+  const funding = page.getByRole("button", { name: "RitualWallet funding", exact: true });
+  await expect(funding).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByText("Escrow: 1 RITUAL · unlocked", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Withdraw unlocked escrow", exact: true })).toBeEnabled();
+});
+
 test("submits and decodes an LLM completion", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "0x1111...1111", exact: true })).toBeVisible();
@@ -167,25 +179,26 @@ test("submits and decodes an LLM completion", async ({ page }) => {
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
-test("shows the bounded Agent run with an exact maximum debit", async ({ page }) => {
+test("keeps the paid Agent launch paused", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(launch.getByText("Paid Agent launch paused", { exact: true })).toBeVisible();
+  await expect(launch).toContainText("roughly 0.31 RITUAL per in-flight call");
   await expect(launch.getByRole("textbox", { name: "EXECUTION FUNDING RITUAL" })).toHaveCount(0);
-  await expect(launch.getByText("Ready for one bounded run", { exact: true })).toBeVisible();
-  await expect(launch.locator(".agent-fixed-funding")).toContainText("0.02 RITUAL");
-  await expect(launch.getByLabel("Agent pre-sign cost check")).toContainText("0.025 RITUAL");
+  await expect(launch.locator(".agent-fixed-funding")).toHaveCount(0);
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
   await expect(launch.getByRole("link", { name: /Request tx|Callback tx/ })).toHaveCount(0);
-  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveValue("20");
+  await expect(launch.getByRole("textbox", { name: "SCHEDULER FEE CAP GWEI" })).toHaveCount(0);
   await expect(page.getByLabel("Provider credentials: encrypted at launch")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Provider credentials" })).toHaveCount(0);
-  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: /Create Agent consumer|Run one bounded Agent/ })).toHaveCount(0);
   await launch.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(launch.locator("strong").getByText("Ready for one bounded run", { exact: true })).toBeVisible();
+  await expect(launch.getByText("Paid Agent launch paused", { exact: true })).toBeVisible();
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible();
   await expect(launch.getByText("Registry valid + live key", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
+  await expect(launch.getByRole("button", { name: /Create Agent consumer|Run one bounded Agent/ })).toHaveCount(0);
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
 });
 
@@ -200,9 +213,9 @@ test("keeps Agent actions hidden while loading the first onchain snapshot", asyn
   await expect(launch.getByText("Checking", { exact: true })).toHaveCount(0);
 
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(launch.getByLabel("Agent pre-sign cost check")).toBeVisible();
-  await expect(launch.getByText("Ready for one bounded run", { exact: true })).toBeVisible();
-  await expect(launch.getByRole("button", { name: "Run one bounded Agent", exact: true })).toBeEnabled();
+  await expect(launch.getByText("Paid Agent launch paused", { exact: true })).toBeVisible();
+  await expect(launch.getByLabel("Agent pre-sign cost check")).toHaveCount(0);
+  await expect(launch.getByRole("button", { name: /Create Agent consumer|Run one bounded Agent/ })).toHaveCount(0);
 });
 
 test("reports a used Agent consumer without offering another paid run", async ({ page }) => {
