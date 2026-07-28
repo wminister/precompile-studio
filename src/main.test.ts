@@ -26,6 +26,7 @@ import {
   buildLlmDraft,
   buildScheduleDraft,
   createRitualDepositTransaction,
+  createRitualWithdrawTransaction,
   createLlmConsumerTransaction,
   createAgentHarnessTransaction,
   createDirectAgentTransaction,
@@ -388,7 +389,7 @@ describe("Sovereign Agent harness", () => {
     expect(fields.maxTokens).toBe("2048");
     expect(agentMaxPollBlock(49_000_000)).toBe(59_000_000n);
     expect(AGENT_RECURRING_EXECUTION_ENABLED).toBe(false);
-    expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(true);
+    expect(AGENT_ONE_SHOT_EXECUTION_ENABLED).toBe(false);
     expect(AGENT_SCHEDULER_GAS).toBe(500_000);
     expect(AGENT_SCHEDULE).toEqual([
       500_000,
@@ -939,6 +940,32 @@ describe("mocked EIP-1193 wallet flows", () => {
     const request = vi.fn().mockResolvedValue(TX_HASH);
     await expect(sendWalletTransaction({ request }, tx)).resolves.toBe(TX_HASH);
     expect(request).toHaveBeenCalledWith({ method: "eth_sendTransaction", params: [tx] });
+  });
+
+  it("builds a full unlocked RitualWallet withdrawal", () => {
+    const withdrawAbi = [
+      {
+        type: "function",
+        name: "withdraw",
+        stateMutability: "nonpayable",
+        inputs: [{ name: "amount", type: "uint256" }],
+        outputs: [],
+      },
+    ] as const;
+    const amount = 490_519_126_788_493_428n;
+    const tx = createRitualWithdrawTransaction(TEST_ADDRESS, amount);
+    expect(tx).toMatchObject({
+      from: TEST_ADDRESS,
+      to: SYSTEM_CONTRACTS.RitualWallet,
+    });
+    expect(tx.value).toBeUndefined();
+    expect(decodeFunctionData({ abi: withdrawAbi, data: tx.data! as `0x${string}` })).toMatchObject({
+      functionName: "withdraw",
+      args: [amount],
+    });
+    expect(() => createRitualWithdrawTransaction(TEST_ADDRESS, 0n)).toThrow(
+      "Withdrawal amount must be positive.",
+    );
   });
 
   it("targets the deployed LLM consumer with encoded precompile input", () => {

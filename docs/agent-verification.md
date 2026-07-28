@@ -1,10 +1,11 @@
 # Sovereign Agent One-Shot Verification
 
 Precompile Studio must not describe Agent execution as fully verified until every
-gate below passes. A bounded live-test action may be exposed after the contract,
-deployment, deterministic consumer, transaction preflight, and maximum-debit
-gates pass; the remaining gates record the result of that explicitly approved
-test.
+gate below passes. Paid Agent launch is disabled: live testing proved that the
+bounded consumer's 0.02 RITUAL payer cannot satisfy GLM-4.7's current worst-case
+in-flight protocol escrow of roughly 0.31 RITUAL. A paid action may return only
+after the Studio quotes that full reserve and verifies the official harness,
+callback, and fee lifecycle.
 
 ## Why The Factory Harness Is Blocked
 
@@ -38,8 +39,8 @@ The legacy fork verifier only proved that `configureFundAndStart` succeeded and 
 - [x] Factory deployed to Ritual testnet.
 - [x] Deployment bytecode and constructor Scheduler address verified.
 - [x] A wallet child is created without funding an Agent execution.
-- [x] A read-only preflight quotes the complete maximum wallet debit.
-- [ ] One explicitly approved live test uses a fixed consumer deposit.
+- [ ] A read-only preflight quotes the model reserve and complete maximum wallet debit.
+- [x] Paid execution is disabled after the 0.02 RITUAL profile failed dispatch.
 - [ ] The Scheduler dispatch transaction is observed.
 - [ ] `JobAdded`, phase-one settlement, AsyncDelivery, and stored callback are observed.
 - [ ] The consumer reports exactly one execution and no active successor schedule.

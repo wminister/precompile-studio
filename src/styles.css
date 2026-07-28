@@ -3522,6 +3522,18 @@ pre {
   width: 100%;
 }
 
+.funding-recovery {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 7px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.funding-recovery .secondary-action {
+  width: 100%;
+}
+
 .funding-panel p {
   grid-column: 1 / -1;
   margin: 0;

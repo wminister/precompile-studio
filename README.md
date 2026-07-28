@@ -48,7 +48,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 
 Use MetaMask for Ritual testnet transaction submission. Rabby can connect and read state, but currently converts Ritual custom transactions to a legacy transaction type rejected by the Ritual RPC and does not provide the raw-signing fallback needed to broadcast the supported form. The studio reports this limitation directly instead of silently disconnecting or blocking Rabby.
 
-HTTP, JQ, and Scheduled JQ are publicly usable. Scheduled JQ discovers or creates one deterministic contract owned by the connected wallet. The Agent composer and prior harness history remain readable, but new paid Agent launches are paused until the bounded one-shot consumer is deployed and its full callback lifecycle is verified. LLM submission is implemented but currently depends on a degraded Ritual executor path.
+HTTP, JQ, and Scheduled JQ are publicly usable. Scheduled JQ discovers or creates one deterministic contract owned by the connected wallet. The Agent composer and prior harness history remain readable, but new paid Agent launches are paused: the current GLM-4.7 route requires roughly 0.31 RITUAL of worst-case in-flight protocol escrow, so the former 0.02 RITUAL bounded profile cannot execute. LLM submission is implemented but currently depends on a degraded Ritual executor path.
 
 ## Local Development
 

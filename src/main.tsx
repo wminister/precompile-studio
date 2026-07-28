@@ -612,11 +612,12 @@ export const SOVEREIGN_AGENT_ONE_SHOT_FACTORY_ADDRESS =
 // Earlier harness versions contain immutable schedules from failed low-fee
 // profiles. Use a fresh deterministic namespace for the corrected schedule.
 export const SOVEREIGN_AGENT_USER_SALT = keccak256(stringToHex("precompile-studio-agent-v4"));
-// Ritual's official factory harness rolls into successor Scheduler windows.
-// Keep both paid launch paths disabled until the Studio's bounded one-shot
-// consumer is deployed and its complete callback lifecycle is verified live.
+// The bounded consumer prevents rollover, but 0.02 RITUAL cannot satisfy the
+// current GLM-4.7 worst-case in-flight escrow (~0.31 RITUAL). Keep paid Agent
+// launch disabled until the Studio quotes that protocol reserve correctly and
+// the complete official harness lifecycle is verified live.
 export const AGENT_RECURRING_EXECUTION_ENABLED = false;
-export const AGENT_ONE_SHOT_EXECUTION_ENABLED = true;
+export const AGENT_ONE_SHOT_EXECUTION_ENABLED = false;
 export const AGENT_MAX_POLL_BLOCK_OFFSET = 10_000_000;
 export function agentMaxPollBlock(latestBlock: number) {
   if (!Number.isSafeInteger(latestBlock) || latestBlock < 0) {
@@ -662,7 +663,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, LLM, Scheduled JQ, and the bounded Agent flow are available. Agent uses a wallet-owned consumer that accepts one scheduled invocation, clears the schedule before dispatch, and cannot roll into another paid run.",
+      "HTTP, JQ, LLM, and Scheduled JQ are available. The Agent composer remains available for encoding and inspection, but paid Agent launch is paused because the current GLM route requires roughly 0.31 RITUAL of in-flight protocol escrow; the former 0.02 RITUAL bounded profile could not execute.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -672,7 +673,7 @@ const FAQ_ITEMS = [
   {
     question: "How is an Agent run bounded?",
     answer:
-      "Each wallet gets a deterministic consumer that can be used once. The confirmation sends exactly 0.02 RITUAL to that consumer and caps outer transaction gas at 5,000,000. The consumer schedules one invocation, clears its schedule before dispatching to the Agent precompile, and cannot automatically renew or draw from the wallet's general RitualWallet escrow.",
+      "The experimental consumer can schedule only one invocation and cannot roll into another paid run. That protects against recurring charges, but it does not reduce Ritual's model escrow requirement. Launch is paused until the Studio can quote and verify the complete current protocol reserve before signing.",
   },
   {
     question: "What is stored by the app?",
@@ -996,6 +997,13 @@ const ritualWalletAbi = [
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
   },
 ] as const;
 
@@ -2473,6 +2481,24 @@ export function createRitualDepositTransaction(
       abi: ritualWalletAbi,
       functionName: "deposit",
       args: [lockDuration],
+    }),
+  };
+}
+
+export function createRitualWithdrawTransaction(
+  from: string,
+  amount: bigint,
+): WalletTransactionRequest {
+  if (amount <= 0n) {
+    throw new Error("Withdrawal amount must be positive.");
+  }
+  return {
+    from,
+    to: SYSTEM_CONTRACTS.RitualWallet,
+    data: encodeFunctionData({
+      abi: ritualWalletAbi,
+      functionName: "withdraw",
+      args: [amount],
     }),
   };
 }
@@ -4164,6 +4190,7 @@ function App() {
   const [depositAmount, setDepositAmount] = React.useState("0.01");
   const [depositLockBlocks, setDepositLockBlocks] = React.useState("100000");
   const [depositState, setDepositState] = React.useState<DepositState>({ status: "idle" });
+  const [withdrawState, setWithdrawState] = React.useState<TransactionState>({ status: "idle" });
   const [executorLabel, setExecutorLabel] = React.useState("");
   const [savedExecutors, setSavedExecutors] = React.useState<SavedExecutor[]>([]);
   const [executorDiscovery, setExecutorDiscovery] = React.useState<ExecutorDiscoveryState>({
@@ -4335,6 +4362,24 @@ function App() {
     Number.isFinite(depositLock) &&
     depositLock > 0 &&
     depositState.status !== "submitting";
+  const ritualEscrowAmount = (() => {
+    try {
+      return parseEther(wallet.ritualWalletBalance ?? "0");
+    } catch {
+      return 0n;
+    }
+  })();
+  const ritualEscrowUnlocked =
+    wallet.ritualLockUntil !== undefined &&
+    rpcState.block !== undefined &&
+    wallet.ritualLockUntil <= rpcState.block;
+  const canWithdrawRitualEscrow =
+    wallet.status === "connected" &&
+    isRightChain &&
+    ritualEscrowAmount > 0n &&
+    ritualEscrowUnlocked &&
+    !wallet.asyncSenderLocked &&
+    withdrawState.status !== "submitting";
   const scheduledJqStatus = scheduledJqState.status === "ready" ? scheduledJqState.data : undefined;
   const scheduledJqConsumerAddress =
     scheduledJqState.status === "ready"
@@ -4830,25 +4875,15 @@ function App() {
           }
         : selectedRecipe.id === "agent"
           ? {
-              ok: Boolean(agentHarnessStatus) && isAgentHarnessOwner,
+              ok: false,
               label:
                 wallet.status !== "connected"
                   ? "Connect for your Agent consumer"
-                  : agentHarnessState.status === "missing"
-                    ? "Create bounded Agent consumer"
-                    : isAgentHarnessOwner
-                      ? "Wallet-owned Agent consumer ready"
-                      : "Consumer ownership mismatch",
+                  : "Paid Agent launch paused",
               help:
                 wallet.status !== "connected"
-                  ? "The deployer demo remains readable; connect to discover your deterministic consumer."
-                  : agentHarnessState.status === "missing"
-                    ? `Factory predicts ${formatAddress(agentHarnessState.predictedAddress)} for this wallet.`
-                  : !agentHarnessStatus
-                      ? "Reading the wallet-specific factory child."
-                      : isAgentHarnessOwner
-                        ? "The consumer receives exactly one scheduled Agent callback."
-                        : `Owner is ${formatAddress(agentHarnessStatus?.owner)}.`,
+                  ? "Connect to inspect your existing Agent consumer and history."
+                  : "Current GLM-4.7 calls require about 0.31 RITUAL of in-flight protocol escrow. The former 0.02 profile cannot execute.",
             }
         : {
             ok: wallet.status === "connected" && isRitualWalletFunded,
@@ -4870,21 +4905,10 @@ function App() {
           },
       ...(selectedRecipe.id === "agent"
         ? [{
-            ok:
-              agentHarnessState.status === "ready" &&
-              !agentHarnessStatus?.configured &&
-              !agentHarnessStatus?.senderLocked &&
-              agentLaunchBalanceCovered,
-            label: agentHarnessStatus?.senderLocked
-              ? "Agent callback pending"
-              : agentHarnessStatus?.configured
-                ? "Bounded run already used"
-                : !agentLaunchBalanceCovered
-                  ? "Liquid balance below maximum debit"
-                  : "Bounded cost cap ready",
-            help: wallet.status !== "connected"
-              ? "Connect to verify the maximum debit against your liquid balance."
-              : `${formatRitual(agentLaunchTotal)} RITUAL fixed deposit + up to ${formatRitual(agentMaximumNetworkFee)} RITUAL outer gas; no rollover.`,
+            ok: false,
+            label: "Model escrow is not quoted by this flow",
+            help:
+              "The eventual short-response fee can be small, but Ritual locks a worst-case model reserve before dispatch. No Agent transaction is offered until that reserve is included.",
           }]
         : []),
       {
@@ -6083,6 +6107,50 @@ function App() {
       });
     }
   }, [depositAmount, depositLock, refreshWallet, wallet.address]);
+
+  const withdrawRitualWallet = React.useCallback(async () => {
+    const provider = providerRef.current;
+    if (!provider || !wallet.address) {
+      setWithdrawState({ status: "error", error: "Connect the escrow owner wallet before withdrawing." });
+      return;
+    }
+    if (ritualEscrowAmount <= 0n) {
+      setWithdrawState({ status: "error", error: "There is no RitualWallet escrow to withdraw." });
+      return;
+    }
+    if (!ritualEscrowUnlocked) {
+      setWithdrawState({ status: "error", error: "RitualWallet escrow is still locked." });
+      return;
+    }
+    if (wallet.asyncSenderLocked) {
+      setWithdrawState({ status: "error", error: "Wait for the pending async job before withdrawing escrow." });
+      return;
+    }
+
+    setWithdrawState({ status: "submitting" });
+    try {
+      const tx = await prepareWalletTransaction(
+        createRitualWithdrawTransaction(wallet.address, ritualEscrowAmount),
+        "0x249f0",
+      );
+      const hash = await sendWalletTransaction(provider, tx);
+      setWithdrawState({ status: "submitted", hash });
+      window.setTimeout(() => {
+        refreshWallet(provider, wallet.address).catch(() => undefined);
+      }, 2500);
+    } catch (error) {
+      setWithdrawState({
+        status: "error",
+        error: error instanceof Error ? error.message : "RitualWallet withdrawal was rejected.",
+      });
+    }
+  }, [
+    refreshWallet,
+    ritualEscrowAmount,
+    ritualEscrowUnlocked,
+    wallet.address,
+    wallet.asyncSenderLocked,
+  ]);
 
   const refreshScheduledJq = React.useCallback(async () => {
     setScheduledJqState((current) => {
@@ -7465,12 +7533,13 @@ function App() {
                     </div>
                   </div>}
                   {!isAgentHarnessResolving ? <div className="agent-cost-circuit" role="status">
-                      <ShieldCheck size={16} />
+                      {AGENT_ONE_SHOT_EXECUTION_ENABLED ? <ShieldCheck size={16} /> : <AlertCircle size={16} />}
                       <div>
-                        <strong>One call, isolated funds</strong>
+                        <strong>{AGENT_ONE_SHOT_EXECUTION_ENABLED ? "One call, isolated funds" : "Paid Agent launch paused"}</strong>
                         <p>
-                          This wallet-owned consumer schedules exactly one callback, clears its schedule before invoking
-                          the Agent, and contains no successor or rollover path.
+                          {AGENT_ONE_SHOT_EXECUTION_ENABLED
+                            ? "This wallet-owned consumer schedules exactly one callback, clears its schedule before invoking the Agent, and contains no successor or rollover path."
+                            : "Ritual's current GLM-4.7 route locks roughly 0.31 RITUAL per in-flight call. The former 0.02 RITUAL profile cannot pass dispatch, so the Studio keeps this surface read-only instead of offering another paid test."}
                         </p>
                       </div>
                     </div> : null}
@@ -7533,7 +7602,7 @@ function App() {
                       </div>
                       {agentSeries.callId ? <code>Call #{Number(agentSeries.callId).toLocaleString()}</code> : null}
                     </div>
-                  ) : !isAgentHarnessResolving ? (
+                  ) : !isAgentHarnessResolving && AGENT_ONE_SHOT_EXECUTION_ENABLED ? (
                     <div className={`agent-launch-controls${agentHarnessState.status === "missing" ? " create" : ""}`}>
                     {AGENT_ONE_SHOT_EXECUTION_ENABLED && agentHarnessState.status !== "missing" ? (
                       <>
@@ -8187,7 +8256,7 @@ function App() {
               </div>
             </section>
 
-            {wallet.status === "connected" && ["http", "llm"].includes(selectedRecipe.id) ? (
+            {wallet.status === "connected" && ["http", "llm", "agent"].includes(selectedRecipe.id) ? (
               <section className="inspector-section disclosure-section">
                 <button
                   className={showFunding ? "inspector-disclosure open" : "inspector-disclosure"}
@@ -8225,6 +8294,25 @@ function App() {
                       {depositState.status === "submitting" ? <Loader2 className="spin" size={16} /> : <Wallet size={16} />}
                       {depositState.status === "submitting" ? "Confirming" : "Deposit"}
                     </button>
+                    <div className="funding-recovery">
+                      <p>
+                        Escrow: {wallet.ritualWalletBalance ?? "0"} RITUAL
+                        {ritualEscrowUnlocked
+                          ? " · unlocked"
+                          : ritualLockRemaining !== undefined
+                            ? ` · unlocks in ${Math.max(ritualLockRemaining, 0).toLocaleString()} blocks`
+                            : ""}
+                      </p>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={withdrawRitualWallet}
+                        disabled={!canWithdrawRitualEscrow}
+                      >
+                        {withdrawState.status === "submitting" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}
+                        {withdrawState.status === "submitting" ? "Confirming" : "Withdraw unlocked escrow"}
+                      </button>
+                    </div>
                     {wallet.status === "connected" && !isRightChain ? (
                       <p>Switch to chain 1979 before depositing.</p>
                     ) : null}
@@ -8232,6 +8320,10 @@ function App() {
                       <p>Submitted {formatHash(depositState.hash)}</p>
                     ) : null}
                     {depositState.status === "error" ? <p>{depositState.error}</p> : null}
+                    {withdrawState.status === "submitted" ? (
+                      <p>Withdrawal submitted {formatHash(withdrawState.hash)}</p>
+                    ) : null}
+                    {withdrawState.status === "error" ? <p>{withdrawState.error}</p> : null}
                   </div>
                 ) : null}
               </section>
