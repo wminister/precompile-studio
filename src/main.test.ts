@@ -46,6 +46,7 @@ import {
   createAgentHarnessDeploymentTransaction,
   createAgentOneShotConsumerTransaction,
   createAgentOneShotScheduleTransaction,
+  createAgentOneShotWithdrawTransaction,
   createSchedulerTransaction,
   createScheduledJqConsumerTransaction,
   decodeSovereignAgentResult,
@@ -525,6 +526,29 @@ describe("Sovereign Agent harness", () => {
       0n,
       100_000n,
     ]);
+  });
+
+  it("builds an owner withdrawal from the bounded Agent consumer", () => {
+    const consumer = "0x2222222222222222222222222222222222222222";
+    const amount = 19_500_000_000_000_000n;
+    const withdrawAbi = [{
+      type: "function",
+      name: "withdraw",
+      stateMutability: "nonpayable",
+      inputs: [{ name: "amount", type: "uint256" }],
+      outputs: [],
+    }] as const;
+    const tx = createAgentOneShotWithdrawTransaction(TEST_ADDRESS, consumer, amount);
+
+    expect(tx).toMatchObject({ from: TEST_ADDRESS, to: consumer });
+    expect(tx.value).toBeUndefined();
+    expect(decodeFunctionData({ abi: withdrawAbi, data: tx.data as `0x${string}` })).toMatchObject({
+      functionName: "withdraw",
+      args: [amount],
+    });
+    expect(() => createAgentOneShotWithdrawTransaction(TEST_ADDRESS, consumer, 0n)).toThrow(
+      "Agent consumer withdrawal amount must be positive.",
+    );
   });
 
   it("creates a payable configureFundAndStart transaction with the Scheduler reserve", () => {

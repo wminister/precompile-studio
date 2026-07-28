@@ -15,6 +15,7 @@ const requiredProductCopy = [
   "Paid Agent launch paused",
   "roughly 0.31 RITUAL per in-flight call",
   "Withdraw unlocked escrow",
+  "Withdraw Agent escrow",
   "Registry valid + live key",
   "Current registry route",
 ];

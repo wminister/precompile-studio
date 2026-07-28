@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   const firstTimeSchedulerWallet = testInfo.title.includes("creates its Scheduled JQ consumer");
   const usedAgentConsumer = testInfo.title.includes("reports a used Agent consumer");
   const delayedAgentHarness = testInfo.title.includes("keeps Agent actions hidden while loading");
-  const unlockedRitualEscrow = testInfo.title.includes("offers withdrawal for unlocked RitualWallet escrow");
+  const unlockedRitualEscrow = testInfo.title.includes("offers withdrawal for unlocked");
   let factoryLookupCount = 0;
   let delayAgentHistory = false;
   await page.route("**/__test/delay-agent-history", async (route) => {
@@ -200,6 +200,16 @@ test("keeps the paid Agent launch paused", async ({ page }) => {
   await expect(launch.getByText("Registry valid + live key", { exact: true })).toBeVisible();
   await expect(launch.getByRole("button", { name: /Create Agent consumer|Run one bounded Agent/ })).toHaveCount(0);
   await expect(page.locator("html")).toHaveJSProperty("scrollWidth", await page.locator("html").evaluate((node) => node.clientWidth));
+});
+
+test("offers withdrawal for unlocked Agent consumer escrow", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+
+  const recovery = page.getByLabel("Agent consumer escrow recovery");
+  await expect(recovery.getByText("0.0004 RITUAL", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(recovery.getByText("Unlocked and withdrawable by the consumer owner", { exact: true })).toBeVisible();
+  await expect(recovery.getByRole("button", { name: "Withdraw Agent escrow", exact: true })).toBeEnabled();
 });
 
 test("keeps Agent actions hidden while loading the first onchain snapshot", async ({ page }) => {

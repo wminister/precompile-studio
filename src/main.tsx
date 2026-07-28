@@ -1193,6 +1193,13 @@ const sovereignAgentOneShotConsumerAbi = [
     outputs: [{ name: "callId", type: "uint256" }],
   },
   { type: "function", name: "consumerBalance", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+  },
   { type: "function", name: "activeScheduleId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "lastScheduleId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "executionCount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
@@ -2634,6 +2641,26 @@ export function createAgentOneShotScheduleTransaction(
         schedule[5],
         lockDuration,
       ],
+    }),
+  };
+}
+
+export function createAgentOneShotWithdrawTransaction(
+  from: string,
+  consumerAddress: string,
+  amount: bigint,
+): WalletTransactionRequest {
+  if (!isAddress(consumerAddress) || consumerAddress.toLowerCase() === zeroAddress) {
+    throw new Error("A deployed Agent consumer is required before withdrawing escrow.");
+  }
+  if (amount <= 0n) throw new Error("Agent consumer withdrawal amount must be positive.");
+  return {
+    from,
+    to: consumerAddress,
+    data: encodeFunctionData({
+      abi: sovereignAgentOneShotConsumerAbi,
+      functionName: "withdraw",
+      args: [amount],
     }),
   };
 }
@@ -4212,6 +4239,7 @@ function App() {
   const [llmTxState, setLlmTxState] = React.useState<TransactionState>({ status: "idle" });
   const [llmRun, setLlmRun] = React.useState<LlmRun | undefined>();
   const [agentTxState, setAgentTxState] = React.useState<TransactionState>({ status: "idle" });
+  const [agentWithdrawState, setAgentWithdrawState] = React.useState<TransactionState>({ status: "idle" });
   const [agentRun, setAgentRun] = React.useState<AgentRun | undefined>();
   const [agentHarnessState, setAgentHarnessState] = React.useState<AgentHarnessState>({ status: "idle" });
   const [agentLifecycleState, setAgentLifecycleState] = React.useState<AgentLifecycleState>({ status: "idle" });
@@ -4653,6 +4681,25 @@ function App() {
   const hasPendingLlmTransaction = llmRun?.status === "pending";
   const hasPendingAgentTransaction =
     agentRun?.status === "pending" || Boolean(agentHarnessStatus?.senderLocked);
+  const agentConsumerBalance = agentHarnessStatus?.consumerBalance ?? 0n;
+  const agentConsumerLockRemaining =
+    agentHarnessStatus?.lockUntil !== undefined && rpcState.block !== undefined
+      ? Number(agentHarnessStatus.lockUntil - BigInt(rpcState.block))
+      : undefined;
+  const agentConsumerEscrowUnlocked =
+    agentHarnessStatus?.lockUntil !== undefined &&
+    rpcState.block !== undefined &&
+    agentHarnessStatus.lockUntil <= BigInt(rpcState.block);
+  const canWithdrawAgentConsumer = Boolean(
+    wallet.status === "connected" &&
+      isRightChain &&
+      isAgentHarnessOwner &&
+      agentConsumerBalance > 0n &&
+      agentConsumerEscrowUnlocked &&
+      agentHarnessStatus?.wakeMode === 0 &&
+      !hasPendingAgentTransaction &&
+      agentWithdrawState.status !== "submitting",
+  );
   const hasPendingAsyncTransaction = hasPendingHttpTransaction || hasPendingLlmTransaction || hasPendingAgentTransaction;
   const llmEvidence = React.useMemo(() => {
     const spcCalls = Array.isArray(llmRun?.receipt?.spcCalls) ? llmRun.receipt.spcCalls.filter(isSpcCall) : [];
@@ -6600,6 +6647,65 @@ function App() {
     wallet.balanceWei,
   ]);
 
+  const withdrawAgentConsumer = React.useCallback(async () => {
+    const provider = providerRef.current;
+    if (!provider || !wallet.address) {
+      setAgentWithdrawState({ status: "error", error: "Connect the Agent consumer owner wallet before withdrawing." });
+      return;
+    }
+    if (!agentHarnessStatus || !isAgentHarnessOwner) {
+      setAgentWithdrawState({ status: "error", error: "The connected wallet does not own this Agent consumer." });
+      return;
+    }
+    if (agentConsumerBalance <= 0n) {
+      setAgentWithdrawState({ status: "error", error: "This Agent consumer has no escrow to withdraw." });
+      return;
+    }
+    if (!agentConsumerEscrowUnlocked) {
+      setAgentWithdrawState({
+        status: "error",
+        error: agentConsumerLockRemaining === undefined
+          ? "The Agent consumer escrow lock is unavailable."
+          : `Agent consumer escrow unlocks in ${Math.max(agentConsumerLockRemaining, 0).toLocaleString()} blocks.`,
+      });
+      return;
+    }
+    if (hasPendingAgentTransaction || agentHarnessStatus.wakeMode !== 0) {
+      setAgentWithdrawState({ status: "error", error: "Wait for the current Agent schedule or callback before withdrawing." });
+      return;
+    }
+
+    setAgentWithdrawState({ status: "submitting" });
+    try {
+      const tx = await prepareWalletTransaction(
+        createAgentOneShotWithdrawTransaction(wallet.address, agentHarnessStatus.address, agentConsumerBalance),
+        "0x30d40",
+        "0x7a120",
+      );
+      const hash = await sendWalletTransaction(provider, tx);
+      setAgentWithdrawState({ status: "submitted", hash });
+      window.setTimeout(() => {
+        refreshAgentHarness().catch(() => undefined);
+        refreshWallet(provider).catch(() => undefined);
+      }, 2500);
+    } catch (error) {
+      setAgentWithdrawState({
+        status: "error",
+        error: error instanceof Error ? error.message : "Agent consumer escrow withdrawal was rejected.",
+      });
+    }
+  }, [
+    agentConsumerBalance,
+    agentConsumerEscrowUnlocked,
+    agentConsumerLockRemaining,
+    agentHarnessStatus,
+    hasPendingAgentTransaction,
+    isAgentHarnessOwner,
+    refreshAgentHarness,
+    refreshWallet,
+    wallet.address,
+  ]);
+
   const sendLlmTransaction = React.useCallback(async () => {
     const provider = providerRef.current;
     if (!provider || !wallet.address || !llmCalldata) {
@@ -7543,6 +7649,36 @@ function App() {
                         </p>
                       </div>
                     </div> : null}
+                  {!isAgentHarnessResolving && agentHarnessStatus && agentConsumerBalance > 0n ? (
+                    <section className="agent-escrow-recovery" aria-label="Agent consumer escrow recovery">
+                      <div>
+                        <span>Unused Agent consumer escrow</span>
+                        <strong>{formatRitual(agentConsumerBalance)} RITUAL</strong>
+                        <small>
+                          {agentConsumerEscrowUnlocked
+                            ? "Unlocked and withdrawable by the consumer owner"
+                            : agentConsumerLockRemaining !== undefined
+                              ? `Unlocks in ${Math.max(agentConsumerLockRemaining, 0).toLocaleString()} blocks`
+                              : "Reading escrow lock"}
+                        </small>
+                      </div>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={withdrawAgentConsumer}
+                        disabled={!canWithdrawAgentConsumer}
+                      >
+                        {agentWithdrawState.status === "submitting" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}
+                        {agentWithdrawState.status === "submitting" ? "Confirming" : "Withdraw Agent escrow"}
+                      </button>
+                      {agentWithdrawState.status === "submitted" && agentWithdrawState.hash ? (
+                        <a href={explorerTransactionUrl(agentWithdrawState.hash)} target="_blank" rel="noreferrer">
+                          Withdrawal submitted {formatHash(agentWithdrawState.hash)} <ArrowUpRight size={12} />
+                        </a>
+                      ) : null}
+                      {agentWithdrawState.status === "error" ? <p>{agentWithdrawState.error}</p> : null}
+                    </section>
+                  ) : null}
                   {AGENT_ONE_SHOT_EXECUTION_ENABLED && !isAgentHarnessResolving && agentHarnessState.status !== "missing" && !agentHarnessStatus?.configured ? (
                     <section className={`agent-preflight${agentLaunchBalanceCovered ? "" : " warning"}`} aria-label="Agent pre-sign cost check">
                       <header>
