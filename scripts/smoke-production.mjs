@@ -12,9 +12,9 @@ const contractAddresses = [
   deployments.contracts.ScheduledJqConsumerFactory.address,
 ].map((address) => address.toLowerCase());
 const requiredProductCopy = [
-  "Run one bounded Agent",
-  "One call, isolated funds",
-  "Maximum wallet debit",
+  "Paid Agent launch paused",
+  "roughly 0.31 RITUAL per in-flight call",
+  "Withdraw unlocked escrow",
   "Registry valid + live key",
   "Current registry route",
 ];
@@ -32,7 +32,7 @@ async function check() {
   const missingAddress = contractAddresses.find((address) => !normalizedScript.includes(address));
   if (missingAddress) throw new Error(`deployment ${missingAddress} is not in the production bundle`);
   const missingProductCopy = requiredProductCopy.find((copy) => !script.includes(copy));
-  if (missingProductCopy) throw new Error(`bounded Agent UI copy is missing: ${missingProductCopy}`);
+  if (missingProductCopy) throw new Error(`required product copy is missing: ${missingProductCopy}`);
 
   const faq = await fetch(new URL("/faq", response.url));
   if (!faq.ok) throw new Error(`FAQ returned HTTP ${faq.status}`);
