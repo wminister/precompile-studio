@@ -1,0 +1,17 @@
+{
+  "name": "Precompile Studio",
+  "short_name": "Precompile Studio",
+  "description": "A Ritual-native workspace for composing, checking, and tracing precompile calls.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050506",
+  "theme_color": "#050506",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -4,6 +4,10 @@ Precompile Studio is a Ritual-native workspace for composing, checking, and trac
 
 The goal is to feel closer to Postman or Tenderly than a chain dashboard: one primary action composer, live readiness checks, and a trace surface that helps builders understand what happened after they sign.
 
+**Beta status:** HTTP, JQ, and Scheduled JQ are available. LLM is marked degraded while Ritual's executor issue persists. Agent remains inspection-only with prior history and escrow recovery; new paid launches are paused.
+
+Production: <https://precompile-studio.vercel.app>
+
 ## Current MVP
 
 - Ritual testnet RPC health check
@@ -27,8 +31,8 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 - Local saved TEE executors scoped by wallet
 - Local recipe presets for saving and reloading composer fields
 - Built-in HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ recipe examples
-- Live HTTP, LLM, JQ, Sovereign Agent, and Scheduled JQ calldata composers
-- Per-wallet factory-backed Sovereign Agent launch with registry-key ECIES encryption and lifecycle reconciliation
+- Live HTTP, LLM, JQ, and Scheduled JQ calldata composers plus an inspection-only Sovereign Agent composer
+- Per-wallet Sovereign Agent registry, lifecycle, and consumer-escrow recovery diagnostics
 - Per-wallet Scheduled JQ consumers with atomic funding, scheduling, cancellation, withdrawal, and lifecycle evidence
 - Request preview with copy action
 - Copyable normalized call JSON for encoded live recipes
@@ -157,3 +161,7 @@ The workflow runs on pushes to `main` and can also be triggered manually from th
 ## Next Milestones
 
 The ordered milestones and their completion state live in [`ROADMAP.md`](./ROADMAP.md).
+
+## License
+
+Precompile Studio is available under the [MIT License](./LICENSE).

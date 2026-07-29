@@ -181,7 +181,7 @@ test("submits and decodes an LLM completion", async ({ page }) => {
 
 test("keeps the paid Agent launch paused", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Inspection only recipe", exact: true }).click();
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByText("Your wallet", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(launch.getByText("Paid Agent launch paused", { exact: true })).toBeVisible();
@@ -204,7 +204,7 @@ test("keeps the paid Agent launch paused", async ({ page }) => {
 
 test("offers withdrawal for unlocked Agent consumer escrow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Inspection only recipe", exact: true }).click();
 
   const recovery = page.getByLabel("Agent consumer escrow recovery");
   await expect(recovery.getByText("0.0004 RITUAL", { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -214,7 +214,7 @@ test("offers withdrawal for unlocked Agent consumer escrow", async ({ page }) =>
 
 test("keeps Agent actions hidden while loading the first onchain snapshot", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Inspection only recipe", exact: true }).click();
 
   const launch = page.getByTestId("agent-launch");
   await expect(launch.getByLabel("Reading Agent consumer state")).toBeVisible();
@@ -230,7 +230,7 @@ test("keeps Agent actions hidden while loading the first onchain snapshot", asyn
 
 test("reports a used Agent consumer without offering another paid run", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Inspection only recipe", exact: true }).click();
 
   const launch = page.getByTestId("agent-launch");
   const seriesStatus = launch.locator(".agent-series-status");
@@ -295,7 +295,7 @@ test("uses named dark menus instead of native system pickers", async ({ page }) 
   await capabilityList.getByRole("option", { name: "LLM inference (1)" }).click();
   await expect(page.getByRole("button", { name: "Executor capability", exact: true })).toContainText("LLM inference (1)");
 
-  await page.getByRole("tab", { name: "Agent Live recipe", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent Inspection only recipe", exact: true }).click();
   await page.getByRole("button", { name: "Agent runtime", exact: true }).click();
   const runtimeList = page.getByRole("listbox", { name: "Agent runtime" });
   await expect(runtimeList.getByRole("option", { name: "ZeroClaw (recommended)" })).toBeVisible();

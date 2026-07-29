@@ -663,7 +663,7 @@ const FAQ_ITEMS = [
   {
     question: "Which recipes can every visitor run?",
     answer:
-      "HTTP, JQ, LLM, and Scheduled JQ are available. The Agent composer remains available for encoding and inspection, but paid Agent launch is paused because the current GLM route requires roughly 0.31 RITUAL of in-flight protocol escrow; the former 0.02 RITUAL bounded profile could not execute.",
+      "JQ is wallet-free. HTTP and Scheduled JQ are available with MetaMask and user-paid Ritual testnet costs. LLM submission is implemented but marked Ritual degraded because the current executor route can fail outside the Studio. Agent remains inspection-only: calldata, registry state, prior lifecycle evidence, and unlocked escrow recovery stay available, but paid launch is paused.",
   },
   {
     question: "How does Scheduled JQ pay for future calls?",
@@ -690,7 +690,7 @@ const FAQ_ITEMS = [
 const FAQ_WORKFLOW_STEPS = [
   {
     title: "Choose a recipe",
-    body: "HTTP, JQ, LLM, Agent, and Scheduler recipes each map to a different Ritual precompile or system flow.",
+    body: "HTTP, JQ, LLM, and Scheduler map to supported or degraded Ritual flows. Agent is available for inspection only.",
   },
   {
     title: "Fill the fields",
@@ -724,7 +724,7 @@ const RECIPE_STATUS_LABELS: Record<Recipe["status"], string> = {
   live: "Live",
   degraded: "Ritual degraded",
   "owner-only": "Owner only",
-  preview: "Preview",
+  preview: "Inspection only",
 };
 
 export const JQ_OUTPUT_TYPES: Record<string, number> = {
@@ -1277,10 +1277,10 @@ export const recipes: Recipe[] = [
   {
     id: "agent",
     name: "Agent",
-    label: "Live recipe",
+    label: "Inspection-only recipe",
     icon: Route,
-    status: "live",
-    description: "Compose one wallet-owned ZeroClaw task through a bounded Scheduler consumer.",
+    status: "preview",
+    description: "Inspect Sovereign Agent calldata, registry state, prior runs, and recoverable consumer escrow.",
     fields: [
       { key: "executor", label: "Executor", value: zeroAddress },
       { key: "ttl", label: "TTL blocks", value: "500" },
@@ -4963,13 +4963,13 @@ function App() {
         label:
           selectedRecipe.status !== "preview"
             ? liveAbiDraft?.errors[0] ?? `${selectedRecipe.name} ABI input encodes`
-            : `${liveRecipeLabel} are live recipes`,
+            : `${selectedRecipe.name} is inspection only`,
         help:
           selectedRecipe.status !== "preview"
             ? liveAbiDraft?.encodedInput
               ? `${Math.floor((liveAbiDraft.encodedInput.length - 2) / 2)} encoded bytes`
               : "Fix fields before copying ABI input."
-            : "Preview recipes are planning shells for now.",
+            : "Calldata, registry state, prior history, and escrow recovery remain available; paid launch is disabled.",
       },
       {
         ok: sensitiveFieldLabels.length === 0,
@@ -5069,8 +5069,8 @@ function App() {
             : selectedRecipe.id === "scheduler"
               ? "contract workflow"
               : "planning shell";
-  const stageTitle = isPreviewRecipe ? `${selectedRecipe.name} preview` : "Composer";
-  const readinessSummary = isPreviewRecipe ? "Preview only" : blockerSummary;
+  const stageTitle = isPreviewRecipe ? `${selectedRecipe.name} inspection` : "Composer";
+  const readinessSummary = isPreviewRecipe ? "Inspection only" : blockerSummary;
   const readyPillClass = [
     "ready-pill",
     !isPreviewRecipe && !openBlockers.length ? "ok" : "",
@@ -8587,11 +8587,11 @@ function FaqPage({ onStart }: { onStart: () => void }) {
               </div>
               <div>
                 <strong>LLM</strong>
-                <p>Submit non-streaming inference through the verified consumer and inspect completion, usage, metadata, or executor errors from the settled receipt.</p>
+                <p>Inspect or submit non-streaming inference through the verified consumer. Ritual's current executor route is degraded, so a settled call may contain an infrastructure error instead of a completion.</p>
               </div>
               <div>
                 <strong>Agent</strong>
-                <p>Prepare Sovereign Agent calldata for CLI-style tasks, tools, callbacks, and output refs.</p>
+                <p>Inspect Sovereign Agent calldata, current registry state, prior lifecycle evidence, and recoverable consumer escrow. New paid launches are paused.</p>
               </div>
               <div>
                 <strong>Scheduled JQ</strong>

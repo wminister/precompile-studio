@@ -14,6 +14,8 @@ const contractAddresses = [
 const requiredProductCopy = [
   "Paid Agent launch paused",
   "roughly 0.31 RITUAL per in-flight call",
+  "Inspection-only recipe",
+  "Ritual degraded",
   "Withdraw unlocked escrow",
   "Withdraw Agent escrow",
   "Registry valid + live key",
@@ -26,6 +28,8 @@ async function check() {
   if (!response.ok) throw new Error(`home returned HTTP ${response.status}`);
   const html = await response.text();
   if (!html.includes("<title>Precompile Studio</title>")) throw new Error("home title is missing");
+  if (!html.includes('property="og:image"')) throw new Error("Open Graph image metadata is missing");
+  if (!html.includes('rel="icon"')) throw new Error("favicon metadata is missing");
   const scriptPath = html.match(/<script[^>]+src="([^"]+)"/)?.[1];
   if (!scriptPath) throw new Error("production JavaScript asset is missing");
   const script = await fetch(new URL(scriptPath, response.url)).then((asset) => asset.text());

@@ -42,17 +42,16 @@ The connected user pays transaction gas and async precompile fees. A confirmed t
 
 The Studio submission and receipt decoder are live. Ritual's current executor path may return a certificate or registry infrastructure error; the UI should show that result without calling it a model completion.
 
-## Sovereign Agent: Per-Wallet Harness
+## Sovereign Agent: Inspection Only
 
-1. Open **Agent**.
-2. Connect MetaMask. The studio predicts a deterministic factory child for that wallet.
-3. If the panel shows **Create your Agent harness**, press **Create Agent harness** and confirm the one-time deployment transaction. After inclusion, the owner should read **Your wallet**.
-4. Select a discovered capability-0 executor and verify **Registry verified**.
-5. Review the prompt, model, and schedule funding. The studio encrypts the credential-free Ritual provider configuration to the selected executor in the browser.
-6. Press **Start Agent** and confirm the payable configuration transaction.
-7. Expect lifecycle states to move through scheduled, committed, result ready, and settled, or to show failed/expired with the on-chain evidence available.
+1. Open **Agent** and confirm the recipe status reads **Inspection only**.
+2. Review the generated fields, ABI input, and current capability-0 registry candidates.
+3. Connect MetaMask to inspect the deterministic consumer associated with that wallet.
+4. Review any prior series state and recent Agent jobs shown by the consumer panel.
+5. If **Unused Agent consumer escrow** is shown as unlocked, use **Withdraw Agent escrow** and confirm only that recovery transaction in MetaMask.
+6. Confirm no create, configure, start, or run button is available.
 
-The callback target is always the connected wallet's predicted child, and the factory makes that wallet its owner. The first use therefore needs two confirmations: one to create the reusable harness, one to fund and start it. Final Agent output still depends on Ritual's TEE and AsyncDelivery infrastructure.
+New paid Agent launches are paused. Ritual's current GLM-4.7 route requires roughly `0.31 RITUAL` of worst-case in-flight protocol escrow, while the previously tested bounded `0.02 RITUAL` profile could not dispatch. The Studio keeps composition, registry inspection, history, and recovery available without inviting another paid test.
 
 ## Scheduled JQ: Per-Wallet Consumer
 

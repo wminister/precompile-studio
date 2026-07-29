@@ -77,3 +77,12 @@ Release verification note (2026-07-13): Vitest, Foundry, and twelve desktop/mobi
 - [x] Verify a factory child with a real atomic fund-and-schedule execution.
 
 Live verification note (2026-07-13): factory `0x705e...548b` created child `0x43be...33e4` for the deployer. Transaction `0xa2d4...bf86` funded the child and created call `3147825`; Ritual executed it at block `45,403,040` in synthetic Scheduler transaction `0x6823...e718b`. The child reached completed state and stored decoded result `1979`. Twelve desktop/mobile Playwright cases now cover existing and first-time Scheduled JQ wallets.
+
+## Phase 10: Public Beta Packaging
+
+- [x] Keep Agent composition, history, and recovery visible while disabling new paid launch actions.
+- [x] Mark the LLM path as Ritual-degraded across the composer and public documentation.
+- [x] Add favicon, social-sharing image, Open Graph metadata, changelog, release notes, and an explicit license.
+- [x] Add publication copy to the production smoke gate.
+- [ ] Connect the purchased custom domain and replace the temporary Vercel canonical URLs.
+- [ ] Publish the prepared `0.1.0-beta.1` GitHub release from the repository owner account.
