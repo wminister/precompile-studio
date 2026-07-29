@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://precompile-studio.vercel.app/sitemap.xml
+Sitemap: https://www.precompilestudio.xyz/sitemap.xml

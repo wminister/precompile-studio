@@ -84,5 +84,5 @@ Live verification note (2026-07-13): factory `0x705e...548b` created child `0x43
 - [x] Mark the LLM path as Ritual-degraded across the composer and public documentation.
 - [x] Add favicon, social-sharing image, Open Graph metadata, changelog, release notes, and an explicit license.
 - [x] Add publication copy to the production smoke gate.
-- [ ] Connect the purchased custom domain and replace the temporary Vercel canonical URLs.
+- [x] Connect `precompilestudio.xyz`, redirect it to `www.precompilestudio.xyz`, and use the custom domain for canonical publication URLs.
 - [ ] Publish the prepared `0.1.0-beta.1` GitHub release from the repository owner account.

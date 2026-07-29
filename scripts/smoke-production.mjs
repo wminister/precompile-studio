@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const productionUrl = process.env.PRODUCTION_URL ?? "https://precompile-studio.vercel.app";
+const productionUrl = process.env.PRODUCTION_URL ?? "https://www.precompilestudio.xyz";
 const deployments = JSON.parse(await readFile(new URL("../deployments/ritual-testnet.json", import.meta.url), "utf8"));
 const contractAddresses = [
   deployments.contracts.HttpPrecompileConsumer.address,

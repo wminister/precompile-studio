@@ -6,7 +6,7 @@ The goal is to feel closer to Postman or Tenderly than a chain dashboard: one pr
 
 **Beta status:** HTTP, JQ, and Scheduled JQ are available. LLM is marked degraded while Ritual's executor issue persists. Agent remains inspection-only with prior history and escrow recovery; new paid launches are paused.
 
-Production: <https://precompile-studio.vercel.app>
+Production: <https://www.precompilestudio.xyz>
 
 ## Current MVP
 
